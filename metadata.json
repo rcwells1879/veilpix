@@ -1,0 +1,8 @@
+{
+  "name": "Copy of VeilPix",
+  "description": "A powerful, AI photo editor. Retouch, apply creative filters, and make professional adjustments to your images using simple text prompts.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "prompt": ""
+}
