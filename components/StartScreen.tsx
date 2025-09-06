@@ -151,7 +151,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     <UploadIcon className="w-6 h-6 mr-3 transition-transform duration-500 ease-in-out group-hover:rotate-[360deg] group-hover:scale-110" />
                     Upload an Image
                 </label>
-                 <button onClick={onUseWebcamClick} className="relative inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-white bg-black rounded-full cursor-pointer group hover:bg-gray-800 transition-colors border border-gray-600">
+                 <button onClick={onUseWebcamClick} className="relative inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-white bg-black rounded-full cursor-pointer group hover:bg-gray-800 transition-colors">
                   <CameraIcon className="w-6 h-6 mr-3 transition-transform duration-300 ease-in-out group-hover:scale-110" />
                   Use Webcam
                 </button>
