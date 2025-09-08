@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React from 'react';
+import { AuthButton } from './AuthButton';
+import { UsageCounter } from './UsageCounter';
 
 const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -13,11 +15,27 @@ const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => (
 const Header: React.FC = () => {
   return (
     <header className="w-full py-4 px-8 border-b border-gray-700 bg-gray-800/30 backdrop-blur-sm sticky top-0 z-50">
-      <div className="flex items-center justify-center gap-3">
+      <div className="flex items-center justify-between w-full max-w-[1600px] mx-auto">
+        {/* Logo */}
+        <div className="flex items-center gap-3">
           <SparkleIcon className="w-6 h-6 text-blue-400" />
           <h1 className="text-xl font-bold tracking-tight text-gray-100">
             VeilPix
           </h1>
+        </div>
+
+        {/* Usage Stats */}
+        <div className="hidden sm:block">
+          <UsageCounter />
+        </div>
+
+        {/* Authentication */}
+        <AuthButton />
+      </div>
+      
+      {/* Mobile Usage Counter */}
+      <div className="sm:hidden mt-3 flex justify-center">
+        <UsageCounter />
       </div>
     </header>
   );

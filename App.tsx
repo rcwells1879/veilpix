@@ -4,9 +4,9 @@
 */
 
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
-import { generateEditedImage, generateFilteredImage, generateAdjustedImage, generateCompositeImage } from './services/geminiService';
+import { useGenerateEdit, useGenerateFilter, useGenerateAdjust } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
@@ -16,6 +16,8 @@ import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import WebcamCapture from './components/WebcamCapture';
 import CompositeScreen from './components/CompositeScreen';
+import { PaymentSuccess } from './components/PaymentSuccess';
+import { PaymentCancelled } from './components/PaymentCancelled';
 
 // Helper to convert a data URL string to a File object
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -34,6 +36,27 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     return new File([u8arr], filename, {type:mime});
 }
 
+// Helper to parse adjustment prompt into structured adjustments
+const parseAdjustmentPrompt = (prompt: string) => {
+  const adjustments: any = {};
+  
+  // Simple parsing logic - in production you might want more sophisticated parsing
+  if (prompt.toLowerCase().includes('bright')) {
+    adjustments.brightness = 0.2; // Default adjustment value
+  }
+  if (prompt.toLowerCase().includes('contrast')) {
+    adjustments.contrast = 0.2;
+  }
+  if (prompt.toLowerCase().includes('saturat')) {
+    adjustments.saturation = 0.2;
+  }
+  if (prompt.toLowerCase().includes('warm') || prompt.toLowerCase().includes('cool')) {
+    adjustments.temperature = prompt.toLowerCase().includes('warm') ? 0.2 : -0.2;
+  }
+  
+  return adjustments;
+}
+
 type Tab = 'retouch' | 'adjust' | 'filters' | 'crop';
 type View = 'start' | 'webcam' | 'editor' | 'composite';
 
@@ -42,11 +65,29 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<File[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [prompt, setPrompt] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('retouch');
+
+  // Payment flow state
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+  const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
+  const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
+
+  // TanStack Query mutations
+  const editMutation = useGenerateEdit();
+  const filterMutation = useGenerateFilter();
+  const adjustMutation = useGenerateAdjust();
+
+  // React 19 optimistic state for immediate UI feedback
+  const [optimisticHistory, setOptimisticHistory] = useOptimistic(
+    history,
+    (currentHistory, newImage: File) => [...currentHistory, newImage]
+  );
+
+  // Combined loading state from mutations
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -57,7 +98,9 @@ const App: React.FC = () => {
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const currentImage = history[historyIndex] ?? null;
+  // Use optimistic history for immediate UI feedback, fallback to real history
+  const displayHistory = optimisticHistory.length > history.length ? optimisticHistory : history;
+  const currentImage = displayHistory[historyIndex] ?? null;
   const originalImage = history[0] ?? null;
 
   const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
@@ -85,6 +128,23 @@ const App: React.FC = () => {
     }
   }, [originalImage]);
 
+  // Effect to handle URL parameters for payment success/cancel
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+    const cancelled = urlParams.get('cancelled');
+    
+    if (sessionId) {
+      setPaymentSessionId(sessionId);
+      setShowPaymentSuccess(true);
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (cancelled === 'true') {
+      setShowPaymentCancelled(true);
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -149,23 +209,41 @@ const App: React.FC = () => {
         return;
     }
 
-    setIsLoading(true);
     setError(null);
     
+    // Create optimistic preview file
+    const optimisticFile = new File([currentImage], `optimistic-${Date.now()}.png`, { type: currentImage.type });
+    
+    startTransition(() => {
+      // Add optimistic update immediately for UI feedback
+      setOptimisticHistory(optimisticFile);
+    });
+
     try {
-        const editedImageUrl = await generateEditedImage(currentImage, prompt, editHotspot);
-        const newImageFile = dataURLtoFile(editedImageUrl, `edited-${Date.now()}.png`);
+      const response = await editMutation.mutateAsync({
+        image: currentImage,
+        prompt,
+        x: editHotspot.x,
+        y: editHotspot.y
+      });
+
+      if (response.success && response.imageUrl) {
+        // Convert the returned image URL to a File
+        const imageBlob = await fetch(response.imageUrl).then(r => r.blob());
+        const newImageFile = new File([imageBlob], `edited-${Date.now()}.png`, { type: 'image/png' });
         addImageToHistory(newImageFile);
         setEditHotspot(null);
         setDisplayHotspot(null);
-    } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to generate the image. ${errorMessage}`);
-        console.error(err);
-    } finally {
-        setIsLoading(false);
+        setPrompt('');
+      } else {
+        throw new Error(response.message || 'Failed to generate image');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      setError(`Failed to generate the image. ${errorMessage}`);
+      console.error(err);
     }
-  }, [currentImage, prompt, editHotspot, addImageToHistory]);
+  }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory]);
 
   const handleGenerateComposite = useCallback(async (compositePrompt: string) => {
     if (!sourceImage1 || !sourceImage2) {
@@ -201,21 +279,33 @@ const App: React.FC = () => {
       return;
     }
     
-    setIsLoading(true);
     setError(null);
     
+    // Add optimistic update for immediate feedback
+    const optimisticFile = new File([currentImage], `optimistic-filtered-${Date.now()}.png`, { type: currentImage.type });
+    startTransition(() => {
+      setOptimisticHistory(optimisticFile);
+    });
+
     try {
-        const filteredImageUrl = await generateFilteredImage(currentImage, filterPrompt);
-        const newImageFile = dataURLtoFile(filteredImageUrl, `filtered-${Date.now()}.png`);
+      const response = await filterMutation.mutateAsync({
+        image: currentImage,
+        filterType: filterPrompt
+      });
+
+      if (response.success && response.imageUrl) {
+        const imageBlob = await fetch(response.imageUrl).then(r => r.blob());
+        const newImageFile = new File([imageBlob], `filtered-${Date.now()}.png`, { type: 'image/png' });
         addImageToHistory(newImageFile);
-    } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to apply the filter. ${errorMessage}`);
-        console.error(err);
-    } finally {
-        setIsLoading(false);
+      } else {
+        throw new Error(response.message || 'Failed to apply filter');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      setError(`Failed to apply the filter. ${errorMessage}`);
+      console.error(err);
     }
-  }, [currentImage, addImageToHistory]);
+  }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory]);
   
   const handleApplyAdjustment = useCallback(async (adjustmentPrompt: string) => {
     if (!currentImage) {
@@ -223,21 +313,36 @@ const App: React.FC = () => {
       return;
     }
     
-    setIsLoading(true);
     setError(null);
     
+    // Add optimistic update for immediate feedback
+    const optimisticFile = new File([currentImage], `optimistic-adjusted-${Date.now()}.png`, { type: currentImage.type });
+    startTransition(() => {
+      setOptimisticHistory(optimisticFile);
+    });
+
     try {
-        const adjustedImageUrl = await generateAdjustedImage(currentImage, adjustmentPrompt);
-        const newImageFile = dataURLtoFile(adjustedImageUrl, `adjusted-${Date.now()}.png`);
+      // Parse the adjustment prompt to extract specific adjustments
+      const adjustments = parseAdjustmentPrompt(adjustmentPrompt);
+      
+      const response = await adjustMutation.mutateAsync({
+        image: currentImage,
+        adjustments
+      });
+
+      if (response.success && response.imageUrl) {
+        const imageBlob = await fetch(response.imageUrl).then(r => r.blob());
+        const newImageFile = new File([imageBlob], `adjusted-${Date.now()}.png`, { type: 'image/png' });
         addImageToHistory(newImageFile);
-    } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(`Failed to apply the adjustment. ${errorMessage}`);
-        console.error(err);
-    } finally {
-        setIsLoading(false);
+      } else {
+        throw new Error(response.message || 'Failed to apply adjustment');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      setError(`Failed to apply the adjustment. ${errorMessage}`);
+      console.error(err);
     }
-  }, [currentImage, addImageToHistory]);
+  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory]);
 
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
@@ -595,6 +700,28 @@ const App: React.FC = () => {
       <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${view === 'editor' ? 'items-start' : 'items-center'}`}>
         {renderContent()}
       </main>
+      
+      {/* Payment Success Modal */}
+      {showPaymentSuccess && (
+        <PaymentSuccess 
+          sessionId={paymentSessionId || undefined}
+          onClose={() => {
+            setShowPaymentSuccess(false);
+            setPaymentSessionId(null);
+          }}
+        />
+      )}
+
+      {/* Payment Cancelled Modal */}
+      {showPaymentCancelled && (
+        <PaymentCancelled 
+          onClose={() => setShowPaymentCancelled(false)}
+          onRetry={() => {
+            setShowPaymentCancelled(false);
+            // Could trigger a new payment flow here if needed
+          }}
+        />
+      )}
     </div>
   );
 };
