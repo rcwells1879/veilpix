@@ -23,7 +23,7 @@ function getSupabaseClient() {
     return supabase;
 }
 
-// Test database connection on startup
+// Connection test available for manual testing
 async function testConnection() {
     try {
         console.log('🔍 Testing Supabase connection...');
@@ -49,28 +49,32 @@ async function testConnection() {
     }
 }
 
-// Test connection on module load
-testConnection();
-
 // Database utility functions
 const db = {
     // User management
     async createOrGetUser(clerkUserId, email) {
         try {
+            console.log('🔍 DB: createOrGetUser called with:', { clerkUserId, email });
             const supabase = getSupabaseClient();
+            console.log('🔍 DB: Got supabase client');
             
             // First try to get existing user
+            console.log('🔍 DB: About to query users table...');
             const { data: existingUser, error: fetchError } = await supabase
                 .from('users')
                 .select('*')
                 .eq('clerk_user_id', clerkUserId)
                 .single();
+            
+            console.log('🔍 DB: Query completed. Data:', !!existingUser, 'Error:', fetchError?.message);
 
             if (existingUser && !fetchError) {
+                console.log('🔍 DB: Found existing user, returning');
                 return { user: existingUser, created: false };
             }
 
             // Create new user if doesn't exist
+            console.log('🔍 DB: Creating new user...');
             const { data: newUser, error: createError } = await supabase
                 .from('users')
                 .insert({
@@ -80,11 +84,14 @@ const db = {
                 })
                 .select()
                 .single();
+            
+            console.log('🔍 DB: Insert completed. Data:', !!newUser, 'Error:', createError?.message);
 
             if (createError) {
                 throw createError;
             }
 
+            console.log('🔍 DB: Created new user, returning');
             return { user: newUser, created: true };
         } catch (error) {
             console.error('Error creating/getting user:', error);
@@ -282,4 +289,4 @@ const db = {
     }
 };
 
-module.exports = { supabase: getSupabaseClient, db };
+module.exports = { supabase: getSupabaseClient, db, testConnection };

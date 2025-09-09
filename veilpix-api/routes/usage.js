@@ -25,40 +25,14 @@ router.get('/stats', getUser, requireAuth, async (req, res) => {
                 break;
         }
 
-        // Get detailed usage logs
-        const { data: usageLogs, error } = await supabase()
-            .from('usage_logs')
-            .select('*')
-            .eq('clerk_user_id', req.user.userId)
-            .gte('created_at', periodStart.toISOString())
-            .order('created_at', { ascending: false });
+        // Get total usage count for authenticated user
+        const usageCount = await db.getUserUsageCount(req.user.userId, periodStart.toISOString());
 
-        if (error) {
-            throw error;
-        }
-
-        // Calculate statistics
-        const stats = {
-            totalRequests: usageLogs.length,
-            successfulRequests: usageLogs.filter(log => log.success).length,
-            failedRequests: usageLogs.filter(log => !log.success).length,
-            totalCostUsd: usageLogs.reduce((sum, log) => sum + parseFloat(log.charged_amount_usd || 0), 0),
-            avgProcessingTime: usageLogs.length > 0 
-                ? usageLogs.reduce((sum, log) => sum + (log.processing_time_ms || 0), 0) / usageLogs.length 
-                : 0,
-            requestsByType: {
-                retouch: usageLogs.filter(log => log.request_type === 'retouch').length,
-                filter: usageLogs.filter(log => log.request_type === 'filter').length,
-                adjust: usageLogs.filter(log => log.request_type === 'adjust').length
-            },
-            recentRequests: usageLogs.slice(0, 10) // Last 10 requests
-        };
-
+        // Return frontend-compatible format
         res.json({
-            success: true,
-            period,
-            periodStart: periodStart.toISOString(),
-            stats
+            totalUsage: usageCount,
+            remainingFreeUsage: undefined, // Authenticated users don't have limits
+            isAuthenticated: true
         });
 
     } catch (error) {
@@ -72,14 +46,26 @@ router.get('/stats', getUser, requireAuth, async (req, res) => {
 // Get anonymous usage count (without session ID - for general anonymous usage info)
 router.get('/anonymous', async (req, res) => {
     try {
+        // Get session ID from header or return default values
+        const sessionId = req.headers['x-session-id'];
+        
+        if (!sessionId) {
+            // Return default values if no session ID provided
+            return res.json({
+                totalUsage: 0,
+                remainingFreeUsage: 20,
+                isAuthenticated: false
+            });
+        }
+
+        // Get actual usage for this session
+        const { data: usage } = await db.getAnonymousUsage(sessionId, req.ip);
+        const currentCount = usage?.request_count || 0;
+        
         res.json({
-            success: true,
-            usage: {
-                used: 0,
-                remaining: 20,
-                limit: 20
-            },
-            message: 'Anonymous usage tracking - provide session ID for accurate counts'
+            totalUsage: currentCount,
+            remainingFreeUsage: Math.max(0, 20 - currentCount),
+            isAuthenticated: false
         });
     } catch (error) {
         console.error('Error getting anonymous usage:', error);
@@ -99,19 +85,35 @@ router.get('/anonymous/:sessionId', async (req, res) => {
         const currentCount = usage?.request_count || 0;
 
         res.json({
-            success: true,
-            sessionId,
-            usage: {
-                used: currentCount,
-                remaining: Math.max(0, 20 - currentCount),
-                limit: 20
-            }
+            totalUsage: currentCount,
+            remainingFreeUsage: Math.max(0, 20 - currentCount),
+            isAuthenticated: false
         });
 
     } catch (error) {
         console.error('Error getting anonymous usage:', error);
         res.status(500).json({
             error: 'Failed to get usage information'
+        });
+    }
+});
+
+// Health check endpoint for usage system
+router.get('/health', async (req, res) => {
+    try {
+        res.json({
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            endpoints: {
+                stats: '/api/usage/stats (authenticated)',
+                anonymous: '/api/usage/anonymous (public)'
+            }
+        });
+    } catch (error) {
+        console.error('Usage health check failed:', error);
+        res.status(500).json({
+            status: 'unhealthy',
+            error: error.message
         });
     }
 });

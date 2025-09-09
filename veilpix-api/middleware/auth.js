@@ -3,13 +3,18 @@ const { db } = require('../utils/database');
 
 // Middleware to extract user from Clerk session (optional authentication)
 async function getUser(req, res, next) {
+    console.log('🔍 AUTH MIDDLEWARE: getUser called for', req.method, req.path);
     try {
         // Get authentication info from Clerk middleware
+        console.log('🔍 AUTH MIDDLEWARE: Calling getAuth(req)');
         const auth = getAuth(req);
+        console.log('🔍 AUTH MIDDLEWARE: getAuth result:', !!auth, auth?.userId ? 'has userId' : 'no userId');
         
         if (!auth || !auth.userId) {
             // No authenticated user, continue as anonymous user
+            console.log('🔍 AUTH MIDDLEWARE: No auth/userId, setting req.user = null');
             req.user = null;
+            console.log('🔍 AUTH MIDDLEWARE: Calling next() for anonymous user');
             return next();
         }
 
@@ -24,10 +29,12 @@ async function getUser(req, res, next) {
             }
             
             // Get or create user in our database
+            console.log('🔍 AUTH MIDDLEWARE: About to call createOrGetUser with userId:', auth.userId);
             const { user } = await db.createOrGetUser(
                 auth.userId,
                 userEmail
             );
+            console.log('🔍 AUTH MIDDLEWARE: createOrGetUser completed successfully');
             
             req.user = {
                 id: user.id,

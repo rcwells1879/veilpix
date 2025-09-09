@@ -37,16 +37,24 @@ app.use(helmet({
 // CORS configuration with environment-based origins
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? ['https://veilstudio.io', 'https://veilpix.vercel.app']
-    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'https://veilstudio.io'];
+    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'https://veilstudio.io'];
 
 app.use(cors({
     origin: function(origin, callback) {
+        console.log('🔍 CORS: Request from origin:', origin);
+        console.log('🔍 CORS: Allowed origins:', allowedOrigins);
+        
         // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
+        if (!origin) {
+            console.log('🔍 CORS: No origin provided, allowing');
+            return callback(null, true);
+        }
         
         if (allowedOrigins.indexOf(origin) !== -1) {
+            console.log('🔍 CORS: Origin allowed');
             callback(null, true);
         } else {
+            console.log('🔍 CORS: Origin BLOCKED');
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -107,6 +115,13 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
     const start = Date.now();
     console.log(`📝 ${req.method} ${req.path} - Starting request`);
+    
+    // Special logging for CORS preflight requests
+    if (req.method === 'OPTIONS') {
+        console.log(`🔍 CORS Preflight - Origin: ${req.get('origin')}`);
+        console.log(`🔍 CORS Preflight - Request Headers: ${req.get('access-control-request-headers')}`);
+        console.log(`🔍 CORS Preflight - Request Method: ${req.get('access-control-request-method')}`);
+    }
     
     res.on('finish', () => {
         const duration = Date.now() - start;
@@ -230,10 +245,11 @@ process.on('SIGINT', () => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 VeilPix API server running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV}`);
     console.log(`🔒 CORS enabled for: ${process.env.NODE_ENV === 'development' ? 'localhost:5173' : 'veilstudio.io'}`);
+    console.log(`🌐 Server listening on all interfaces (0.0.0.0:${PORT})`);
 });
 
 module.exports = app;

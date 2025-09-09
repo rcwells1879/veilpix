@@ -57,18 +57,37 @@ export function useUsageStats() {
   return useQuery({
     queryKey: ['usage-stats'],
     queryFn: async (): Promise<UsageStats> => {
+      console.log('🚀 STARTING useUsageStats query function')
       try {
         // Try authenticated endpoint first
-        return await apiRequest<UsageStats>('/api/usage/stats', { 
+        console.log('🔄 Attempting authenticated request to /api/usage/stats')
+        const result = await apiRequest<UsageStats>('/api/usage/stats', { 
           requiresAuth: true 
         })
-      } catch (error) {
-        // Fall back to anonymous endpoint
-        return await apiRequest<UsageStats>('/api/usage/anonymous')
+        console.log('✅ Authenticated request successful:', result)
+        return result
+      } catch (error: any) {
+        console.log('❌ Authenticated request failed:', error)
+        // If auth fails or user is not authenticated, fall back to anonymous endpoint
+        if (error?.status === 401 || error?.status === 403) {
+          console.log('🔄 Falling back to anonymous usage endpoint')
+          const fallbackResult = await apiRequest<UsageStats>('/api/usage/anonymous')
+          console.log('✅ Anonymous request successful:', fallbackResult)
+          return fallbackResult
+        }
+        throw error // Re-throw other errors
       }
     },
     staleTime: 1000 * 30, // 30 seconds
     refetchOnWindowFocus: true,
+    retry: (failureCount, error: any) => {
+      // Don't retry auth errors, but retry network errors up to 2 times
+      if (error?.status === 401 || error?.status === 403) {
+        return false
+      }
+      return failureCount < 2
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
   })
 }
 

@@ -68,13 +68,13 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
       console.log('  - Skipping auth (requiresAuth:', requiresAuth, ', getToken:', !!getToken, ')')
     }
 
-    // Add session ID for anonymous users
-    if (!requiresAuth && (sessionId || requestSessionId)) {
+    // Add session ID for usage tracking (needed for both auth and anonymous requests)
+    if (sessionId || requestSessionId) {
       const finalSessionId = sessionId || requestSessionId || ''
       headers['X-Session-ID'] = finalSessionId
       console.log('  - Added X-Session-ID:', finalSessionId)
     } else {
-      console.log('  - No session ID added (requiresAuth:', requiresAuth, ', sessionId:', sessionId, ', requestSessionId:', requestSessionId, ')')
+      console.log('  - No session ID available to add')
     }
 
     const url = `${API_BASE_URL}${endpoint}`
@@ -127,17 +127,15 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
 export function useApiClient() {
   const { getToken, isSignedIn } = useAuth()
   
-  // Generate or retrieve session ID for anonymous users
+  // Generate or retrieve session ID for usage tracking (needed for all users)
   const sessionId = React.useMemo(() => {
-    if (isSignedIn) return undefined
-    
     let id = sessionStorage.getItem('veilpix-session-id')
     if (!id) {
       id = crypto.randomUUID()
       sessionStorage.setItem('veilpix-session-id', id)
     }
     return id
-  }, [isSignedIn])
+  }, [])
 
   return React.useMemo(() => 
     createApiClient(getToken, sessionId), 
