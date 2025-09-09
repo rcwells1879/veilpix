@@ -31,36 +31,67 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
   ): Promise<T> {
     const { requiresAuth = false, sessionId: requestSessionId, ...fetchOptions } = options
     
+    console.log('🔧 API Client debug:')
+    console.log('  - requiresAuth:', requiresAuth)
+    console.log('  - sessionId (from client):', sessionId)
+    console.log('  - requestSessionId (from options):', requestSessionId)
+    console.log('  - getToken function:', typeof getToken)
+    
     const headers: HeadersInit = {
-      'Content-Type': 'application/json',
       ...fetchOptions.headers,
+    }
+
+    // Only set Content-Type if body is not FormData (let browser set it for FormData)
+    if (!(fetchOptions.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+      console.log('  - Added Content-Type: application/json')
+    } else {
+      console.log('  - Skipping Content-Type for FormData')
     }
 
     // Add authentication header for authenticated requests
     if (requiresAuth && getToken) {
+      console.log('  - Getting auth token...')
       try {
         const token = await getToken()
         if (token) {
           headers.Authorization = `Bearer ${token}`
+          console.log('  - Added Authorization header')
+        } else {
+          console.log('  - No token received')
         }
       } catch (error) {
         console.error('Failed to get auth token:', error)
         throw new ApiError(401, 'Authentication required')
       }
+    } else {
+      console.log('  - Skipping auth (requiresAuth:', requiresAuth, ', getToken:', !!getToken, ')')
     }
 
     // Add session ID for anonymous users
     if (!requiresAuth && (sessionId || requestSessionId)) {
-      headers['X-Session-ID'] = sessionId || requestSessionId || ''
+      const finalSessionId = sessionId || requestSessionId || ''
+      headers['X-Session-ID'] = finalSessionId
+      console.log('  - Added X-Session-ID:', finalSessionId)
+    } else {
+      console.log('  - No session ID added (requiresAuth:', requiresAuth, ', sessionId:', sessionId, ', requestSessionId:', requestSessionId, ')')
     }
 
     const url = `${API_BASE_URL}${endpoint}`
+    
+    console.log('🌐 API Client making request to:', url)
+    console.log('📤 Request method:', fetchOptions.method || 'GET')
+    console.log('📋 Request headers:', headers)
+    console.log('📦 Request body type:', fetchOptions.body?.constructor.name)
     
     try {
       const response = await fetch(url, {
         ...fetchOptions,
         headers,
       })
+      
+      console.log('📥 Response status:', response.status, response.statusText)
+      console.log('📋 Response headers:', Object.fromEntries(response.headers.entries()))
 
       if (!response.ok) {
         let errorData

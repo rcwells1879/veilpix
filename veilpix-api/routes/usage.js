@@ -1,6 +1,6 @@
 const express = require('express');
 const { getUser, requireAuth } = require('../middleware/auth');
-const { db } = require('../utils/database');
+const { db, supabase } = require('../utils/database');
 
 const router = express.Router();
 
@@ -26,7 +26,7 @@ router.get('/stats', getUser, requireAuth, async (req, res) => {
         }
 
         // Get detailed usage logs
-        const { data: usageLogs, error } = await db.supabase
+        const { data: usageLogs, error } = await supabase()
             .from('usage_logs')
             .select('*')
             .eq('clerk_user_id', req.user.userId)
@@ -69,7 +69,27 @@ router.get('/stats', getUser, requireAuth, async (req, res) => {
     }
 });
 
-// Get anonymous usage count
+// Get anonymous usage count (without session ID - for general anonymous usage info)
+router.get('/anonymous', async (req, res) => {
+    try {
+        res.json({
+            success: true,
+            usage: {
+                used: 0,
+                remaining: 20,
+                limit: 20
+            },
+            message: 'Anonymous usage tracking - provide session ID for accurate counts'
+        });
+    } catch (error) {
+        console.error('Error getting anonymous usage:', error);
+        res.status(500).json({
+            error: 'Failed to get usage information'
+        });
+    }
+});
+
+// Get anonymous usage count with session ID
 router.get('/anonymous/:sessionId', async (req, res) => {
     try {
         const { sessionId } = req.params;

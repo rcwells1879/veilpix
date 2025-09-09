@@ -1,6 +1,6 @@
 const express = require('express');
 const { getUser, requireAuth } = require('../middleware/auth');
-const { db } = require('../utils/database');
+const { db, supabase } = require('../utils/database');
 
 const router = express.Router();
 
@@ -43,7 +43,7 @@ router.post('/sync', getUser, requireAuth, async (req, res) => {
         
         // Update user email if provided
         if (email && email !== req.user.email) {
-            await db.supabase
+            await supabase()
                 .from('users')
                 .update({ email })
                 .eq('clerk_user_id', req.user.userId);

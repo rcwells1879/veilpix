@@ -80,7 +80,7 @@ const validateAdjustmentGeneration = [
         .trim()
         .isLength({ min: 1, max: 200 })
         .withMessage('Adjustment must be between 1 and 200 characters')
-        .matches(/^[a-zA-Z0-9\s,.\-+%()]+$/)
+        .matches(/^[a-zA-Z0-9\s,.\-+%():&'"!?/]+$/)
         .withMessage('Adjustment contains invalid characters')
         .escape(),
     

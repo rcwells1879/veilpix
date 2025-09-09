@@ -6,7 +6,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
-import { useGenerateEdit, useGenerateFilter, useGenerateAdjust } from './src/hooks/useImageGeneration';
+import { useGenerateEdit, useGenerateFilter, useGenerateAdjust, useGenerateComposite } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
@@ -79,6 +79,7 @@ const App: React.FC = () => {
   const editMutation = useGenerateEdit();
   const filterMutation = useGenerateFilter();
   const adjustMutation = useGenerateAdjust();
+  const compositeMutation = useGenerateComposite();
 
   // React 19 optimistic state for immediate UI feedback
   const [optimisticHistory, setOptimisticHistory] = useOptimistic(
@@ -87,7 +88,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -246,32 +247,47 @@ const App: React.FC = () => {
   }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory]);
 
   const handleGenerateComposite = useCallback(async (compositePrompt: string) => {
+    console.log('🎯 handleGenerateComposite called with prompt:', compositePrompt)
+    console.log('🖼️ Source image 1:', sourceImage1?.name, sourceImage1?.size)
+    console.log('🖼️ Source image 2:', sourceImage2?.name, sourceImage2?.size)
+    console.log('🔧 compositeMutation object:', compositeMutation)
+    
     if (!sourceImage1 || !sourceImage2) {
         setError('Two source images are required to generate a composite.');
         return;
     }
 
-    setIsLoading(true);
     setError(null);
 
     try {
-        const compositeImageUrl = await generateCompositeImage(sourceImage1, sourceImage2, compositePrompt);
-        const newImageFile = dataURLtoFile(compositeImageUrl, `composite-${Date.now()}.png`);
-        
-        // The new composite image becomes the start of our editing history
-        setHistory([newImageFile]);
-        setHistoryIndex(0);
-        setView('editor'); // Transition to the editor
-        setSourceImage1(null); // Clear the source images
-        setSourceImage2(null);
-    } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+        console.log('🚀 About to call compositeMutation.mutateAsync...')
+        const response = await compositeMutation.mutateAsync({
+            image1: sourceImage1,
+            image2: sourceImage2,
+            prompt: compositePrompt
+        });
+        console.log('✅ compositeMutation.mutateAsync returned:', response)
+
+        if (response.success && response.image) {
+            // Convert the base64 image data to a File  
+            const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
+            const newImageFile = new File([imageBlob], `composite-${Date.now()}.png`, { type: 'image/png' });
+            
+            // The new composite image becomes the start of our editing history
+            setHistory([newImageFile]);
+            setHistoryIndex(0);
+            setView('editor'); // Transition to the editor
+            setSourceImage1(null); // Clear the source images
+            setSourceImage2(null);
+        } else {
+            throw new Error(response.message || 'Failed to generate composite image');
+        }
+    } catch (err: any) {
+        const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
         setError(`Failed to generate the composite image. ${errorMessage}`);
         console.error(err);
-    } finally {
-        setIsLoading(false);
     }
-  }, [sourceImage1, sourceImage2]);
+  }, [sourceImage1, sourceImage2, compositeMutation]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -322,16 +338,14 @@ const App: React.FC = () => {
     });
 
     try {
-      // Parse the adjustment prompt to extract specific adjustments
-      const adjustments = parseAdjustmentPrompt(adjustmentPrompt);
-      
+      // Send the prompt directly to the API
       const response = await adjustMutation.mutateAsync({
         image: currentImage,
-        adjustments
+        prompt: adjustmentPrompt
       });
 
-      if (response.success && response.imageUrl) {
-        const imageBlob = await fetch(response.imageUrl).then(r => r.blob());
+      if (response.success && response.image) {
+        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
         const newImageFile = new File([imageBlob], `adjusted-${Date.now()}.png`, { type: 'image/png' });
         addImageToHistory(newImageFile);
       } else {

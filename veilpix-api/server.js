@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const { clerkMiddleware } = require('@clerk/express');
 require('dotenv').config();
 
 const app = express();
@@ -36,7 +37,7 @@ app.use(helmet({
 // CORS configuration with environment-based origins
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? ['https://veilstudio.io', 'https://veilpix.vercel.app']
-    : ['http://localhost:5173', 'http://localhost:3000', 'https://veilstudio.io'];
+    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'https://veilstudio.io'];
 
 app.use(cors({
     origin: function(origin, callback) {
@@ -53,6 +54,9 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID']
 }));
+
+// Clerk middleware for authentication
+app.use(clerkMiddleware());
 
 // Import webhook routes (before other middleware)
 const webhookRoutes = require('./routes/webhooks');
@@ -99,6 +103,19 @@ app.use((req, res, next) => {
     })(req, res, next);
 });
 
+// Request logging middleware (moved before routes for proper logging)
+app.use((req, res, next) => {
+    const start = Date.now();
+    console.log(`📝 ${req.method} ${req.path} - Starting request`);
+    
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        console.log(`📝 ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`);
+    });
+    
+    next();
+});
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const geminiRoutes = require('./routes/gemini');
@@ -130,26 +147,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// Request logging middleware
-app.use((req, res, next) => {
-    const start = Date.now();
-    
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        console.log(JSON.stringify({
-            timestamp: new Date().toISOString(),
-            requestId: req.id,
-            method: req.method,
-            path: req.path,
-            statusCode: res.statusCode,
-            duration: `${duration}ms`,
-            userAgent: req.get('User-Agent'),
-            ip: req.ip
-        }));
-    });
-    
-    next();
-});
 
 // 404 handler (must be before error handler)
 app.use('*', (req, res) => {

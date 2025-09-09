@@ -9,7 +9,11 @@ import { useApiClient } from '../services/apiClient'
 import { queryClient } from '../queryClient'
 
 export interface ImageGenerationResponse {
-  imageUrl: string
+  imageUrl?: string
+  image?: {
+    data: string
+    mimeType: string
+  }
   success: boolean
   message?: string
   usageCount?: number
@@ -36,12 +40,14 @@ export interface GenerateFilterRequest {
 
 export interface GenerateAdjustRequest {
   image: File
-  adjustments: {
-    brightness?: number
-    contrast?: number
-    saturation?: number
-    temperature?: number
-  }
+  prompt: string
+}
+
+export interface GenerateCompositeRequest {
+  image1: File
+  image2: File
+  prompt: string
+  style?: string
 }
 
 // Custom hook for usage statistics
@@ -119,18 +125,84 @@ export function useGenerateAdjust() {
   
   return useMutation({
     mutationFn: async (data: GenerateAdjustRequest): Promise<ImageGenerationResponse> => {
+      console.log('🔍 Adjustment prompt:', data.prompt)
+      
       const formData = new FormData()
       formData.append('image', data.image)
-      formData.append('adjustments', JSON.stringify(data.adjustments))
+      formData.append('adjustment', data.prompt)
 
-      return await apiRequest<ImageGenerationResponse>('/api/gemini/generate-adjust', {
+      const response = await apiRequest<ImageGenerationResponse>('/api/gemini/generate-adjust', {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
       })
+      
+      console.log('🎉 API Response received:', response)
+      console.log('🎉 Response success:', response.success)
+      console.log('🎉 Response imageUrl:', response.imageUrl)
+      console.log('🎉 Response image:', response.image)
+      
+      return response
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// Custom hook for image composition
+export function useGenerateComposite() {
+  const { apiRequest } = useApiClient()
+  
+  return useMutation({
+    mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
+      console.log('🚀 Starting composite image generation')
+      console.log('📸 Image 1:', data.image1?.name, data.image1?.size, 'bytes')
+      console.log('📸 Image 2:', data.image2?.name, data.image2?.size, 'bytes')
+      console.log('💬 Prompt:', data.prompt)
+      console.log('🎨 Style:', data.style)
+
+      console.log('🔧 Creating FormData...')
+      const formData = new FormData()
+      formData.append('images', data.image1)
+      formData.append('images', data.image2)
+      formData.append('prompt', data.prompt)
+      if (data.style) {
+        formData.append('style', data.style)
+      }
+
+      console.log('📦 FormData entries:')
+      for (let [key, value] of formData.entries()) {
+        console.log(`  ${key}:`, value instanceof File ? `File(${value.name}, ${value.size} bytes)` : value)
+      }
+
+      console.log('🔧 Getting apiRequest function:', typeof apiRequest)
+      console.log('🌐 About to make API request to /api/gemini/combine-photos')
+      
+      try {
+        console.log('⏳ Calling apiRequest...')
+        const result = await apiRequest<ImageGenerationResponse>('/api/gemini/combine-photos', {
+          method: 'POST',
+          body: formData,
+          headers: {}, // Let browser set Content-Type for FormData
+          requiresAuth: false // This will add session ID for anonymous users or auth token if signed in
+        })
+        console.log('✅ API request successful:', result)
+        return result
+      } catch (error) {
+        console.error('❌ API request failed:', error)
+        throw error
+      }
+    },
+    onMutate: (variables) => {
+      console.log('🔄 Mutation starting with variables:', variables)
+    },
+    onSuccess: (data) => {
+      console.log('🎉 Composite generation completed successfully:', data)
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    onError: (error) => {
+      console.error('💥 Composite generation failed:', error)
     },
   })
 }

@@ -7,7 +7,11 @@ VeilPix is an AI-powered image editing React web application that uses Google's 
 
 ## Architecture
 - **Frontend**: React 19 with TypeScript using Vite as the build tool
-- **AI Service**: Google Gemini API (`gemini-2.5-flash-image-preview`) for image generation
+- **Backend API**: Node.js/Express server with authentication, usage tracking, and billing
+- **AI Service**: Google Gemini API (`gemini-2.5-flash-image-preview`) for image generation via backend
+- **Authentication**: Clerk for user management and session handling
+- **Database**: Supabase for usage tracking, billing records, and user data
+- **Payment Processing**: Stripe for billing and usage metering
 - **State Management**: React hooks with local state (no external state library)
 - **Image Processing**: Canvas API for cropping, react-image-crop for crop selection
 - **Styling**: Tailwind CSS with custom animations and gradients
@@ -35,11 +39,14 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ## Key Components Structure
 - `App.tsx` - Main application with image editing state management
-- `services/geminiService.ts` - AI image generation service with three main functions:
-  - `generateEditedImage()` - Localized edits based on hotspot clicks
-  - `generateFilteredImage()` - Global stylistic filters
-  - `generateAdjustedImage()` - Global photo adjustments
+- `src/services/apiClient.ts` - HTTP client for backend API communication
+- `src/hooks/useImageGeneration.ts` - React hooks for AI image generation via API
 - `components/` - Reusable UI components for each editing panel
+- `veilpix-api/` - Backend Express server with:
+  - `routes/gemini.js` - AI image generation endpoints
+  - `routes/auth.js` - Authentication endpoints
+  - `routes/usage.js` - Usage tracking endpoints
+  - `middleware/auth.js` - Clerk authentication middleware
 
 ## Core Features Implementation
 1. **Localized Editing**: Click-to-edit system where users click image hotspots for precise edits
@@ -49,11 +56,31 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ## Important Technical Details
 - Images are stored as File objects in browser memory with automatic URL cleanup via useEffect
-- All AI requests include safety guidelines to prevent inappropriate content generation
+- All AI requests are processed through the backend API for security and usage tracking
 - The app uses manual cropping via Canvas API rather than server-side processing
-- Error handling includes specific messaging for different types of AI model failures
+- Error handling includes specific messaging for different types of API failures
+- Authentication is handled via Clerk with automatic session management
+- Usage tracking and billing are integrated with Stripe for pay-per-use model
 
 ## API Integration Notes
-- Gemini API expects specific request format with image parts and text prompts
-- Response handling checks for various failure modes (blocked content, safety filters, etc.)
-- The `handleApiResponse()` function centralizes error handling across all AI operations
+- Backend API handles all Gemini AI requests with proper authentication and validation
+- Main endpoints: `/api/gemini/generate-edit`, `/api/gemini/generate-filter`, `/api/gemini/generate-adjust`, `/api/gemini/combine-photos`
+- All requests include safety guidelines to prevent inappropriate content generation
+- Usage limits: 20 free requests for anonymous users, unlimited for authenticated users (billed)
+- Response handling includes proper error messages and usage tracking
+
+## Gemini AI Implementation Details
+- **Model**: Uses `gemini-2.5-flash-image-preview` for all image generation and editing
+- **Prompt-Based System**: All image adjustments use natural language prompts, NOT sliders or structured parameters
+- **Adjustment Interface**: AdjustmentPanel provides preset prompts (e.g., "Enhance Details", "Warmer Lighting") and custom text input
+- **API Request Format**: Send text prompts directly to the Gemini API along with image data
+- **Response Format**: Returns base64 encoded image data in `{success: true, image: {data: "base64...", mimeType: "image/png"}}` format
+- **Image Processing**: Frontend converts base64 responses back to File objects for history management
+
+## Critical Database Architecture Notes
+- **Supabase Client**: Uses lazy loading pattern to prevent module loading failures
+- **Database Utils**: All database functions in `utils/database.js` use `getSupabaseClient()` function instead of direct client creation
+- **Route Dependencies**: Any route file that imports database utilities MUST use `const { db, supabase } = require('../utils/database')` and call `supabase()` as a function
+- **Module Loading Issue**: Direct Supabase client creation at module load time will cause route loading failures when environment variables aren't available during startup
+- **Fix Pattern**: Always use `await supabase().from('table')` instead of `await supabase.from('table')`
+- I will start the servers on my own whenever we need to test the gui.

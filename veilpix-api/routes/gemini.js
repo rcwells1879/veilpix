@@ -2,8 +2,7 @@ const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const multer = require('multer');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { db } = require('../utils/database');
-const { supabase } = require('../utils/database');
+const { db, supabase } = require('../utils/database');
 const { getUser } = require('../middleware/auth');
 const { 
     validateImageGeneration, 
@@ -28,6 +27,24 @@ const upload = multer({
     }
 });
 
+// Configure multer for multiple images with fields
+const uploadMultiple = multer({
+    limits: {
+        fileSize: 10 * 1024 * 1024 // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'));
+        }
+    }
+}).fields([
+    { name: 'images', maxCount: 5 },
+    { name: 'prompt', maxCount: 1 },
+    { name: 'style', maxCount: 1 }
+]);
+
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -44,20 +61,18 @@ function bufferToGenerativePart(buffer, mimeType) {
 // Helper function to report usage to Stripe meter
 async function reportStripeUsage(clerkUserId) {
     try {
-        // Get user's Stripe customer ID
-        const { data: user } = await supabase
+        const { data: user } = await supabase()
             .from('users')
             .select('stripe_customer_id')
             .eq('clerk_user_id', clerkUserId)
             .single();
 
         if (user?.stripe_customer_id) {
-            // Report usage to Stripe meter
             await stripe.billing.meterEvents.create({
                 event_name: 'gemini-image-call',
                 payload: {
                     stripe_customer_id: user.stripe_customer_id,
-                    value: '1' // Count each API call as 1 unit
+                    value: '1'
                 },
                 timestamp: Math.floor(Date.now() / 1000)
             });
@@ -65,8 +80,66 @@ async function reportStripeUsage(clerkUserId) {
         }
     } catch (error) {
         console.error('Error reporting usage to Stripe:', error);
-        // Don't fail the request if Stripe reporting fails
     }
+}
+
+// Helper function to handle usage tracking
+async function trackUsage(req, startTime, requestType, result, success = true, errorMessage = null) {
+    const { user } = req;
+    const sessionId = req.headers['x-session-id'];
+    const ipAddress = req.ip;
+
+    try {
+        if (user) {
+            await db.logUsage({
+                userId: user.id,
+                clerkUserId: user.userId,
+                requestType,
+                geminiRequestId: result?.id || 'unknown',
+                imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
+                processingTimeMs: Date.now() - startTime,
+                success,
+                errorMessage
+            });
+            
+            if (success) await reportStripeUsage(user.userId);
+        } else {
+            await db.updateAnonymousUsage(sessionId, ipAddress);
+        }
+        return true;
+    } catch (error) {
+        console.error('Error logging usage:', error);
+        return false;
+    }
+}
+
+// Helper function to process Gemini response
+function processGeminiResponse(response) {
+    if (!response || !response.candidates || response.candidates.length === 0) {
+        throw new Error('No response generated from Gemini API');
+    }
+
+    const generatedImage = response.candidates[0]?.content?.parts?.[0];
+    if (!generatedImage || !generatedImage.inlineData) {
+        throw new Error('No image data in response');
+    }
+
+    return generatedImage;
+}
+
+// Helper function to handle endpoint errors
+async function handleEndpointError(error, req, startTime, requestType, usageLogged) {
+    console.error(`Error generating ${requestType}:`, error);
+
+    if (!usageLogged) {
+        await trackUsage(req, startTime, requestType, null, false, error.message);
+    }
+
+    return {
+        error: `Failed to generate ${requestType}`,
+        message: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    };
 }
 
 // Check usage limits
@@ -117,76 +190,36 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
 
     try {
         const { prompt, hotspotX, hotspotY } = req.body;
-        const { user } = req;
-        const sessionId = req.headers['x-session-id'];
-        const ipAddress = req.ip;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
         }
-
         if (!prompt) {
             return res.status(400).json({ error: 'No prompt provided' });
         }
 
-        // Convert image to Google AI format
         const imagePart = bufferToGenerativePart(req.file.buffer, req.file.mimetype);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-image-preview' });
 
-        // Get Gemini model
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        const enhancedPrompt = `You are an expert photo editor AI. Your task is to perform a natural, localized edit on the provided image based on the user's request.
+User Request: "${prompt}"
+Edit Location: ${hotspotX && hotspotY ? `Focus on the area around pixel coordinates (x: ${hotspotX}, y: ${hotspotY}).` : 'Apply edit to the most relevant area of the image.'}
 
-        // Enhanced prompt for localized editing
-        const enhancedPrompt = `
-        You are an advanced image editing AI. Please edit this image based on the user's request: "${prompt}"
-        
-        ${hotspotX && hotspotY ? `Focus the edit around the coordinates (${hotspotX}, ${hotspotY}) which the user clicked on the image.` : ''}
-        
-        Guidelines:
-        - Make precise, localized edits that enhance the image
-        - Maintain the overall composition and lighting
-        - Ensure natural-looking results
-        - If removing objects, fill the space naturally
-        - If adding objects, ensure they fit the scene contextually
-        - Preserve image quality and resolution
-        
-        Return only the edited image without any text response.
-        `;
+Editing Guidelines:
+- The edit must be realistic and blend seamlessly with the surrounding area
+- The rest of the image (outside the immediate edit area) must remain identical to the original
 
-        // Generate content
+Safety & Ethics Policy:
+- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
+- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). Do not perform these edits. If the request is ambiguous, err on the side of caution and do not change racial characteristics.
+
+Output: Return ONLY the final edited image. Do not return text.`;
+
         const result = await model.generateContent([enhancedPrompt, imagePart]);
         const response = await result.response;
-        
-        if (!response || !response.candidates || response.candidates.length === 0) {
-            throw new Error('No response generated from Gemini API');
-        }
+        const generatedImage = processGeminiResponse(response);
 
-        // Update usage tracking
-        if (user) {
-            await db.logUsage({
-                userId: user.id,
-                clerkUserId: user.userId,
-                requestType: 'retouch',
-                geminiRequestId: result.id || 'unknown',
-                imageSize: req.file.size > 1024 * 1024 ? 'large' : 'medium',
-                processingTimeMs: Date.now() - startTime,
-                success: true
-            });
-            
-            // Report usage to Stripe meter for billing
-            await reportStripeUsage(user.userId);
-            usageLogged = true;
-        } else {
-            // Update anonymous usage
-            await db.updateAnonymousUsage(sessionId, ipAddress);
-            usageLogged = true;
-        }
-
-        // Extract image data from response
-        const generatedImage = response.candidates[0]?.content?.parts?.[0];
-        
-        if (!generatedImage || !generatedImage.inlineData) {
-            throw new Error('No image data in response');
-        }
+        usageLogged = await trackUsage(req, startTime, 'retouch', result);
 
         res.json({
             success: true,
@@ -196,31 +229,8 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
         });
 
     } catch (error) {
-        console.error('Error generating edited image:', error);
-
-        // Log failed usage
-        if (!usageLogged) {
-            try {
-                if (req.user) {
-                    await db.logUsage({
-                        userId: req.user.id,
-                        clerkUserId: req.user.userId,
-                        requestType: 'retouch',
-                        processingTimeMs: Date.now() - startTime,
-                        success: false,
-                        errorMessage: error.message
-                    });
-                }
-            } catch (logError) {
-                console.error('Error logging failed usage:', logError);
-            }
-        }
-
-        res.status(500).json({
-            error: 'Failed to generate edited image',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        const errorResponse = await handleEndpointError(error, req, startTime, 'edited image', usageLogged);
+        res.status(500).json(errorResponse);
     }
 });
 
@@ -231,72 +241,31 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
 
     try {
         const { style } = req.body;
-        const { user } = req;
-        const sessionId = req.headers['x-session-id'];
-        const ipAddress = req.ip;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
         }
-
         if (!style) {
             return res.status(400).json({ error: 'No style provided' });
         }
 
-        // Convert image to Google AI format
         const imagePart = bufferToGenerativePart(req.file.buffer, req.file.mimetype);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-image-preview' });
 
-        // Get Gemini model
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        const filterPrompt = `You are an expert photo editor AI. Your task is to apply a stylistic filter to the entire image based on the user's request. Do not change the composition or content, only apply the style.
+Filter Request: "${style}"
 
-        // Enhanced prompt for filtering
-        const filterPrompt = `
-        Apply a ${style} style/filter to this image. 
-        
-        Guidelines:
-        - Apply the filter effect consistently across the entire image
-        - Maintain image quality and sharpness
-        - Preserve important details while applying the style
-        - Ensure the result looks professional and polished
-        - Do not add or remove objects, only apply the visual style
-        
-        Return only the filtered image without any text response.
-        `;
+Safety & Ethics Policy:
+- Filters may subtly shift colors, but you MUST ensure they do not alter a person's fundamental race or ethnicity.
+- You MUST REFUSE any request that explicitly asks to change a person's race (e.g., 'apply a filter to make me look Chinese').
 
-        // Generate content
+Output: Return ONLY the final filtered image. Do not return text.`;
+
         const result = await model.generateContent([filterPrompt, imagePart]);
         const response = await result.response;
-        
-        if (!response || !response.candidates || response.candidates.length === 0) {
-            throw new Error('No response generated from Gemini API');
-        }
+        const generatedImage = processGeminiResponse(response);
 
-        // Update usage tracking
-        if (user) {
-            await db.logUsage({
-                userId: user.id,
-                clerkUserId: user.userId,
-                requestType: 'filter',
-                geminiRequestId: result.id || 'unknown',
-                imageSize: req.file.size > 1024 * 1024 ? 'large' : 'medium',
-                processingTimeMs: Date.now() - startTime,
-                success: true
-            });
-            
-            // Report usage to Stripe meter for billing
-            await reportStripeUsage(user.userId);
-            usageLogged = true;
-        } else {
-            await db.updateAnonymousUsage(sessionId, ipAddress);
-            usageLogged = true;
-        }
-
-        // Extract image data from response
-        const generatedImage = response.candidates[0]?.content?.parts?.[0];
-        
-        if (!generatedImage || !generatedImage.inlineData) {
-            throw new Error('No image data in response');
-        }
+        usageLogged = await trackUsage(req, startTime, 'filter', result);
 
         res.json({
             success: true,
@@ -306,31 +275,8 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
         });
 
     } catch (error) {
-        console.error('Error generating filtered image:', error);
-
-        // Log failed usage
-        if (!usageLogged) {
-            try {
-                if (req.user) {
-                    await db.logUsage({
-                        userId: req.user.id,
-                        clerkUserId: req.user.userId,
-                        requestType: 'filter',
-                        processingTimeMs: Date.now() - startTime,
-                        success: false,
-                        errorMessage: error.message
-                    });
-                }
-            } catch (logError) {
-                console.error('Error logging failed usage:', logError);
-            }
-        }
-
-        res.status(500).json({
-            error: 'Failed to generate filtered image',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        const errorResponse = await handleEndpointError(error, req, startTime, 'filtered image', usageLogged);
+        res.status(500).json(errorResponse);
     }
 });
 
@@ -341,72 +287,35 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
 
     try {
         const { adjustment } = req.body;
-        const { user } = req;
-        const sessionId = req.headers['x-session-id'];
-        const ipAddress = req.ip;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
         }
-
         if (!adjustment) {
             return res.status(400).json({ error: 'No adjustment specified' });
         }
 
-        // Convert image to Google AI format
         const imagePart = bufferToGenerativePart(req.file.buffer, req.file.mimetype);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-image-preview' });
 
-        // Get Gemini model
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+        const adjustmentPrompt = `You are an expert photo editor AI. Your task is to perform a natural, global adjustment to the entire image based on the user's request.
+User Request: "${adjustment}"
 
-        // Enhanced prompt for adjustments
-        const adjustmentPrompt = `
-        Apply the following adjustment to this image: ${adjustment}
-        
-        Guidelines:
-        - Make professional photo adjustments
-        - Maintain natural colors and lighting
-        - Preserve image details and sharpness
-        - Apply adjustments consistently across the image
-        - Ensure the result looks realistic and well-balanced
-        
-        Return only the adjusted image without any text response.
-        `;
+Editing Guidelines:
+- The adjustment must be applied across the entire image
+- The result must be photorealistic
 
-        // Generate content
+Safety & Ethics Policy:
+- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
+- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). Do not perform these edits. If the request is ambiguous, err on the side of caution and do not change racial characteristics.
+
+Output: Return ONLY the final adjusted image. Do not return text.`;
+
         const result = await model.generateContent([adjustmentPrompt, imagePart]);
         const response = await result.response;
-        
-        if (!response || !response.candidates || response.candidates.length === 0) {
-            throw new Error('No response generated from Gemini API');
-        }
+        const generatedImage = processGeminiResponse(response);
 
-        // Update usage tracking
-        if (user) {
-            await db.logUsage({
-                userId: user.id,
-                clerkUserId: user.userId,
-                requestType: 'adjust',
-                geminiRequestId: result.id || 'unknown',
-                imageSize: req.file.size > 1024 * 1024 ? 'large' : 'medium',
-                processingTimeMs: Date.now() - startTime,
-                success: true
-            });
-            
-            // Report usage to Stripe meter for billing
-            await reportStripeUsage(user.userId);
-            usageLogged = true;
-        } else {
-            await db.updateAnonymousUsage(sessionId, ipAddress);
-            usageLogged = true;
-        }
-
-        // Extract image data from response
-        const generatedImage = response.candidates[0]?.content?.parts?.[0];
-        
-        if (!generatedImage || !generatedImage.inlineData) {
-            throw new Error('No image data in response');
-        }
+        usageLogged = await trackUsage(req, startTime, 'adjust', result);
 
         res.json({
             success: true,
@@ -416,31 +325,84 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
         });
 
     } catch (error) {
-        console.error('Error generating adjusted image:', error);
+        const errorResponse = await handleEndpointError(error, req, startTime, 'adjusted image', usageLogged);
+        res.status(500).json(errorResponse);
+    }
+});
 
-        // Log failed usage
-        if (!usageLogged) {
-            try {
-                if (req.user) {
-                    await db.logUsage({
-                        userId: req.user.id,
-                        clerkUserId: req.user.userId,
-                        requestType: 'adjust',
-                        processingTimeMs: Date.now() - startTime,
-                        success: false,
-                        errorMessage: error.message
-                    });
-                }
-            } catch (logError) {
-                console.error('Error logging failed usage:', logError);
+// Generate combined image endpoint for multi-image mode
+router.post('/combine-photos', uploadMultiple, checkUsageLimits, async (req, res) => {
+    const startTime = Date.now();
+    let usageLogged = false;
+
+    try {
+        // Debug logging
+        console.log('req.files:', req.files);
+        console.log('req.body:', req.body);
+        console.log('req.body type:', typeof req.body);
+        console.log('All req fields:', Object.keys(req));
+        
+        // Extract fields from req.body, which should be populated by multer
+        const prompt = req.body?.prompt;
+        const style = req.body?.style;
+
+        // Get files from the images field
+        const imageFiles = req.files?.images || [];
+        
+        if (!imageFiles || imageFiles.length < 2) {
+            return res.status(400).json({ error: 'At least 2 image files must be provided' });
+        }
+        if (imageFiles.length > 5) {
+            return res.status(400).json({ error: 'Maximum 5 images allowed' });
+        }
+        if (!prompt) {
+            return res.status(400).json({ error: 'No prompt provided' });
+        }
+
+        // Validate each uploaded file
+        for (const file of imageFiles) {
+            if (file.size > 10 * 1024 * 1024) {
+                return res.status(413).json({ error: 'One or more files exceed 10MB limit' });
+            }
+            const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+            if (!allowedTypes.includes(file.mimetype)) {
+                return res.status(400).json({ error: 'Only JPEG, PNG, WebP, and GIF images are allowed' });
             }
         }
 
-        res.status(500).json({
-            error: 'Failed to generate adjusted image',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        // Convert all images to Gemini format
+        const imageParts = imageFiles.map(file => 
+            bufferToGenerativePart(file.buffer, file.mimetype)
+        );
+
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-image-preview' });
+
+        const combinePrompt = `Combine these images into a single creative composition. ${prompt}${style ? ` Apply ${style} style.` : ''} Create a seamless, natural-looking result that blends the images harmoniously.`;
+
+        console.log('📝 Sending request to Gemini with prompt:', combinePrompt);
+        console.log('🖼️ Number of image parts:', imageParts.length);
+
+        const result = await model.generateContent([combinePrompt, ...imageParts]);
+        console.log('📥 Received response from Gemini');
+        
+        const response = await result.response;
+        console.log('🔍 Processing Gemini response');
+        
+        const generatedImage = processGeminiResponse(response);
+        console.log('✨ Generated image processed successfully');
+
+        usageLogged = await trackUsage(req, startTime, 'combine', result);
+
+        res.json({
+            success: true,
+            image: generatedImage.inlineData,
+            processingTime: Date.now() - startTime,
+            usage: req.usageInfo
         });
+
+    } catch (error) {
+        const errorResponse = await handleEndpointError(error, req, startTime, 'combined image', usageLogged);
+        res.status(500).json(errorResponse);
     }
 });
 
