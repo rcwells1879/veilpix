@@ -93,6 +93,14 @@ VITE_NODE_ENV=development
 - **Response Format**: Returns base64 encoded image data in `{success: true, image: {data: "base64...", mimeType: "image/png"}}` format
 - **Image Processing**: Frontend converts base64 responses back to File objects for history management
 
+### Gemini API Response Processing
+- **Consistent Response Structure**: Both single image editing and multi-image combination use the same response format
+- **Response Path**: Image data is located at `response.candidates[0].content.parts[]` where each part may contain `inlineData`
+- **Image Part Detection**: Use `parts.find(part => part.inlineData)` to locate the image data within the response parts array
+- **Data Format**: Image data structure is `{ inlineData: { data: "base64...", mimeType: "image/png" } }`
+- **Critical Note**: All Gemini image generation endpoints (single edit, filter, adjust, combine) return the same response structure with `inlineData` (not `inline_data`)
+- **Processing Function**: The `processGeminiResponse()` function in `routes/gemini.js` handles response parsing for all image generation endpoints uniformly
+
 ## Critical Database Architecture Notes
 - **Supabase Client**: Uses lazy loading pattern with service role key to prevent module loading failures
 - **Service Role Configuration**: Backend uses `SUPABASE_SERVICE_ROLE_KEY` which automatically bypasses RLS (Row Level Security) policies
