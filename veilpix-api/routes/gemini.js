@@ -119,12 +119,18 @@ function processGeminiResponse(response) {
         throw new Error('No response generated from Gemini API');
     }
 
-    const generatedImage = response.candidates[0]?.content?.parts?.[0];
-    if (!generatedImage || !generatedImage.inlineData) {
+    const parts = response.candidates[0]?.content?.parts;
+    if (!parts || parts.length === 0) {
+        throw new Error('No content parts in response');
+    }
+    
+    // Look for any part with inlineData
+    const imagePart = parts.find(part => part.inlineData);
+    if (!imagePart || !imagePart.inlineData) {
         throw new Error('No image data in response');
     }
-
-    return generatedImage;
+    
+    return imagePart;
 }
 
 // Helper function to handle endpoint errors
