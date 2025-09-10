@@ -171,42 +171,106 @@ const db = {
 
     // Anonymous user usage tracking
     async getAnonymousUsage(sessionId, ipAddress) {
-        try {
-            const supabase = getSupabaseClient();
-            
-            const { data, error } = await supabase
-                .from('anonymous_usage')
-                .select('*')
-                .eq('session_id', sessionId)
-                .single();
+        const maxRetries = 3;
+        let attempt = 0;
+        
+        while (attempt < maxRetries) {
+            try {
+                console.log(`🔍 DB: getAnonymousUsage attempt ${attempt + 1}/${maxRetries} for session:`, sessionId);
+                const supabase = getSupabaseClient();
+                
+                const { data, error } = await supabase
+                    .from('anonymous_usage')
+                    .select('*')
+                    .eq('session_id', sessionId)
+                    .single();
 
-            return { data, error };
-        } catch (error) {
-            console.error('Error getting anonymous usage:', error);
-            return { data: null, error };
+                if (error && error.code !== 'PGRST116') { // PGRST116 is "not found" which is expected
+                    console.error(`🚨 DB: Error getting anonymous usage (attempt ${attempt + 1}):`, error);
+                    
+                    // Check if this is a retryable error
+                    if (this._isRetryableError(error) && attempt < maxRetries - 1) {
+                        attempt++;
+                        const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
+                        console.log(`🔄 DB: Retrying in ${delay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+                }
+
+                return { data, error };
+            } catch (exception) {
+                console.error(`🚨 DB: Exception getting anonymous usage (attempt ${attempt + 1}):`, exception);
+                
+                if (attempt < maxRetries - 1) {
+                    attempt++;
+                    const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
+                    console.log(`🔄 DB: Retrying after exception in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+                
+                return { data: null, error: exception };
+            }
         }
+        
+        return { data: null, error: new Error('Max retries exceeded') };
+    },
+
+    // Helper function to determine if an error is retryable
+    _isRetryableError(error) {
+        // Retry on connection issues, timeouts, and temporary server errors
+        const retryableCodes = [
+            'ECONNRESET',
+            'ECONNREFUSED', 
+            'ETIMEDOUT',
+            'ENOTFOUND',
+            'EAI_AGAIN'
+        ];
+        
+        const retryableMessages = [
+            'connection',
+            'timeout',
+            'network',
+            'temporary'
+        ];
+        
+        return retryableCodes.includes(error.code) || 
+               retryableMessages.some(msg => error.message?.toLowerCase().includes(msg));
     },
 
     async updateAnonymousUsage(sessionId, ipAddress) {
         try {
+            console.log('🔍 DB: updateAnonymousUsage called with:', { sessionId, ipAddress });
             const supabase = getSupabaseClient();
-            const { data: existing } = await this.getAnonymousUsage(sessionId, ipAddress);
             
-            if (existing) {
+            // Fix: Use db.getAnonymousUsage instead of this.getAnonymousUsage
+            const { data: existing, error: fetchError } = await db.getAnonymousUsage(sessionId, ipAddress);
+            console.log('🔍 DB: Existing usage data:', existing, 'Error:', fetchError?.message);
+            
+            if (existing && !fetchError) {
                 // Update existing record
+                console.log('🔍 DB: Updating existing record, current count:', existing.request_count);
                 const { data, error } = await supabase
                     .from('anonymous_usage')
                     .update({
                         request_count: existing.request_count + 1,
-                        last_request_at: new Date().toISOString()
+                        updated_at: new Date().toISOString()
                     })
                     .eq('session_id', sessionId)
                     .select()
                     .single();
 
-                return { data, error };
+                if (error) {
+                    console.error('🚨 DB: Error updating existing record:', error);
+                    return { data: null, error };
+                }
+                
+                console.log('✅ DB: Successfully updated usage count to:', data.request_count);
+                return { data, error: null };
             } else {
                 // Create new record
+                console.log('🔍 DB: Creating new usage record for session:', sessionId);
                 const { data, error } = await supabase
                     .from('anonymous_usage')
                     .insert({
@@ -217,10 +281,16 @@ const db = {
                     .select()
                     .single();
 
-                return { data, error };
+                if (error) {
+                    console.error('🚨 DB: Error creating new record:', error);
+                    return { data: null, error };
+                }
+                
+                console.log('✅ DB: Successfully created new usage record with count:', data.request_count);
+                return { data, error: null };
             }
         } catch (error) {
-            console.error('Error updating anonymous usage:', error);
+            console.error('🚨 DB: Exception in updateAnonymousUsage:', error);
             return { data: null, error };
         }
     },

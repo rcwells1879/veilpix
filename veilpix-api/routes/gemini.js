@@ -89,9 +89,19 @@ async function trackUsage(req, startTime, requestType, result, success = true, e
     const sessionId = req.headers['x-session-id'];
     const ipAddress = req.ip;
 
+    console.log('🔍 TRACK USAGE: Starting usage tracking', {
+        hasUser: !!user,
+        sessionId,
+        ipAddress,
+        requestType,
+        success
+    });
+
     try {
         if (user) {
-            await db.logUsage({
+            console.log('🔍 TRACK USAGE: Logging usage for authenticated user:', user.userId);
+            
+            const usageResult = await db.logUsage({
                 userId: user.id,
                 clerkUserId: user.userId,
                 requestType,
@@ -102,13 +112,44 @@ async function trackUsage(req, startTime, requestType, result, success = true, e
                 errorMessage
             });
             
-            if (success) await reportStripeUsage(user.userId);
+            console.log('✅ TRACK USAGE: Successfully logged authenticated usage');
+            
+            if (success) {
+                console.log('🔍 TRACK USAGE: Reporting to Stripe for user:', user.userId);
+                await reportStripeUsage(user.userId);
+                console.log('✅ TRACK USAGE: Successfully reported to Stripe');
+            }
         } else {
-            await db.updateAnonymousUsage(sessionId, ipAddress);
+            if (!sessionId) {
+                console.warn('⚠️ TRACK USAGE: No session ID provided for anonymous user');
+                return false;
+            }
+            
+            console.log('🔍 TRACK USAGE: Updating anonymous usage for session:', sessionId);
+            const updateResult = await db.updateAnonymousUsage(sessionId, ipAddress);
+            
+            if (updateResult.error) {
+                console.error('🚨 TRACK USAGE: Failed to update anonymous usage:', updateResult.error);
+                return false;
+            }
+            
+            console.log('✅ TRACK USAGE: Successfully updated anonymous usage, new count:', updateResult.data?.request_count);
         }
+        
+        console.log('✅ TRACK USAGE: Usage tracking completed successfully');
         return true;
     } catch (error) {
-        console.error('Error logging usage:', error);
+        console.error('🚨 TRACK USAGE: Exception in usage tracking:', error);
+        console.error('🚨 TRACK USAGE: Stack trace:', error.stack);
+        
+        // Try to log the failure for debugging
+        try {
+            console.log('🔍 TRACK USAGE: Attempting to log tracking failure...');
+            // Could implement a fallback logging mechanism here
+        } catch (fallbackError) {
+            console.error('🚨 TRACK USAGE: Fallback logging also failed:', fallbackError);
+        }
+        
         return false;
     }
 }
@@ -155,34 +196,91 @@ async function checkUsageLimits(req, res, next) {
         const sessionId = req.headers['x-session-id'];
         const ipAddress = req.ip;
 
+        console.log('🔍 USAGE LIMITS: Checking usage limits', {
+            hasUser: !!user,
+            sessionId,
+            ipAddress
+        });
+
         if (user) {
-            // Authenticated user - check monthly usage
-            const usageCount = await db.getUserUsageCount(user.userId);
-            // For now, authenticated users have unlimited usage (will be billed)
-            // You could add plan-based limits here
-            req.usageInfo = { type: 'authenticated', count: usageCount };
-        } else {
-            // Anonymous user - check free tier limit
-            const { data: anonymousUsage } = await db.getAnonymousUsage(sessionId, ipAddress);
-            const currentCount = anonymousUsage?.request_count || 0;
+            console.log('🔍 USAGE LIMITS: Checking authenticated user usage for:', user.userId);
             
-            if (currentCount >= 20) {
-                return res.status(429).json({
-                    error: 'Free tier limit exceeded',
-                    message: 'You have reached the limit of 20 free requests. Please sign in to continue.',
-                    limit: 20,
-                    used: currentCount,
-                    requiresAuth: true
+            try {
+                const usageCount = await db.getUserUsageCount(user.userId);
+                console.log('✅ USAGE LIMITS: Authenticated user usage count:', usageCount);
+                
+                // For now, authenticated users have unlimited usage (will be billed)
+                // You could add plan-based limits here
+                req.usageInfo = { type: 'authenticated', count: usageCount };
+            } catch (dbError) {
+                console.error('🚨 USAGE LIMITS: Database error for authenticated user:', dbError);
+                // Continue with caution - could implement fallback logic here
+                req.usageInfo = { type: 'authenticated', count: 0 };
+            }
+        } else {
+            if (!sessionId) {
+                console.warn('⚠️ USAGE LIMITS: No session ID provided for anonymous user');
+                return res.status(400).json({
+                    error: 'Session required',
+                    message: 'Please refresh the page and try again.',
+                    requiresSessionId: true
                 });
             }
+
+            console.log('🔍 USAGE LIMITS: Checking anonymous usage for session:', sessionId);
             
-            req.usageInfo = { type: 'anonymous', count: currentCount };
+            try {
+                const { data: anonymousUsage, error: fetchError } = await db.getAnonymousUsage(sessionId, ipAddress);
+                
+                if (fetchError) {
+                    console.error('🚨 USAGE LIMITS: Error fetching anonymous usage:', fetchError);
+                    // On error, allow the request but with conservative limits
+                    req.usageInfo = { type: 'anonymous', count: 0 };
+                    return next();
+                }
+                
+                const currentCount = anonymousUsage?.request_count || 0;
+                console.log('🔍 USAGE LIMITS: Anonymous user current count:', currentCount);
+                
+                if (currentCount >= 20) {
+                    console.log('🚨 USAGE LIMITS: Anonymous user limit exceeded:', currentCount);
+                    return res.status(429).json({
+                        error: 'Free tier limit exceeded',
+                        message: 'You have reached the limit of 20 free requests. Please sign in to continue.',
+                        limit: 20,
+                        used: currentCount,
+                        remaining: 0,
+                        requiresAuth: true
+                    });
+                }
+                
+                req.usageInfo = { 
+                    type: 'anonymous', 
+                    count: currentCount,
+                    remaining: 20 - currentCount 
+                };
+                
+                console.log('✅ USAGE LIMITS: Anonymous user within limits:', {
+                    used: currentCount,
+                    remaining: 20 - currentCount
+                });
+            } catch (dbError) {
+                console.error('🚨 USAGE LIMITS: Database error for anonymous user:', dbError);
+                // On database error, be conservative and allow the request
+                req.usageInfo = { type: 'anonymous', count: 0 };
+            }
         }
 
         next();
     } catch (error) {
-        console.error('Error checking usage limits:', error);
-        res.status(500).json({ error: 'Failed to check usage limits' });
+        console.error('🚨 USAGE LIMITS: Unexpected error checking usage limits:', error);
+        console.error('🚨 USAGE LIMITS: Stack trace:', error.stack);
+        
+        res.status(500).json({ 
+            error: 'Failed to check usage limits',
+            message: 'Please try again in a moment.',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 }
 
