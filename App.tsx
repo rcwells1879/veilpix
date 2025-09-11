@@ -533,8 +533,8 @@ const App: React.FC = () => {
     if (view === 'editor' && currentImageUrl) {
       const imageDisplay = (
         <div className="relative">
-          {/* Base image is the original, always at the bottom */}
-          {originalImageUrl && (
+          {/* Base image is the original, only shown when comparing and current image exists */}
+          {originalImageUrl && isComparing && canUndo && (
               <img
                   key={originalImageUrl}
                   src={originalImageUrl}
@@ -542,14 +542,14 @@ const App: React.FC = () => {
                   className="w-full h-auto object-contain max-h-[60vh] rounded-xl pointer-events-none"
               />
           )}
-          {/* The current image is an overlay that fades in/out for comparison */}
+          {/* The current image */}
           <img
               ref={imgRef}
               key={currentImageUrl}
               src={currentImageUrl}
               alt="Current"
               onClick={handleImageClick}
-              className={`absolute top-0 left-0 w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
+              className={`${originalImageUrl && isComparing && canUndo ? 'absolute top-0 left-0' : ''} w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing && canUndo ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
           />
         </div>
       );
