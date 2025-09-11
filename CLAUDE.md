@@ -54,15 +54,20 @@ VITE_NODE_ENV=development
 - **Networking Issue**: JavaScript fetch requests from `localhost:5173` to `localhost:3001` may fail in WSL, but `127.0.0.1:5173` to `127.0.0.1:3001` works reliably
 
 ## Key Components Structure
-- `App.tsx` - Main application with image editing state management
+- `App.tsx` - Main application with image editing state management and history
 - `src/services/apiClient.ts` - HTTP client for backend API communication
 - `src/hooks/useImageGeneration.ts` - React hooks for AI image generation via API
-- `components/` - Reusable UI components for each editing panel
-- `veilpix-api/` - Backend Express server with:
-  - `routes/gemini.js` - AI image generation endpoints
-  - `routes/auth.js` - Authentication endpoints
-  - `routes/usage.js` - Usage tracking endpoints
-  - `middleware/auth.js` - Clerk authentication middleware
+- `components/FilterPanel.tsx` - Filter selection with presets and custom input
+- `components/AdjustmentPanel.tsx` - Global image adjustment controls
+- `components/CropPanel.tsx` - Crop functionality with aspect ratio controls
+- `components/Header.tsx` - App header with usage counter
+- `components/StartScreen.tsx` - Initial upload and mode selection
+- `components/CompositeScreen.tsx` - Multi-image composition interface
+- `veilpix-api/routes/gemini.js` - AI image generation endpoints
+- `veilpix-api/routes/auth.js` - Authentication endpoints
+- `veilpix-api/routes/usage.js` - Usage tracking endpoints
+- `veilpix-api/middleware/auth.js` - Clerk authentication middleware
+- `veilpix-api/middleware/validation.js` - Input validation for API requests
 
 ## Core Features Implementation
 1. **Localized Editing**: Click-to-edit system where users click image hotspots for precise edits
