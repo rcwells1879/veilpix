@@ -5,7 +5,7 @@
 
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { supabase } = require('../utils/database');
+const { db, supabase } = require('../utils/database');
 const router = express.Router();
 
 // Stripe webhook endpoint
@@ -68,6 +68,7 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
 // Handle successful checkout session completion
 async function handleCheckoutSessionCompleted(session) {
   const clerkUserId = session.metadata?.clerk_user_id;
+  const sessionType = session.metadata?.type;
   
   if (!clerkUserId) {
     console.error('No clerk_user_id found in session metadata');
@@ -75,31 +76,65 @@ async function handleCheckoutSessionCompleted(session) {
   }
 
   try {
-    // Update user with payment status
-    const updateData = {
-      stripe_customer_id: session.customer,
-      payment_status: 'active',
-      last_payment_at: new Date().toISOString()
-    };
+    console.log(`Processing checkout completion for user ${clerkUserId}, type: ${sessionType}`);
 
-    // If this was a subscription checkout, store subscription ID
-    if (session.subscription) {
-      updateData.stripe_subscription_id = session.subscription;
+    // Handle credit purchase
+    if (sessionType === 'credit_purchase') {
+      const credits = parseInt(session.metadata.credits);
+      const packageType = session.metadata.package_type;
+      
+      if (!credits || !packageType) {
+        console.error('Missing credits or package_type in session metadata');
+        return;
+      }
+
+      // Add credits to user account
+      const creditResult = await db.addUserCredits(clerkUserId, credits);
+      
+      if (!creditResult.success) {
+        console.error('Failed to add credits to user:', creditResult.error);
+        return;
+      }
+
+      // Update credit purchase record to completed
+      const supabaseClient = supabase;
+      await supabaseClient
+        .from('credit_purchases')
+        .update({ 
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          stripe_payment_intent_id: session.payment_intent
+        })
+        .eq('stripe_checkout_session_id', session.id);
+
+      console.log(`Successfully added ${credits} credits to user ${clerkUserId}`);
+    } else {
+      // Handle regular payment method setup
+      const updateData = {
+        stripe_customer_id: session.customer,
+        payment_status: 'active',
+        last_payment_at: new Date().toISOString()
+      };
+
+      // If this was a subscription checkout, store subscription ID
+      if (session.subscription) {
+        updateData.stripe_subscription_id = session.subscription;
+      }
+
+      const { error } = await supabase
+        .from('users')
+        .upsert({
+          clerk_user_id: clerkUserId,
+          ...updateData
+        });
+
+      if (error) {
+        console.error('Error updating user after checkout completion:', error);
+        return;
+      }
+
+      console.log(`Payment setup completed for user ${clerkUserId}`);
     }
-
-    const { error } = await supabase
-      .from('users')
-      .upsert({
-        clerk_user_id: clerkUserId,
-        ...updateData
-      });
-
-    if (error) {
-      console.error('Error updating user after checkout completion:', error);
-      return;
-    }
-
-    console.log(`Payment setup completed for user ${clerkUserId}`);
   } catch (error) {
     console.error('Error in handleCheckoutSessionCompleted:', error);
   }

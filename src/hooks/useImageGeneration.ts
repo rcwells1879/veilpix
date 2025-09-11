@@ -16,13 +16,13 @@ export interface ImageGenerationResponse {
   }
   success: boolean
   message?: string
-  usageCount?: number
-  remainingFreeUsage?: number
+  creditsRemaining?: number
 }
 
 export interface UsageStats {
   totalUsage: number
-  remainingFreeUsage?: number
+  creditsRemaining: number
+  totalCreditsPurchased?: number
   isAuthenticated: boolean
 }
 
@@ -50,33 +50,19 @@ export interface GenerateCompositeRequest {
   style?: string
 }
 
-// Custom hook for usage statistics
+// Custom hook for usage statistics (authenticated only)
 export function useUsageStats() {
   const { apiRequest } = useApiClient()
   
   return useQuery({
     queryKey: ['usage-stats'],
     queryFn: async (): Promise<UsageStats> => {
-      console.log('🚀 STARTING useUsageStats query function')
-      try {
-        // Try authenticated endpoint first
-        console.log('🔄 Attempting authenticated request to /api/usage/stats')
-        const result = await apiRequest<UsageStats>('/api/usage/stats', { 
-          requiresAuth: true 
-        })
-        console.log('✅ Authenticated request successful:', result)
-        return result
-      } catch (error: any) {
-        console.log('❌ Authenticated request failed:', error)
-        // If auth fails or user is not authenticated, fall back to anonymous endpoint
-        if (error?.status === 401 || error?.status === 403) {
-          console.log('🔄 Falling back to anonymous usage endpoint')
-          const fallbackResult = await apiRequest<UsageStats>('/api/usage/anonymous')
-          console.log('✅ Anonymous request successful:', fallbackResult)
-          return fallbackResult
-        }
-        throw error // Re-throw other errors
-      }
+      console.log('🚀 Getting authenticated user stats and credits')
+      const result = await apiRequest<UsageStats>('/api/usage/stats', { 
+        requiresAuth: true 
+      })
+      console.log('✅ Authenticated request successful:', result)
+      return result
     },
     staleTime: 1000 * 30, // 30 seconds
     refetchOnWindowFocus: true,
@@ -107,6 +93,7 @@ export function useGenerateEdit() {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
+        requiresAuth: true
       })
     },
     onSuccess: () => {
@@ -130,6 +117,7 @@ export function useGenerateFilter() {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
+        requiresAuth: true
       })
     },
     onSuccess: () => {
@@ -154,6 +142,7 @@ export function useGenerateAdjust() {
         method: 'POST',
         body: formData,
         headers: {}, // Let browser set Content-Type for FormData
+        requiresAuth: true
       })
       
       console.log('🎉 API Response received:', response)
@@ -204,7 +193,7 @@ export function useGenerateComposite() {
           method: 'POST',
           body: formData,
           headers: {}, // Let browser set Content-Type for FormData
-          requiresAuth: false // This will add session ID for anonymous users or auth token if signed in
+          requiresAuth: true // Require authentication for all image generation
         })
         console.log('✅ API request successful:', result)
         return result

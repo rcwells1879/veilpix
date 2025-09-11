@@ -25,13 +25,15 @@ router.get('/stats', getUser, requireAuth, async (req, res) => {
                 break;
         }
 
-        // Get total usage count for authenticated user
+        // Get credits and usage count for authenticated user
         const usageCount = await db.getUserUsageCount(req.user.userId, periodStart.toISOString());
+        const { credits, totalPurchased } = await db.getUserCredits(req.user.userId);
 
-        // Return frontend-compatible format
+        // Return frontend-compatible format with credits
         res.json({
             totalUsage: usageCount,
-            remainingFreeUsage: undefined, // Authenticated users don't have limits
+            creditsRemaining: credits,
+            totalCreditsPurchased: totalPurchased,
             isAuthenticated: true
         });
 
@@ -43,154 +45,26 @@ router.get('/stats', getUser, requireAuth, async (req, res) => {
     }
 });
 
-// Get anonymous usage count (without session ID - for general anonymous usage info)
-router.get('/anonymous', async (req, res) => {
+// Get user credit information (replaces anonymous endpoints)
+router.get('/credits', getUser, requireAuth, async (req, res) => {
     try {
-        // Get session ID from header or return default values
-        const sessionId = req.headers['x-session-id'];
-        
-        if (!sessionId) {
-            // Return default values if no session ID provided
-            return res.json({
-                totalUsage: 0,
-                remainingFreeUsage: 20,
-                isAuthenticated: false
-            });
-        }
-
-        // Get actual usage for this session
-        const { data: usage } = await db.getAnonymousUsage(sessionId, req.ip);
-        const currentCount = usage?.request_count || 0;
-        
-        res.json({
-            totalUsage: currentCount,
-            remainingFreeUsage: Math.max(0, 20 - currentCount),
-            isAuthenticated: false
-        });
-    } catch (error) {
-        console.error('Error getting anonymous usage:', error);
-        res.status(500).json({
-            error: 'Failed to get usage information'
-        });
-    }
-});
-
-// Get anonymous usage count with session ID
-router.get('/anonymous/:sessionId', async (req, res) => {
-    try {
-        const { sessionId } = req.params;
-        const ipAddress = req.ip;
-
-        const { data: usage } = await db.getAnonymousUsage(sessionId, ipAddress);
-        const currentCount = usage?.request_count || 0;
-
-        res.json({
-            totalUsage: currentCount,
-            remainingFreeUsage: Math.max(0, 20 - currentCount),
-            isAuthenticated: false
-        });
-
-    } catch (error) {
-        console.error('Error getting anonymous usage:', error);
-        res.status(500).json({
-            error: 'Failed to get usage information'
-        });
-    }
-});
-
-// Validate session and get detailed usage info
-router.post('/validate-session', async (req, res) => {
-    try {
-        const { sessionId } = req.body;
-        const ipAddress = req.ip;
-
-        if (!sessionId) {
-            return res.status(400).json({
-                error: 'Session ID required',
-                message: 'Please provide a valid session ID'
-            });
-        }
-
-        console.log('🔍 SESSION VALIDATION: Validating session:', sessionId);
-
-        // Get current usage for the session
-        const { data: usage, error } = await db.getAnonymousUsage(sessionId, ipAddress);
+        const { credits, totalPurchased, error } = await db.getUserCredits(req.user.userId);
         
         if (error) {
-            console.error('🚨 SESSION VALIDATION: Error getting usage:', error);
             return res.status(500).json({
-                error: 'Failed to validate session',
-                message: 'Please try again in a moment'
+                error: 'Failed to get credits information'
             });
         }
 
-        const currentCount = usage?.request_count || 0;
-        const isValid = currentCount < 20;
-        
-        console.log('✅ SESSION VALIDATION: Session validated', {
-            sessionId,
-            currentCount,
-            isValid,
-            remaining: Math.max(0, 20 - currentCount)
-        });
-
         res.json({
-            sessionId,
-            isValid,
-            usage: {
-                current: currentCount,
-                limit: 20,
-                remaining: Math.max(0, 20 - currentCount)
-            },
-            lastActivity: usage?.updated_at || usage?.created_at,
-            ipAddress: usage?.ip_address
+            creditsRemaining: credits,
+            totalCreditsPurchased: totalPurchased,
+            isAuthenticated: true
         });
-
     } catch (error) {
-        console.error('🚨 SESSION VALIDATION: Unexpected error:', error);
+        console.error('Error getting credits:', error);
         res.status(500).json({
-            error: 'Session validation failed',
-            message: 'Please try again in a moment'
-        });
-    }
-});
-
-// Cleanup expired anonymous sessions (admin endpoint)
-router.delete('/cleanup-sessions', async (req, res) => {
-    try {
-        const { olderThanDays = 7 } = req.query;
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - parseInt(olderThanDays));
-
-        console.log('🔍 CLEANUP: Starting session cleanup for sessions older than:', cutoffDate.toISOString());
-
-        const supabase = require('../utils/database').supabase();
-        
-        const { data: deletedSessions, error } = await supabase
-            .from('anonymous_usage')
-            .delete()
-            .lt('updated_at', cutoffDate.toISOString())
-            .select();
-
-        if (error) {
-            throw error;
-        }
-
-        const deletedCount = deletedSessions?.length || 0;
-        console.log(`✅ CLEANUP: Successfully deleted ${deletedCount} expired sessions`);
-
-        res.json({
-            success: true,
-            deletedCount,
-            cutoffDate: cutoffDate.toISOString(),
-            message: `Successfully cleaned up ${deletedCount} expired anonymous sessions`
-        });
-
-    } catch (error) {
-        console.error('🚨 CLEANUP: Error during session cleanup:', error);
-        res.status(500).json({
-            error: 'Session cleanup failed',
-            message: error.message
+            error: 'Failed to get credits information'
         });
     }
 });
@@ -198,18 +72,17 @@ router.delete('/cleanup-sessions', async (req, res) => {
 // Health check endpoint for usage system
 router.get('/health', async (req, res) => {
     try {
-        // Test database connection
-        const testResult = await db.getAnonymousUsage('health-check-session', req.ip);
+        // Test database connection by checking users table
+        const supabase = require('../utils/database').supabase;
+        const { error } = await supabase.from('users').select('id').limit(1);
         
         res.json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
-            database: testResult.error ? 'error' : 'connected',
+            database: error ? 'error' : 'connected',
             endpoints: {
                 stats: '/api/usage/stats (authenticated)',
-                anonymous: '/api/usage/anonymous (public)',
-                validateSession: '/api/usage/validate-session (POST)',
-                cleanup: '/api/usage/cleanup-sessions (DELETE, admin)'
+                credits: '/api/usage/credits (authenticated)'
             }
         });
     } catch (error) {

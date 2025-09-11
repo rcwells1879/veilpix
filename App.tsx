@@ -18,6 +18,7 @@ import WebcamCapture from './components/WebcamCapture';
 import CompositeScreen from './components/CompositeScreen';
 import { PaymentSuccess } from './components/PaymentSuccess';
 import { PaymentCancelled } from './components/PaymentCancelled';
+import { PricingModal } from './components/PricingModal';
 
 // Helper to convert a data URL string to a File object
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -74,6 +75,7 @@ const App: React.FC = () => {
   const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
   const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
   const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
+  const [showPricingModal, setShowPricingModal] = useState(false);
 
   // TanStack Query mutations
   const editMutation = useGenerateEdit();
@@ -228,9 +230,9 @@ const App: React.FC = () => {
         y: editHotspot.y
       });
 
-      if (response.success && response.imageUrl) {
-        // Convert the returned image URL to a File
-        const imageBlob = await fetch(response.imageUrl).then(r => r.blob());
+      if (response.success && response.image) {
+        // Convert the base64 image data to a File
+        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
         const newImageFile = new File([imageBlob], `edited-${Date.now()}.png`, { type: 'image/png' });
         addImageToHistory(newImageFile);
         setEditHotspot(null);
@@ -309,8 +311,8 @@ const App: React.FC = () => {
         filterType: filterPrompt
       });
 
-      if (response.success && response.imageUrl) {
-        const imageBlob = await fetch(response.imageUrl).then(r => r.blob());
+      if (response.success && response.image) {
+        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
         const newImageFile = new File([imageBlob], `filtered-${Date.now()}.png`, { type: 'image/png' });
         addImageToHistory(newImageFile);
       } else {
@@ -710,7 +712,7 @@ const App: React.FC = () => {
   
   return (
     <div className="min-h-screen text-gray-100 flex flex-col">
-      <Header />
+      <Header onShowPricing={() => setShowPricingModal(true)} />
       <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${view === 'editor' ? 'items-start' : 'items-center'}`}>
         {renderContent()}
       </main>
@@ -736,6 +738,12 @@ const App: React.FC = () => {
           }}
         />
       )}
+
+      {/* Pricing Modal */}
+      <PricingModal 
+        isOpen={showPricingModal}
+        onClose={() => setShowPricingModal(false)}
+      />
     </div>
   );
 };

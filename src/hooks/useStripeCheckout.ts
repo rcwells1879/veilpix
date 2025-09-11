@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useApiClient } from '../services/apiClient'
 
 export interface CheckoutSessionResponse {
@@ -18,6 +18,22 @@ export interface CreateCheckoutSessionRequest {
 
 export interface CreateSubscriptionCheckoutRequest extends CreateCheckoutSessionRequest {
   // Additional subscription-specific fields can be added here
+}
+
+export interface CreateCreditCheckoutRequest extends CreateCheckoutSessionRequest {
+  packageType: '50_credits' | '100_credits' | '200_credits'
+}
+
+export interface CreditPackage {
+  credits: number
+  priceUsd: number
+  name: string
+  description: string
+  popular?: boolean
+}
+
+export interface CreditPackageResponse {
+  packages: Record<string, CreditPackage>
 }
 
 // Hook for creating setup checkout sessions (for adding payment methods)
@@ -70,6 +86,38 @@ export function useCreatePortalSession() {
         })
       })
     }
+  })
+}
+
+// Hook for creating credit checkout sessions
+export function useCreateCreditCheckout() {
+  const { apiRequest } = useApiClient()
+  
+  return useMutation({
+    mutationFn: async (data: CreateCreditCheckoutRequest): Promise<CheckoutSessionResponse> => {
+      return await apiRequest<CheckoutSessionResponse>('/api/checkout/create-credit-checkout', {
+        method: 'POST',
+        requiresAuth: true,
+        body: JSON.stringify({
+          packageType: data.packageType,
+          successUrl: data.successUrl,
+          cancelUrl: data.cancelUrl
+        })
+      })
+    }
+  })
+}
+
+// Hook for getting available credit packages
+export function useCreditPackages() {
+  const { apiRequest } = useApiClient()
+  
+  return useQuery({
+    queryKey: ['credit-packages'],
+    queryFn: async (): Promise<CreditPackageResponse> => {
+      return await apiRequest<CreditPackageResponse>('/api/checkout/credit-packages')
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }
 

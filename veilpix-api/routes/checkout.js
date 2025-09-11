@@ -5,15 +5,38 @@
 
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { requireAuth } = require('../middleware/auth');
-const { supabase } = require('../utils/database');
+const { getUser, requireAuth } = require('../middleware/auth');
+const { db, supabase } = require('../utils/database');
 const router = express.Router();
+
+// Credit packages configuration
+const CREDIT_PACKAGES = {
+  '50_credits': {
+    credits: 50,
+    priceUsd: 3.99,
+    name: '50 Credits',
+    description: 'Perfect for casual editing'
+  },
+  '100_credits': {
+    credits: 100,
+    priceUsd: 6.99,
+    name: '100 Credits',
+    description: 'Great for regular users'
+  },
+  '200_credits': {
+    credits: 200,
+    priceUsd: 11.99,
+    name: '200 Credits',
+    description: 'Best value - Most popular',
+    popular: true
+  }
+};
 
 // Create a Stripe Checkout session for adding payment method
 router.post('/create-checkout-session', requireAuth, async (req, res) => {
   try {
     const { priceId, successUrl, cancelUrl } = req.body;
-    const { clerkUserId } = req.auth;
+    const { userId: clerkUserId } = req.clerkAuth || {};
 
     // Get or create Stripe customer
     let customer;
@@ -79,7 +102,7 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
 router.post('/create-subscription-checkout', requireAuth, async (req, res) => {
   try {
     const { successUrl, cancelUrl } = req.body;
-    const { clerkUserId } = req.auth;
+    const { userId: clerkUserId } = req.clerkAuth || {};
 
     // Get or create Stripe customer
     let customer;
@@ -147,7 +170,7 @@ router.post('/create-subscription-checkout', requireAuth, async (req, res) => {
 // Create Customer Portal session for billing management
 router.post('/create-portal-session', requireAuth, async (req, res) => {
   try {
-    const { clerkUserId } = req.auth;
+    const { userId: clerkUserId } = req.clerkAuth || {};
     const { returnUrl } = req.body;
 
     // Get user's Stripe customer ID
@@ -190,7 +213,7 @@ router.get('/checkout-session/:sessionId', requireAuth, async (req, res) => {
     });
 
     // Verify session belongs to the authenticated user
-    if (session.metadata?.clerk_user_id !== req.auth.clerkUserId) {
+    if (session.metadata?.clerk_user_id !== req.clerkAuth?.userId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -207,6 +230,118 @@ router.get('/checkout-session/:sessionId', requireAuth, async (req, res) => {
     res.status(500).json({ 
       error: 'Failed to retrieve checkout session',
       message: error.message 
+    });
+  }
+});
+
+// Create Checkout session for credit purchases
+router.post('/create-credit-checkout', getUser, requireAuth, async (req, res) => {
+  try {
+    const { packageType, successUrl, cancelUrl } = req.body;
+    const { user } = req;
+
+    // Validate package type
+    if (!CREDIT_PACKAGES[packageType]) {
+      return res.status(400).json({ 
+        error: 'Invalid package type',
+        availablePackages: Object.keys(CREDIT_PACKAGES)
+      });
+    }
+
+    const package = CREDIT_PACKAGES[packageType];
+
+    // Get or create Stripe customer
+    let customer;
+    if (user.stripeCustomerId) {
+      customer = await stripe.customers.retrieve(user.stripeCustomerId);
+    } else {
+      customer = await stripe.customers.create({
+        email: user.email,
+        metadata: {
+          clerk_user_id: user.userId,
+          veilpix_user_id: user.id
+        }
+      });
+
+      // Update user record with Stripe customer ID
+      await db.updateUserStripeCustomerId(user.userId, customer.id);
+    }
+
+    // Create Checkout session for one-time payment
+    const session = await stripe.checkout.sessions.create({
+      customer: customer.id,
+      payment_method_types: ['card'],
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: package.name,
+              description: package.description,
+              metadata: {
+                credits: package.credits.toString(),
+                package_type: packageType
+              }
+            },
+            unit_amount: Math.round(package.priceUsd * 100), // Convert to cents
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: successUrl || `${process.env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl || `${process.env.FRONTEND_URL}/payment/cancelled`,
+      metadata: {
+        clerk_user_id: user.userId,
+        user_id: user.id.toString(),
+        package_type: packageType,
+        credits: package.credits.toString(),
+        type: 'credit_purchase'
+      }
+    });
+
+    // Log the credit purchase as pending
+    await db.logCreditPurchase({
+      userId: user.id,
+      clerkUserId: user.userId,
+      stripeCheckoutSessionId: session.id,
+      creditsPurchased: package.credits,
+      amountUsd: package.priceUsd,
+      packageType: packageType,
+      status: 'pending'
+    });
+
+    res.json({ 
+      sessionId: session.id,
+      url: session.url,
+      package: {
+        type: packageType,
+        credits: package.credits,
+        price: package.priceUsd,
+        name: package.name,
+        description: package.description
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating credit checkout session:', error);
+    res.status(500).json({ 
+      error: 'Failed to create credit checkout session',
+      message: error.message 
+    });
+  }
+});
+
+// Get available credit packages
+router.get('/credit-packages', async (req, res) => {
+  try {
+    res.json({
+      packages: CREDIT_PACKAGES
+    });
+  } catch (error) {
+    console.error('Error getting credit packages:', error);
+    res.status(500).json({
+      error: 'Failed to get credit packages'
     });
   }
 });

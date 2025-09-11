@@ -12,6 +12,9 @@ async function getUser(req, res, next) {
         const auth = getAuth(req);
         console.log(`🔍 AUTH[${requestId}]: getAuth result:`, !!auth, auth?.userId ? 'has userId' : 'no userId');
         
+        // Store auth data for other middleware to use (don't overwrite req.auth as Clerk needs it)
+        req.clerkAuth = auth;
+        
         if (!auth || !auth.userId) {
             // No authenticated user, continue as anonymous user
             console.log(`🔍 AUTH[${requestId}]: No auth/userId, setting req.user = null`);

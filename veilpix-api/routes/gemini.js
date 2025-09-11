@@ -3,7 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const multer = require('multer');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { db, supabase } = require('../utils/database');
-const { getUser } = require('../middleware/auth');
+const { getUser, requireAuth } = require('../middleware/auth');
 const { 
     validateImageGeneration, 
     validateFilterGeneration, 
@@ -61,7 +61,7 @@ function bufferToGenerativePart(buffer, mimeType) {
 // Helper function to report usage to Stripe meter
 async function reportStripeUsage(clerkUserId) {
     try {
-        const { data: user } = await supabase()
+        const { data: user } = await supabase
             .from('users')
             .select('stripe_customer_id')
             .eq('clerk_user_id', clerkUserId)
@@ -83,73 +83,55 @@ async function reportStripeUsage(clerkUserId) {
     }
 }
 
-// Helper function to handle usage tracking
-async function trackUsage(req, startTime, requestType, result, success = true, errorMessage = null) {
+// Helper function to handle credit deduction and usage tracking
+async function deductCreditAndTrack(req, startTime, requestType, result, success = true, errorMessage = null) {
     const { user } = req;
-    const sessionId = req.headers['x-session-id'];
-    const ipAddress = req.ip;
 
-    console.log('🔍 TRACK USAGE: Starting usage tracking', {
-        hasUser: !!user,
-        sessionId,
-        ipAddress,
+    console.log('🔍 CREDIT DEDUCT: Starting credit deduction and tracking', {
+        userId: user?.userId,
         requestType,
         success
     });
 
     try {
-        if (user) {
-            console.log('🔍 TRACK USAGE: Logging usage for authenticated user:', user.userId);
+        // Log the usage first
+        const usageResult = await db.logUsage({
+            userId: user.id,
+            clerkUserId: user.userId,
+            requestType,
+            geminiRequestId: result?.id || 'unknown',
+            imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
+            processingTimeMs: Date.now() - startTime,
+            success,
+            errorMessage
+        });
+        
+        console.log('✅ CREDIT DEDUCT: Successfully logged usage');
+        
+        // Only deduct credits on successful requests
+        if (success) {
+            console.log('🔍 CREDIT DEDUCT: Deducting 1 credit for user:', user.userId);
+            const deductResult = await db.deductUserCredit(user.userId);
             
-            const usageResult = await db.logUsage({
-                userId: user.id,
-                clerkUserId: user.userId,
-                requestType,
-                geminiRequestId: result?.id || 'unknown',
-                imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
-                processingTimeMs: Date.now() - startTime,
-                success,
-                errorMessage
-            });
-            
-            console.log('✅ TRACK USAGE: Successfully logged authenticated usage');
-            
-            if (success) {
-                console.log('🔍 TRACK USAGE: Reporting to Stripe for user:', user.userId);
-                await reportStripeUsage(user.userId);
-                console.log('✅ TRACK USAGE: Successfully reported to Stripe');
-            }
-        } else {
-            if (!sessionId) {
-                console.warn('⚠️ TRACK USAGE: No session ID provided for anonymous user');
+            if (!deductResult.success) {
+                console.error('🚨 CREDIT DEDUCT: Failed to deduct credit:', deductResult.error);
+                // This shouldn't happen since we checked credits earlier, but handle gracefully
                 return false;
             }
             
-            console.log('🔍 TRACK USAGE: Updating anonymous usage for session:', sessionId);
-            const updateResult = await db.updateAnonymousUsage(sessionId, ipAddress);
+            console.log('✅ CREDIT DEDUCT: Successfully deducted 1 credit');
             
-            if (updateResult.error) {
-                console.error('🚨 TRACK USAGE: Failed to update anonymous usage:', updateResult.error);
-                return false;
+            // Update the credits info for the response
+            if (req.creditsInfo) {
+                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - 1);
             }
-            
-            console.log('✅ TRACK USAGE: Successfully updated anonymous usage, new count:', updateResult.data?.request_count);
         }
         
-        console.log('✅ TRACK USAGE: Usage tracking completed successfully');
+        console.log('✅ CREDIT DEDUCT: Credit deduction and tracking completed successfully');
         return true;
     } catch (error) {
-        console.error('🚨 TRACK USAGE: Exception in usage tracking:', error);
-        console.error('🚨 TRACK USAGE: Stack trace:', error.stack);
-        
-        // Try to log the failure for debugging
-        try {
-            console.log('🔍 TRACK USAGE: Attempting to log tracking failure...');
-            // Could implement a fallback logging mechanism here
-        } catch (fallbackError) {
-            console.error('🚨 TRACK USAGE: Fallback logging also failed:', fallbackError);
-        }
-        
+        console.error('🚨 CREDIT DEDUCT: Exception in credit deduction and tracking:', error);
+        console.error('🚨 CREDIT DEDUCT: Stack trace:', error.stack);
         return false;
     }
 }
@@ -179,7 +161,7 @@ async function handleEndpointError(error, req, startTime, requestType, usageLogg
     console.error(`Error generating ${requestType}:`, error);
 
     if (!usageLogged) {
-        await trackUsage(req, startTime, requestType, null, false, error.message);
+        await deductCreditAndTrack(req, startTime, requestType, null, false, error.message);
     }
 
     return {
@@ -189,111 +171,71 @@ async function handleEndpointError(error, req, startTime, requestType, usageLogg
     };
 }
 
-// Check usage limits
-async function checkUsageLimits(req, res, next) {
+// Check user credits
+async function checkUserCredits(req, res, next) {
     try {
         const { user } = req;
-        const sessionId = req.headers['x-session-id'];
-        const ipAddress = req.ip;
 
-        console.log('🔍 USAGE LIMITS: Checking usage limits', {
-            hasUser: !!user,
-            sessionId,
-            ipAddress
-        });
+        console.log('🔍 CREDITS: Checking user credits for:', user.userId);
 
-        if (user) {
-            console.log('🔍 USAGE LIMITS: Checking authenticated user usage for:', user.userId);
+        try {
+            const { credits, error } = await db.getUserCredits(user.userId);
             
-            try {
-                const usageCount = await db.getUserUsageCount(user.userId);
-                console.log('✅ USAGE LIMITS: Authenticated user usage count:', usageCount);
-                
-                // For now, authenticated users have unlimited usage (will be billed)
-                // You could add plan-based limits here
-                req.usageInfo = { type: 'authenticated', count: usageCount };
-            } catch (dbError) {
-                console.error('🚨 USAGE LIMITS: Database error for authenticated user:', dbError);
-                // Continue with caution - could implement fallback logic here
-                req.usageInfo = { type: 'authenticated', count: 0 };
-            }
-        } else {
-            if (!sessionId) {
-                console.warn('⚠️ USAGE LIMITS: No session ID provided for anonymous user');
-                return res.status(400).json({
-                    error: 'Session required',
-                    message: 'Please refresh the page and try again.',
-                    requiresSessionId: true
+            if (error) {
+                console.error('🚨 CREDITS: Database error getting user credits:', error);
+                return res.status(500).json({
+                    error: 'Failed to check credits',
+                    message: 'Please try again in a moment.'
                 });
             }
 
-            console.log('🔍 USAGE LIMITS: Checking anonymous usage for session:', sessionId);
-            
-            try {
-                const { data: anonymousUsage, error: fetchError } = await db.getAnonymousUsage(sessionId, ipAddress);
-                
-                if (fetchError) {
-                    console.error('🚨 USAGE LIMITS: Error fetching anonymous usage:', fetchError);
-                    // On error, allow the request but with conservative limits
-                    req.usageInfo = { type: 'anonymous', count: 0 };
-                    return next();
-                }
-                
-                const currentCount = anonymousUsage?.request_count || 0;
-                console.log('🔍 USAGE LIMITS: Anonymous user current count:', currentCount);
-                
-                if (currentCount >= 20) {
-                    console.log('🚨 USAGE LIMITS: Anonymous user limit exceeded:', currentCount);
-                    return res.status(429).json({
-                        error: 'Free tier limit exceeded',
-                        message: 'You have reached the limit of 20 free requests. Please sign in to continue.',
-                        limit: 20,
-                        used: currentCount,
-                        remaining: 0,
-                        requiresAuth: true
-                    });
-                }
-                
-                req.usageInfo = { 
-                    type: 'anonymous', 
-                    count: currentCount,
-                    remaining: 20 - currentCount 
-                };
-                
-                console.log('✅ USAGE LIMITS: Anonymous user within limits:', {
-                    used: currentCount,
-                    remaining: 20 - currentCount
+            console.log('🔍 CREDITS: User has credits:', credits);
+
+            if (credits <= 0) {
+                console.log('🚨 CREDITS: User has no credits remaining');
+                return res.status(402).json({
+                    error: 'No credits remaining',
+                    message: 'You have used all your credits. Please purchase more credits to continue.',
+                    creditsRemaining: 0,
+                    requiresPayment: true
                 });
-            } catch (dbError) {
-                console.error('🚨 USAGE LIMITS: Database error for anonymous user:', dbError);
-                // On database error, be conservative and allow the request
-                req.usageInfo = { type: 'anonymous', count: 0 };
             }
+
+            // Store credits info for response
+            req.creditsInfo = { remaining: credits };
+            console.log('✅ CREDITS: User has sufficient credits:', credits);
+            
+        } catch (dbError) {
+            console.error('🚨 CREDITS: Exception checking user credits:', dbError);
+            return res.status(500).json({
+                error: 'Failed to check credits',
+                message: 'Please try again in a moment.'
+            });
         }
 
         next();
     } catch (error) {
-        console.error('🚨 USAGE LIMITS: Unexpected error checking usage limits:', error);
-        console.error('🚨 USAGE LIMITS: Stack trace:', error.stack);
+        console.error('🚨 CREDITS: Unexpected error checking credits:', error);
+        console.error('🚨 CREDITS: Stack trace:', error.stack);
         
         res.status(500).json({ 
-            error: 'Failed to check usage limits',
+            error: 'Failed to check credits',
             message: 'Please try again in a moment.',
             details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 }
 
-// Apply user middleware to all routes
-router.use(getUser);
+// Apply authentication middleware to all routes
+router.use(getUser, requireAuth);
 
 // Generate edited image endpoint
-router.post('/generate-edit', upload.single('image'), validateImageFile, validateImageGeneration, checkUsageLimits, async (req, res) => {
+router.post('/generate-edit', upload.single('image'), validateImageFile, validateImageGeneration, checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
 
     try {
-        const { prompt, hotspotX, hotspotY } = req.body;
+        const { prompt, x, y } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -307,7 +249,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
 
         const enhancedPrompt = `You are an expert photo editor AI. Your task is to perform a natural, localized edit on the provided image based on the user's request.
 User Request: "${prompt}"
-Edit Location: ${hotspotX && hotspotY ? `Focus on the area around pixel coordinates (x: ${hotspotX}, y: ${hotspotY}).` : 'Apply edit to the most relevant area of the image.'}
+Edit Location: ${x && y ? `Focus on the area around pixel coordinates (x: ${x}, y: ${y}).` : 'Apply edit to the most relevant area of the image.'}
 
 Editing Guidelines:
 - The edit must be realistic and blend seamlessly with the surrounding area
@@ -323,13 +265,13 @@ Output: Return ONLY the final edited image. Do not return text.`;
         const response = await result.response;
         const generatedImage = processGeminiResponse(response);
 
-        usageLogged = await trackUsage(req, startTime, 'retouch', result);
+        usageLogged = await deductCreditAndTrack(req, startTime, 'retouch', result);
 
         res.json({
             success: true,
             image: generatedImage.inlineData,
             processingTime: Date.now() - startTime,
-            usage: req.usageInfo
+            creditsRemaining: req.creditsInfo?.remaining || 0
         });
 
     } catch (error) {
@@ -339,7 +281,7 @@ Output: Return ONLY the final edited image. Do not return text.`;
 });
 
 // Generate filtered image endpoint
-router.post('/generate-filter', upload.single('image'), validateImageFile, validateFilterGeneration, checkUsageLimits, async (req, res) => {
+router.post('/generate-filter', upload.single('image'), validateImageFile, validateFilterGeneration, checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
 
@@ -369,13 +311,13 @@ Output: Return ONLY the final filtered image. Do not return text.`;
         const response = await result.response;
         const generatedImage = processGeminiResponse(response);
 
-        usageLogged = await trackUsage(req, startTime, 'filter', result);
+        usageLogged = await deductCreditAndTrack(req, startTime, 'filter', result);
 
         res.json({
             success: true,
             image: generatedImage.inlineData,
             processingTime: Date.now() - startTime,
-            usage: req.usageInfo
+            creditsRemaining: req.creditsInfo?.remaining || 0
         });
 
     } catch (error) {
@@ -385,7 +327,7 @@ Output: Return ONLY the final filtered image. Do not return text.`;
 });
 
 // Generate adjusted image endpoint
-router.post('/generate-adjust', upload.single('image'), validateImageFile, validateAdjustmentGeneration, checkUsageLimits, async (req, res) => {
+router.post('/generate-adjust', upload.single('image'), validateImageFile, validateAdjustmentGeneration, checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
 
@@ -419,13 +361,13 @@ Output: Return ONLY the final adjusted image. Do not return text.`;
         const response = await result.response;
         const generatedImage = processGeminiResponse(response);
 
-        usageLogged = await trackUsage(req, startTime, 'adjust', result);
+        usageLogged = await deductCreditAndTrack(req, startTime, 'adjust', result);
 
         res.json({
             success: true,
             image: generatedImage.inlineData,
             processingTime: Date.now() - startTime,
-            usage: req.usageInfo
+            creditsRemaining: req.creditsInfo?.remaining || 0
         });
 
     } catch (error) {
@@ -435,7 +377,7 @@ Output: Return ONLY the final adjusted image. Do not return text.`;
 });
 
 // Generate combined image endpoint for multi-image mode
-router.post('/combine-photos', uploadMultiple, checkUsageLimits, async (req, res) => {
+router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
 
@@ -495,13 +437,13 @@ router.post('/combine-photos', uploadMultiple, checkUsageLimits, async (req, res
         const generatedImage = processGeminiResponse(response);
         console.log('✨ Generated image processed successfully');
 
-        usageLogged = await trackUsage(req, startTime, 'combine', result);
+        usageLogged = await deductCreditAndTrack(req, startTime, 'combine', result);
 
         res.json({
             success: true,
             image: generatedImage.inlineData,
             processingTime: Date.now() - startTime,
-            usage: req.usageInfo
+            creditsRemaining: req.creditsInfo?.remaining || 0
         });
 
     } catch (error) {

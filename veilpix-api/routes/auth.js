@@ -43,7 +43,7 @@ router.post('/sync', getUser, requireAuth, async (req, res) => {
         
         // Update user email if provided
         if (email && email !== req.user.email) {
-            await supabase()
+            await supabase
                 .from('users')
                 .update({ email })
                 .eq('clerk_user_id', req.user.userId);
