@@ -253,13 +253,7 @@ Edit Location: ${x && y ? `Focus on the area around pixel coordinates (x: ${x}, 
 
 Editing Guidelines:
 - The edit must be realistic and blend seamlessly with the surrounding area
-- The rest of the image (outside the immediate edit area) must remain identical to the original
-
-Safety & Ethics Policy:
-- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
-- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). Do not perform these edits. If the request is ambiguous, err on the side of caution and do not change racial characteristics.
-
-Output: Return ONLY the final edited image. Do not return text.`;
+- The rest of the image (outside the immediate edit area) must remain identical to the original`;
 
         const result = await model.generateContent([enhancedPrompt, imagePart]);
         const response = await result.response;
@@ -286,26 +280,20 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let usageLogged = false;
 
     try {
-        const { style } = req.body;
+        const { filterType } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
         }
-        if (!style) {
-            return res.status(400).json({ error: 'No style provided' });
+        if (!filterType) {
+            return res.status(400).json({ error: 'No filter type provided' });
         }
 
         const imagePart = bufferToGenerativePart(req.file.buffer, req.file.mimetype);
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-image-preview' });
 
         const filterPrompt = `You are an expert photo editor AI. Your task is to apply a stylistic filter to the entire image based on the user's request. Do not change the composition or content, only apply the style.
-Filter Request: "${style}"
-
-Safety & Ethics Policy:
-- Filters may subtly shift colors, but you MUST ensure they do not alter a person's fundamental race or ethnicity.
-- You MUST REFUSE any request that explicitly asks to change a person's race (e.g., 'apply a filter to make me look Chinese').
-
-Output: Return ONLY the final filtered image. Do not return text.`;
+Filter Request: "${filterType}"`;
 
         const result = await model.generateContent([filterPrompt, imagePart]);
         const response = await result.response;
@@ -349,13 +337,7 @@ User Request: "${adjustment}"
 
 Editing Guidelines:
 - The adjustment must be applied across the entire image
-- The result must be photorealistic
-
-Safety & Ethics Policy:
-- You MUST fulfill requests to adjust skin tone, such as 'give me a tan', 'make my skin darker', or 'make my skin lighter'. These are considered standard photo enhancements.
-- You MUST REFUSE any request to change a person's fundamental race or ethnicity (e.g., 'make me look Asian', 'change this person to be Black'). Do not perform these edits. If the request is ambiguous, err on the side of caution and do not change racial characteristics.
-
-Output: Return ONLY the final adjusted image. Do not return text.`;
+- The result must be photorealistic`;
 
         const result = await model.generateContent([adjustmentPrompt, imagePart]);
         const response = await result.response;

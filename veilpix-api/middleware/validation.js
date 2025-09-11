@@ -23,27 +23,15 @@ const validateImageGeneration = [
         .withMessage('Prompt must be between 1 and 500 characters')
         .escape(),
     
-    body('hotspotX')
+    body('x')
         .optional()
         .isNumeric()
-        .withMessage('Hotspot X must be a number')
-        .custom((value) => {
-            if (value < 0 || value > 1) {
-                throw new Error('Hotspot X must be between 0 and 1');
-            }
-            return true;
-        }),
+        .withMessage('X coordinate must be a number'),
     
-    body('hotspotY')
+    body('y')
         .optional()
         .isNumeric()
-        .withMessage('Hotspot Y must be a number')
-        .custom((value) => {
-            if (value < 0 || value > 1) {
-                throw new Error('Hotspot Y must be between 0 and 1');
-            }
-            return true;
-        }),
+        .withMessage('Y coordinate must be a number'),
     
     header('x-session-id')
         .optional()
@@ -55,16 +43,13 @@ const validateImageGeneration = [
 
 // Validation rules for filter generation
 const validateFilterGeneration = [
-    body('style')
+    body('filterType')
         .trim()
-        .isLength({ min: 1, max: 100 })
-        .withMessage('Style must be between 1 and 100 characters')
-        .isIn([
-            'vintage', 'black-and-white', 'sepia', 'warm', 'cool', 'dramatic',
-            'soft', 'bright', 'dark', 'retro', 'modern', 'artistic', 'cinematic',
-            'portrait', 'landscape', 'nature', 'urban', 'minimal', 'vibrant'
-        ])
-        .withMessage('Invalid style selected'),
+        .isLength({ min: 1, max: 500 })
+        .withMessage('Filter type must be between 1 and 500 characters')
+        .matches(/^[a-zA-Z0-9\s,.\-+%():&'"!?/]+$/)
+        .withMessage('Filter type contains invalid characters')
+        .escape(),
     
     header('x-session-id')
         .optional()
