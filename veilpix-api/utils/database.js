@@ -206,7 +206,7 @@ const db = {
             
             // Use the database function for atomic credit deduction
             const { data, error } = await supabase
-                .rpc('public.deduct_user_credit', { p_clerk_user_id: clerkUserId });
+                .rpc('deduct_user_credit', { p_clerk_user_id: clerkUserId });
 
             if (error) {
                 console.error('🚨 DB: Error deducting user credit:', error);
@@ -229,7 +229,7 @@ const db = {
             
             // Use the database function for atomic credit addition
             const { data, error } = await supabase
-                .rpc('public.add_user_credits', { 
+                .rpc('add_user_credits', { 
                     p_clerk_user_id: clerkUserId, 
                     p_credits: credits 
                 });
