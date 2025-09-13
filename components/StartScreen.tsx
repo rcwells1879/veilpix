@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UploadIcon, MagicWandIcon, PaletteIcon, SunIcon, CameraIcon, CombineIcon, PhotoIcon } from './icons';
+import { processFileForUpload, isHEIC } from '../src/utils/heicConverter';
 
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;
@@ -18,6 +19,7 @@ interface StartScreenProps {
 const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File | null, label: string, showWebcam?: boolean, onWebcamClick?: () => void }> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick }) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   useEffect(() => {
     if (file) {
@@ -29,14 +31,58 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
     }
   }, [file]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if(e.target.files && e.target.files[0]) onFileSelect(e.target.files[0]);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if(e.target.files && e.target.files[0]) {
+      const selectedFile = e.target.files[0];
+
+      // Check if it's a HEIC file
+      const isHeicFile = await isHEIC(selectedFile);
+
+      if (isHeicFile) {
+        setIsProcessing(true);
+        try {
+          const processedFile = await processFileForUpload(selectedFile);
+          onFileSelect(processedFile);
+        } catch (error) {
+          console.error('Failed to process HEIC file:', error);
+          alert(error instanceof Error ? error.message : 'Failed to process HEIC file. Please try a JPEG or PNG.');
+          // Don't pass the original HEIC file since it won't work with Gemini API
+        } finally {
+          setIsProcessing(false);
+        }
+      } else {
+        // For non-HEIC files, use as-is
+        onFileSelect(selectedFile);
+      }
+    }
   };
   
-  const handleDrop = (e: React.DragEvent<HTMLLabelElement>) => {
+  const handleDrop = async (e: React.DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     setIsDraggingOver(false);
-    if(e.dataTransfer.files && e.dataTransfer.files[0]) onFileSelect(e.dataTransfer.files[0]);
+    if(e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const droppedFile = e.dataTransfer.files[0];
+
+      // Check if it's a HEIC file
+      const isHeicFile = await isHEIC(droppedFile);
+
+      if (isHeicFile) {
+        setIsProcessing(true);
+        try {
+          const processedFile = await processFileForUpload(droppedFile);
+          onFileSelect(processedFile);
+        } catch (error) {
+          console.error('Failed to process HEIC file:', error);
+          alert(error instanceof Error ? error.message : 'Failed to process HEIC file. Please try a JPEG or PNG.');
+          // Don't pass the original HEIC file since it won't work with Gemini API
+        } finally {
+          setIsProcessing(false);
+        }
+      } else {
+        // For non-HEIC files, use as-is
+        onFileSelect(droppedFile);
+      }
+    }
   };
 
   return (
@@ -60,6 +106,12 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
                   </svg>
               </button>
           </>
+        ) : isProcessing ? (
+          <div className="flex flex-col items-center justify-center text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-2"></div>
+              <span className="font-semibold text-gray-300">Processing image...</span>
+              <span className="text-sm text-gray-500">Converting HEIC to JPEG</span>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-center">
               <PhotoIcon className="w-12 h-12 text-gray-500 mb-2" />
@@ -67,7 +119,7 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
               <span className="text-sm text-gray-500">Click to upload or drag & drop</span>
           </div>
         )}
-        <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+        <input type="file" className="hidden" accept="image/*,.heic,.heif" onChange={handleFileChange} disabled={isProcessing} />
       </label>
 
       {/* Webcam button overlay - small button in lower right corner */}
@@ -163,7 +215,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                   Use Webcam
                 </button>
               </div>
-              <input id="image-upload-start" type="file" className="hidden" accept="image/*" onChange={handleSingleFileChange} />
+              <input id="image-upload-start" type="file" className="hidden" accept="image/*,.heic,.heif" onChange={handleSingleFileChange} />
               <p className="text-sm text-gray-500">or drag and drop a file anywhere</p>
           </div>
         )}

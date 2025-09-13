@@ -19,6 +19,7 @@ import CompositeScreen from './components/CompositeScreen';
 import { PaymentSuccess } from './components/PaymentSuccess';
 import { PaymentCancelled } from './components/PaymentCancelled';
 import { PricingModal } from './components/PricingModal';
+import { processFileForUpload, isHEIC } from './src/utils/heicConverter';
 
 // Helper to convert a data URL string to a File object
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -76,6 +77,7 @@ const App: React.FC = () => {
   const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
   const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
   const [showPricingModal, setShowPricingModal] = useState(false);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
 
   // TanStack Query mutations
   const editMutation = useGenerateEdit();
@@ -89,8 +91,8 @@ const App: React.FC = () => {
     (currentHistory, newImage: File) => [...currentHistory, newImage]
   );
 
-  // Combined loading state from mutations
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending;
+  // Combined loading state from mutations and file processing
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -162,25 +164,78 @@ const App: React.FC = () => {
     setCompletedCrop(undefined);
   }, [history, historyIndex]);
 
-  const handleImageUpload = useCallback((file: File) => {
+  const handleImageUpload = useCallback(async (file: File) => {
     setError(null);
-    setHistory([file]);
-    setHistoryIndex(0);
-    setEditHotspot(null);
-    setDisplayHotspot(null);
-    setActiveTab('retouch');
-    setCrop(undefined);
-    setCompletedCrop(undefined);
-    setView('editor');
+
+    // Check if it's a HEIC file
+    const isHeicFile = await isHEIC(file);
+
+    if (isHeicFile) {
+      setIsProcessingFile(true);
+      try {
+        // Process file (convert HEIC to WebP)
+        const processedFile = await processFileForUpload(file);
+
+        setHistory([processedFile]);
+        setHistoryIndex(0);
+        setEditHotspot(null);
+        setDisplayHotspot(null);
+        setActiveTab('retouch');
+        setCrop(undefined);
+        setCompletedCrop(undefined);
+        setView('editor');
+      } catch (error) {
+        console.error('Failed to process HEIC file:', error);
+        setError(`Failed to process HEIC image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsProcessingFile(false);
+      }
+    } else {
+      // For non-HEIC files, use directly
+      setHistory([file]);
+      setHistoryIndex(0);
+      setEditHotspot(null);
+      setDisplayHotspot(null);
+      setActiveTab('retouch');
+      setCrop(undefined);
+      setCompletedCrop(undefined);
+      setView('editor');
+    }
   }, []);
 
-  const handleCompositeSelect = useCallback((file1: File, file2: File) => {
+  const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
     setError(null);
-    setSourceImage1(file1);
-    setSourceImage2(file2);
-    setHistory([]);
-    setHistoryIndex(-1);
-    setView('composite');
+
+    const needsProcessing = isHEIC(file1) || isHEIC(file2);
+
+    if (needsProcessing) {
+      setIsProcessingFile(true);
+      try {
+        // Process both files (convert HEIC to WebP if needed)
+        const [processedFile1, processedFile2] = await Promise.all([
+          processFileForUpload(file1),
+          processFileForUpload(file2)
+        ]);
+
+        setSourceImage1(processedFile1);
+        setSourceImage2(processedFile2);
+        setHistory([]);
+        setHistoryIndex(-1);
+        setView('composite');
+      } catch (error) {
+        console.error('Failed to process composite files:', error);
+        setError(`Failed to process images: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsProcessingFile(false);
+      }
+    } else {
+      // No processing needed for non-HEIC files
+      setSourceImage1(file1);
+      setSourceImage2(file2);
+      setHistory([]);
+      setHistoryIndex(-1);
+      setView('composite');
+    }
   }, []);
 
   const [isWebcamForComposite, setIsWebcamForComposite] = useState(false);
@@ -453,9 +508,9 @@ const App: React.FC = () => {
       }
   }, [currentImage]);
   
-  const handleFileSelect = (files: FileList | null) => {
+  const handleFileSelect = async (files: FileList | null) => {
     if (files && files[0]) {
-      handleImageUpload(files[0]);
+      await handleImageUpload(files[0]);
     }
   };
 
@@ -572,7 +627,9 @@ const App: React.FC = () => {
               {isLoading && (
                   <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
                       <Spinner />
-                      <p className="text-gray-300">AI is working its magic...</p>
+                      <p className="text-gray-300">
+                        {isProcessingFile ? 'Processing image...' : 'AI is working its magic...'}
+                      </p>
                   </div>
               )}
               
