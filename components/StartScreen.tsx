@@ -40,52 +40,59 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
   };
 
   return (
-    <label 
-      className={`relative flex flex-col items-center justify-center w-full h-64 p-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 ${isDraggingOver ? 'border-blue-400 bg-blue-500/10' : 'border-gray-600 hover:border-gray-500 hover:bg-white/5'}`}
-      onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
-      onDragLeave={() => setIsDraggingOver(false)}
-      onDrop={handleDrop}
-    >
-      {fileUrl ? (
-        <>
-            <img src={fileUrl} alt="Preview" className="object-contain w-full h-full rounded-md" />
-            <button
-                onClick={(e) => { e.preventDefault(); onFileSelect(null as any); }} // Hack to clear the file
-                className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1 hover:bg-black/80 transition-colors"
-                aria-label="Remove image"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-            </button>
-            {showWebcam && onWebcamClick && (
-                <button
-                    onClick={(e) => { e.preventDefault(); onWebcamClick(); }}
-                    className="absolute bottom-2 right-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-2 transition-colors shadow-lg"
-                    aria-label="Use webcam"
-                >
-                    <CameraIcon className="w-4 h-4" />
-                </button>
-            )}
-        </>
-      ) : (
-        <div className="flex flex-col items-center justify-center text-center">
-            <PhotoIcon className="w-12 h-12 text-gray-500 mb-2" />
-            <span className="font-semibold text-gray-300">{label}</span>
-            <span className="text-sm text-gray-500">Click to upload or drag & drop</span>
-            {showWebcam && onWebcamClick && (
-                <button
-                    onClick={(e) => { e.preventDefault(); onWebcamClick(); }}
-                    className="absolute bottom-2 right-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-2 transition-colors shadow-lg"
-                    aria-label="Use webcam"
-                >
-                    <CameraIcon className="w-4 h-4" />
-                </button>
-            )}
-        </div>
+    <div className="relative">
+      <label
+        className={`flex flex-col items-center justify-center w-full h-64 p-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 ${isDraggingOver ? 'border-blue-400 bg-blue-500/10' : 'border-gray-600 hover:border-gray-500 hover:bg-white/5'}`}
+        onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+        onDragLeave={() => setIsDraggingOver(false)}
+        onDrop={handleDrop}
+      >
+        {fileUrl ? (
+          <>
+              <img src={fileUrl} alt="Preview" className="object-contain w-full h-full rounded-md" />
+              <button
+                  onClick={(e) => { e.preventDefault(); onFileSelect(null as any); }} // Hack to clear the file
+                  className="absolute top-2 right-2 bg-black/50 text-white rounded-full p-1 hover:bg-black/80 transition-colors"
+                  aria-label="Remove image"
+              >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+              </button>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center text-center">
+              <PhotoIcon className="w-12 h-12 text-gray-500 mb-2" />
+              <span className="font-semibold text-gray-300">{label}</span>
+              <span className="text-sm text-gray-500">Click to upload or drag & drop</span>
+          </div>
+        )}
+        <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+      </label>
+
+      {/* Webcam button overlay - small button in lower right corner */}
+      {showWebcam && onWebcamClick && (
+          <button
+              onClick={onWebcamClick}
+              className="absolute bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-colors shadow-lg z-10"
+              style={{
+                  bottom: '8px',
+                  right: '8px',
+                  width: '32px',
+                  height: '32px',
+                  padding: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none',
+                  outline: 'none'
+              }}
+              aria-label="Use webcam"
+          >
+              <CameraIcon className="w-4 h-4" />
+          </button>
       )}
-      <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-    </label>
+    </div>
   );
 }
 
