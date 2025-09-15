@@ -32,6 +32,9 @@ jobs:
 
     - name: Build project
       run: npm run build
+      env:
+        VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+        VITE_API_BASE_URL: https://api.veilstudio.io
 
     - name: Deploy via FTPS
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
