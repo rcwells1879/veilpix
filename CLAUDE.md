@@ -40,8 +40,10 @@ GEMINI_API_KEY=your_gemini_api_key_here
 # Clerk Configuration (Required)
 VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 
-# API Configuration (Required - MUST use 127.0.0.1 in WSL environments)
-VITE_API_BASE_URL=http://127.0.0.1:3001
+# API Configuration (Required)
+# Development: Use 127.0.0.1 in WSL environments
+# Production: Use production API endpoint
+VITE_API_BASE_URL=https://api.veilstudio.io
 
 # Optional: Environment
 VITE_NODE_ENV=development
@@ -121,3 +123,121 @@ VITE_NODE_ENV=development
 - **Database Hanging**: If queries hang, check RLS policies and service role configuration
 - **Usage Counter Loading**: "Loading usage..." indicates network connectivity issues, not database problems
 - I will start the servers on my own whenever we need to test the GUI.
+
+## Production Deployment (Vultr VPS)
+
+### Server Configuration
+- **Provider**: Vultr VPS
+- **Plan**: Regular Performance ($6/month VPS + $3/month IPv4 = $9/month total)
+- **OS**: Alpine Linux 3.22 x86_64
+- **Resources**: 1 vCPU, 1GB RAM, 25GB SSD, 1TB bandwidth
+- **Location**: [Your selected region]
+
+### Network Configuration
+- **IPv4 Address**: `140.82.7.169`
+- **IPv6 Address**: `2001:19f0:1000:1781:5400:5ff:fea1:e84f`
+- **Domain**: `api.veilstudio.io` (A record pointing to IPv4)
+- **SSL**: Let's Encrypt certificate (auto-renewal configured)
+
+### Server Access
+```bash
+# SSH connection (from Windows/WSL)
+ssh root@140.82.7.169
+# or
+ssh veilpix@140.82.7.169
+
+# SSH key location (Windows): C:\Users\Ryan Wells\.ssh\id_ed25519
+```
+
+### Application Setup
+- **Application Path**: `/home/veilpix/veilpix-api/`
+- **Process Manager**: PM2 (auto-restart configured)
+- **Web Server**: Nginx reverse proxy
+- **User Account**: `veilpix` (non-root for security)
+
+### Service Management
+```bash
+# Check API status
+pm2 status
+
+# View API logs
+pm2 logs veilpix-api
+
+# Restart API
+pm2 restart veilpix-api
+
+# Check Nginx status
+service nginx status
+
+# Restart Nginx
+service nginx restart
+
+# Check server resources
+htop
+```
+
+### Firewall Configuration
+- **UFW Status**: Active
+- **Allowed Ports**: 22 (SSH), 80 (HTTP), 443 (HTTPS)
+- **SSH Access**: Key-based authentication only
+
+### SSL Certificate
+- **Certificate Path**: `/etc/letsencrypt/live/api.veilstudio.io/`
+- **Auto-renewal**: Configured via crontab (daily check at 12:00)
+- **Expires**: Check with `certbot certificates`
+- **Manual renewal**: `certbot renew`
+
+### Environment Configuration
+Production environment file location: `/home/veilpix/veilpix-api/.env`
+```env
+NODE_ENV=production
+PORT=3001
+GEMINI_API_KEY=[your_actual_key]
+CLERK_PUBLISHABLE_KEY=[test_key_currently]
+CLERK_SECRET_KEY=[test_key_currently]
+SUPABASE_URL=https://hjmkvroztbzmivrzjod.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=[actual_service_role_key]
+STRIPE_SECRET_KEY=[empty_currently]
+STRIPE_WEBHOOK_SECRET=[empty_currently]
+```
+
+### Deployment Pipeline
+- **Frontend**: GitHub Actions → FTP deployment (existing)
+- **API**: GitHub Actions → SSH deployment to VPS
+- **Triggers**: Path-based (frontend vs veilpix-api changes)
+
+### Production URLs
+- **API Health Check**: `https://api.veilstudio.io/api/health`
+- **Main Endpoints**:
+  - Auth: `https://api.veilstudio.io/api/auth/*`
+  - Gemini: `https://api.veilstudio.io/api/gemini/*`
+  - Usage: `https://api.veilstudio.io/api/usage/*`
+
+### Monitoring & Maintenance
+```bash
+# Check disk usage
+df -h
+
+# Check memory usage
+free -h
+
+# Check API process
+pm2 monit
+
+# View system logs
+tail -f /var/log/messages
+
+# Check SSL certificate expiry
+certbot certificates
+```
+
+### Backup & Recovery
+- **Configuration Backup**: PM2 ecosystem.config.js, Nginx configs in `/etc/nginx/http.d/`
+- **Environment Backup**: Securely store .env values
+- **Database**: Handled by Supabase (managed service)
+- **Code Backup**: GitHub repository
+
+### Pending Production Setup
+- **Clerk Production Keys**: Switch from test to production keys when ready
+- **Stripe Configuration**: Add production keys and webhook endpoints
+- **Gallery Feature**: Ready for Supabase Storage integration

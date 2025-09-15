@@ -1,8 +1,16 @@
-name: Deploy VeilPix to Production
+name: Deploy VeilPix Frontend to Production
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'vite.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 jobs:
