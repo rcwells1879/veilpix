@@ -72,6 +72,28 @@ const App: React.FC = () => {
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('retouch');
 
+  // Handle SSO callback from Clerk OAuth
+  useEffect(() => {
+    const handleSSOCallback = () => {
+      const hash = window.location.hash;
+      if (hash.includes('/sso-callback')) {
+        console.log('🔄 Handling SSO callback, clearing hash...');
+        // Clear the hash to return to normal app state
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    };
+
+    handleSSOCallback();
+
+    // Listen for hash changes
+    const handleHashChange = () => {
+      handleSSOCallback();
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   // Payment flow state
   const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
   const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
