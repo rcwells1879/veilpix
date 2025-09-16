@@ -68,11 +68,6 @@ export function ClerkWrapper({ children }: ClerkWrapperProps) {
     <ClerkProvider
       publishableKey={clerkPublishableKey}
       appearance={clerkTheme}
-      signInFallbackRedirectUrl="/veilpix/"
-      signUpFallbackRedirectUrl="/veilpix/"
-      afterSignInUrl="/veilpix/"
-      afterSignUpUrl="/veilpix/"
-      afterSignOutUrl="/veilpix/"
     >
       {children}
     </ClerkProvider>
