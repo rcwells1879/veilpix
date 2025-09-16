@@ -150,7 +150,6 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
 
 
 const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, initialTab = 'single', compositeFile1: initialCompositeFile1 = null }) => {
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [activeTab, setActiveTab] = useState<'single' | 'composite'>(initialTab);
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
@@ -159,16 +158,6 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
   useEffect(() => {
     setCompositeFile1(initialCompositeFile1);
   }, [initialCompositeFile1]);
-
-  const handleSingleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onFileSelect(e.target.files);
-  };
-  
-  const handleSingleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDraggingOver(false);
-    onFileSelect(e.dataTransfer.files);
-  };
   
   const handleComposite = useCallback(() => {
     if (compositeFile1 && compositeFile2) {
@@ -199,24 +188,23 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
 
         {/* Single Photo Content */}
         {activeTab === 'single' && (
-           <div 
-              className={`flex flex-col items-center gap-4 py-6 transition-all duration-300 rounded-lg border-2 ${isDraggingOver ? 'bg-blue-500/10 border-dashed border-blue-400' : 'border-transparent'}`}
-              onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
-              onDragLeave={() => setIsDraggingOver(false)}
-              onDrop={handleSingleDrop}
-            >
-              <div className="flex flex-col sm:flex-row items-center gap-4">
-                <label htmlFor="image-upload-start" className="relative inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-white bg-black rounded-full cursor-pointer group hover:bg-gray-800 transition-colors">
-                    <UploadIcon className="w-6 h-6 mr-3 transition-transform duration-500 ease-in-out group-hover:rotate-[360deg] group-hover:scale-110" />
-                    Upload an Image
-                </label>
-                 <button onClick={onUseWebcamClick} className="relative inline-flex items-center justify-center px-10 py-5 text-xl font-bold text-white bg-black rounded-full cursor-pointer group hover:bg-gray-800 transition-colors">
-                  <CameraIcon className="w-6 h-6 mr-3 transition-transform duration-300 ease-in-out group-hover:scale-110" />
-                  Use Webcam
-                </button>
-              </div>
-              <input id="image-upload-start" type="file" className="hidden" accept="image/*,.heic,.heif" onChange={handleSingleFileChange} />
-              <p className="text-sm text-gray-500">or drag and drop a file anywhere</p>
+          <div className="flex flex-col items-center gap-4 py-6 w-full animate-fade-in">
+            <ImageDropzone
+              file={null}
+              onFileSelect={(file) => {
+                if (file) {
+                  // Create a FileList to satisfy the onFileSelect prop type
+                  const dt = new DataTransfer();
+                  dt.items.add(file);
+                  onFileSelect(dt.files);
+                } else {
+                  onFileSelect(null);
+                }
+              }}
+              label="Upload a Photo"
+              showWebcam={true}
+              onWebcamClick={onUseWebcamClick}
+            />
           </div>
         )}
 
