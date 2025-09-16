@@ -65,9 +65,14 @@ interface ClerkWrapperProps {
 
 export function ClerkWrapper({ children }: ClerkWrapperProps) {
   return (
-    <ClerkProvider 
+    <ClerkProvider
       publishableKey={clerkPublishableKey}
       appearance={clerkTheme}
+      signInFallbackRedirectUrl="/veilpix/"
+      signUpFallbackRedirectUrl="/veilpix/"
+      afterSignInUrl="/veilpix/"
+      afterSignUpUrl="/veilpix/"
+      afterSignOutUrl="/veilpix/"
     >
       {children}
     </ClerkProvider>
