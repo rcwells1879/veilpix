@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UploadIcon, MagicWandIcon, PaletteIcon, SunIcon, CameraIcon, CombineIcon, PhotoIcon } from './icons';
 import { processFileForUpload, isHEIC } from '../src/utils/heicConverter';
+import FAQ from './FAQ';
 
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;
@@ -251,6 +252,9 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               </div>
           </div>
       </div>
+
+      {/* FAQ Section */}
+      <FAQ />
     </div>
   );
 };

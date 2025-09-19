@@ -28,3 +28,5 @@ veilpix-api/.env
 *.njsproj
 *.sln
 *.sw?
+.gemini/*
+~/.config/google/gemini-cli/settings.json
