@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { UploadIcon, MagicWandIcon, PaletteIcon, SunIcon, CameraIcon, CombineIcon, PhotoIcon } from './icons';
-import { processFileForUpload, isHEIC } from '../src/utils/heicConverter';
+// HEIC converter will be dynamically imported when needed
 import FAQ from './FAQ';
 
 interface StartScreenProps {
@@ -36,6 +36,9 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
     if(e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
 
+      // Dynamically import HEIC converter when needed
+      const { isHEIC, processFileForUpload } = await import('../src/utils/heicConverter');
+
       // Check if it's a HEIC file
       const isHeicFile = await isHEIC(selectedFile);
 
@@ -63,6 +66,9 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
     setIsDraggingOver(false);
     if(e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0];
+
+      // Dynamically import HEIC converter when needed
+      const { isHEIC, processFileForUpload } = await import('../src/utils/heicConverter');
 
       // Check if it's a HEIC file
       const isHeicFile = await isHEIC(droppedFile);

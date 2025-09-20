@@ -4,7 +4,7 @@
 */
 
 
-import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { useGenerateEdit, useGenerateFilter, useGenerateAdjust, useGenerateComposite } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
@@ -14,12 +14,14 @@ import AdjustmentPanel from './components/AdjustmentPanel';
 import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
-import WebcamCapture from './components/WebcamCapture';
-import CompositeScreen from './components/CompositeScreen';
-import { PaymentSuccess } from './components/PaymentSuccess';
-import { PaymentCancelled } from './components/PaymentCancelled';
-import { PricingModal } from './components/PricingModal';
-import { processFileForUpload, isHEIC } from './src/utils/heicConverter';
+
+// Lazy load heavy components that are conditionally rendered
+const WebcamCapture = lazy(() => import('./components/WebcamCapture'));
+const CompositeScreen = lazy(() => import('./components/CompositeScreen'));
+const PaymentSuccess = lazy(() => import('./components/PaymentSuccess').then(module => ({ default: module.PaymentSuccess })));
+const PaymentCancelled = lazy(() => import('./components/PaymentCancelled').then(module => ({ default: module.PaymentCancelled })));
+const PricingModal = lazy(() => import('./components/PricingModal').then(module => ({ default: module.PricingModal })));
+// HEIC converter will be dynamically imported when needed
 
 // Helper to convert a data URL string to a File object
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -71,6 +73,14 @@ const App: React.FC = () => {
   const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('retouch');
+
+  // Smart preloading for lazy components
+  useEffect(() => {
+    // Preload CompositeScreen when user first uploads an image
+    if (history.length > 0) {
+      import('./components/CompositeScreen');
+    }
+  }, [history.length]);
 
   // Handle SSO callback from Clerk OAuth
   useEffect(() => {
@@ -189,6 +199,9 @@ const App: React.FC = () => {
   const handleImageUpload = useCallback(async (file: File) => {
     setError(null);
 
+    // Dynamically import HEIC converter when needed
+    const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
+
     // Check if it's a HEIC file
     const isHeicFile = await isHEIC(file);
 
@@ -228,7 +241,10 @@ const App: React.FC = () => {
   const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
     setError(null);
 
-    const needsProcessing = isHEIC(file1) || isHEIC(file2);
+    // Dynamically import HEIC converter when needed
+    const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
+
+    const needsProcessing = await isHEIC(file1) || await isHEIC(file2);
 
     if (needsProcessing) {
       setIsProcessingFile(true);
@@ -594,17 +610,25 @@ const App: React.FC = () => {
     }
 
     if (view === 'webcam') {
-        return <WebcamCapture onCapture={handleWebcamCapture} onBack={() => setView('start')} />;
+        return (
+          <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Spinner /></div>}>
+            <WebcamCapture onCapture={handleWebcamCapture} onBack={() => setView('start')} />
+          </Suspense>
+        );
     }
 
     if (view === 'composite' && sourceImage1 && sourceImage2) {
-      return <CompositeScreen 
-        sourceImage1={sourceImage1} 
-        sourceImage2={sourceImage2}
-        onGenerate={handleGenerateComposite}
-        isLoading={isLoading}
-        onBack={handleUploadNew}
-      />
+      return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Spinner /></div>}>
+          <CompositeScreen
+            sourceImage1={sourceImage1}
+            sourceImage2={sourceImage2}
+            onGenerate={handleGenerateComposite}
+            isLoading={isLoading}
+            onBack={handleUploadNew}
+          />
+        </Suspense>
+      );
     }
 
     if (view === 'editor' && currentImageUrl) {
@@ -798,31 +822,37 @@ const App: React.FC = () => {
       
       {/* Payment Success Modal */}
       {showPaymentSuccess && (
-        <PaymentSuccess 
-          sessionId={paymentSessionId || undefined}
-          onClose={() => {
-            setShowPaymentSuccess(false);
-            setPaymentSessionId(null);
-          }}
-        />
+        <Suspense fallback={null}>
+          <PaymentSuccess
+            sessionId={paymentSessionId || undefined}
+            onClose={() => {
+              setShowPaymentSuccess(false);
+              setPaymentSessionId(null);
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Payment Cancelled Modal */}
       {showPaymentCancelled && (
-        <PaymentCancelled 
-          onClose={() => setShowPaymentCancelled(false)}
-          onRetry={() => {
-            setShowPaymentCancelled(false);
-            // Could trigger a new payment flow here if needed
-          }}
-        />
+        <Suspense fallback={null}>
+          <PaymentCancelled
+            onClose={() => setShowPaymentCancelled(false)}
+            onRetry={() => {
+              setShowPaymentCancelled(false);
+              // Could trigger a new payment flow here if needed
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Pricing Modal */}
-      <PricingModal 
-        isOpen={showPricingModal}
-        onClose={() => setShowPricingModal(false)}
-      />
+      <Suspense fallback={null}>
+        <PricingModal
+          isOpen={showPricingModal}
+          onClose={() => setShowPricingModal(false)}
+        />
+      </Suspense>
     </div>
   );
 };
