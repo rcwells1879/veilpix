@@ -10,6 +10,6 @@
   <rect width="1200" height="630" fill="url(#bg)"/>
   <circle cx="600" cy="315" r="120" fill="#00A6E8" opacity="0.8"/>
   <text x="600" y="335" text-anchor="middle" fill="white" font-family="Inter, sans-serif" font-size="72" font-weight="800">VeilPix</text>
-  <text x="600" y="420" text-anchor="middle" fill="#E5E7EB" font-family="Inter, sans-serif" font-size="32" font-weight="500">Free AI Photo Editor</text>
-  <text x="600" y="470" text-anchor="middle" fill="#9CA3AF" font-family="Inter, sans-serif" font-size="24">Google Nano Banana • Private • No Sign-up</text>
+  <text x="600" y="420" text-anchor="middle" fill="#E5E7EB" font-family="Inter, sans-serif" font-size="32" font-weight="500">AI Image Generation</text>
+  <text x="600" y="470" text-anchor="middle" fill="#9CA3AF" font-family="Inter, sans-serif" font-size="24">Google Nano Banana • Private • Free</text>
 </svg>
