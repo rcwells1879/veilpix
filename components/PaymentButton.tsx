@@ -51,7 +51,13 @@ export const PaymentButton: React.FC<PaymentButtonProps> = ({
         onSuccess?.()
       }
     } catch (error: any) {
-      const message = error?.response?.data?.message || error.message || 'Failed to create checkout session'
+      let message = error?.response?.data?.error || error?.response?.data?.message || error.message || 'Failed to create checkout session'
+
+      // Provide helpful guidance for common errors
+      if (message.includes('No payment method found')) {
+        message = 'Please add a payment method first to manage billing'
+      }
+
       onError?.(message)
     }
   }

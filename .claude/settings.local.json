@@ -8,5 +8,12 @@
     ],
     "deny": [],
     "ask": []
+  },
+  "mcpServers": {
+    "cloudflare": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["mcp-remote", "https://radar.mcp.cloudflare.com/sse"]
+    }
   }
 }

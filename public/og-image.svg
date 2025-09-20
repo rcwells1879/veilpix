@@ -1,0 +1,15 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#020106"/>
+      <stop offset="25%" style="stop-color:#0A1629"/>
+      <stop offset="75%" style="stop-color:#113652"/>
+      <stop offset="100%" style="stop-color:#00A6E8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="600" cy="315" r="120" fill="#00A6E8" opacity="0.8"/>
+  <text x="600" y="335" text-anchor="middle" fill="white" font-family="Inter, sans-serif" font-size="72" font-weight="800">VeilPix</text>
+  <text x="600" y="420" text-anchor="middle" fill="#E5E7EB" font-family="Inter, sans-serif" font-size="32" font-weight="500">Free AI Photo Editor</text>
+  <text x="600" y="470" text-anchor="middle" fill="#9CA3AF" font-family="Inter, sans-serif" font-size="24">Google Nano Banana • Private • No Sign-up</text>
+</svg>
