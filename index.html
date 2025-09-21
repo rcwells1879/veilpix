@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <!-- Primary Meta Tags -->
-    <title>VeilPix - Free AI Image Generation | Google Nano Banana | Private Photo Editor</title>
-    <meta name="title" content="VeilPix - Free AI Image Generation | Google Nano Banana | Private Photo Editor" />
+    <title>VeilPix - AI Image Editor | Privacy + Nano Banana AI</title>
+    <meta name="title" content="VeilPix - AI Image Editor | Privacy + Nano Banana AI" />
     <meta name="description" content="Free AI image generation with Google's Nano Banana model. Private photo editing with complete privacy - no data storage, no trackers, no sign-up required. Generate and edit images using advanced AI while protecting your privacy." />
     <meta name="keywords" content="AI image generation, Google Nano Banana, private AI photo editor, free AI image generator, privacy photo editing, Nano Banana AI model, secure AI image generation, private image editing, AI photo generation, anonymous photo editor" />
     <meta name="author" content="VeilPix" />
@@ -24,7 +24,7 @@
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://veilstudio.io/veilpix/" />
-    <meta property="og:title" content="VeilPix - Free AI Image Generation | Google Nano Banana | Private Photo Editor" />
+    <meta property="og:title" content="VeilPix - AI Image Editor | Privacy + Nano Banana AI" />
     <meta property="og:description" content="Free AI image generation with Google's Nano Banana model. Private photo editing with complete privacy - no data storage, no trackers, no sign-up required. Generate and edit images using advanced AI while protecting your privacy." />
     <meta property="og:image" content="https://veilstudio.io/veilpix/og-image.webp" />
     <meta property="og:image:type" content="image/webp" />
@@ -35,7 +35,7 @@
     <!-- X (Twitter) -->
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content="https://veilstudio.io/veilpix/" />
-    <meta property="twitter:title" content="VeilPix - Free AI Image Generation | Google Nano Banana | Private Photo Editor" />
+    <meta property="twitter:title" content="VeilPix - AI Image Editor | Privacy + Nano Banana AI" />
     <meta property="twitter:description" content="Free AI image generation with Google's Nano Banana model. Private photo editing with complete privacy - no data storage, no trackers, no sign-up required. Generate and edit images using advanced AI while protecting your privacy." />
     <meta property="twitter:image" content="https://veilstudio.io/veilpix/og-image.webp" />
 
@@ -190,7 +190,13 @@ body {
       <div class="absolute inset-0 bg-gradient-to-br from-[#020106] via-[#0A1629] via-[#113652] to-[#00A6E8]"></div>
       <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/3 to-transparent animate-pulse [animation-duration:6s]"></div>
     </div>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback content for search engines before React loads -->
+      <main style="display: none;">
+        <h1>VeilPix - AI Image Editor | Privacy + Nano Banana AI</h1>
+        <p>Free AI image generation with Google's Nano Banana model. Private photo editing with complete privacy - no data storage, no trackers, no sign-up required.</p>
+      </main>
+    </div>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
