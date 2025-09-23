@@ -241,3 +241,4 @@ certbot certificates
 - **Clerk Production Keys**: Switch from test to production keys when ready
 - **Stripe Configuration**: Add production keys and webhook endpoints
 - **Gallery Feature**: Ready for Supabase Storage integration
+- after making changes to the website, always check to see if we need to update sitemap.xml and deploy.yml to account for the new changes.
