@@ -423,9 +423,9 @@ const App: React.FC = () => {
       setError('No image loaded to apply an adjustment to.');
       return;
     }
-    
+
     setError(null);
-    
+
     // Add optimistic update for immediate feedback
     const optimisticFile = new File([currentImage], `optimistic-adjusted-${Date.now()}.png`, { type: currentImage.type });
     startTransition(() => {
@@ -452,6 +452,55 @@ const App: React.FC = () => {
       console.error(err);
     }
   }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory]);
+
+  const handleApplyAspectRatio = useCallback(async (aspectRatioFile: string, customPrompt: string) => {
+    if (!currentImage) {
+      setError('No image loaded to apply aspect ratio change to.');
+      return;
+    }
+
+    setError(null);
+
+    try {
+      // Load the transparent aspect ratio template from the blog folder
+      const templateResponse = await fetch(`/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioFile}`);
+      if (!templateResponse.ok) {
+        throw new Error(`Failed to load aspect ratio template: ${aspectRatioFile}`);
+      }
+
+      const templateBlob = await templateResponse.blob();
+      const templateFile = new File([templateBlob], aspectRatioFile, { type: 'image/png' });
+
+      // Create the composite prompt with the magic instruction
+      const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
+      const compositePrompt = `${basePrompt}. Use the uploaded image as the reference for final aspect ratio.`;
+
+      // Add optimistic update for immediate feedback
+      const optimisticFile = new File([currentImage], `optimistic-aspect-${Date.now()}.png`, { type: currentImage.type });
+      startTransition(() => {
+        setOptimisticHistory(optimisticFile);
+      });
+
+      // Use the existing composite functionality with current image + template
+      const response = await compositeMutation.mutateAsync({
+        image1: currentImage,
+        image2: templateFile,
+        prompt: compositePrompt
+      });
+
+      if (response.success && response.image) {
+        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
+        const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
+        addImageToHistory(newImageFile);
+      } else {
+        throw new Error(response.message || 'Failed to apply aspect ratio change');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      setError(`Failed to apply the aspect ratio change. ${errorMessage}`);
+      console.error(err);
+    }
+  }, [currentImage, addImageToHistory, compositeMutation, setOptimisticHistory]);
 
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
@@ -743,7 +792,7 @@ const App: React.FC = () => {
                   </div>
               )}
               {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-              {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} />}
+              {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} />}
               {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
           </div>
           
