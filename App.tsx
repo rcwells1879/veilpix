@@ -72,7 +72,7 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('retouch');
+  const [activeTab, setActiveTab] = useState<Tab>('adjust');
 
   // Smart preloading for lazy components
   useEffect(() => {
@@ -215,7 +215,7 @@ const App: React.FC = () => {
         setHistoryIndex(0);
         setEditHotspot(null);
         setDisplayHotspot(null);
-        setActiveTab('retouch');
+        setActiveTab('adjust');
         setCrop(undefined);
         setCompletedCrop(undefined);
         setView('editor');
@@ -751,7 +751,7 @@ const App: React.FC = () => {
           </div>
           
           <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-2 flex items-center justify-center gap-2 backdrop-blur-sm">
-              {(['retouch', 'crop', 'adjust', 'filters'] as Tab[]).map(tab => (
+              {(['adjust', 'crop', 'retouch', 'filters'] as Tab[]).map(tab => (
                    <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
