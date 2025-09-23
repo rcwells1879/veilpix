@@ -102,7 +102,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onCapture, onBack }) => {
 
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 animate-fade-in">
-      <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20 aspect-video">
+      <div className="relative shadow-2xl rounded-xl overflow-hidden bg-black/20 inline-block">
         {isLoading && (
           <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4">
             <Spinner />
@@ -114,7 +114,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onCapture, onBack }) => {
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-cover transform scale-x-[-1] transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+          className={`max-w-full max-h-[70vh] transform scale-x-[-1] transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
           onCanPlay={() => setIsLoading(false)}
         />
         <canvas ref={canvasRef} className="hidden" />
