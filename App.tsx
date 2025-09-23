@@ -463,7 +463,7 @@ const App: React.FC = () => {
 
     try {
       // Load the transparent aspect ratio template from the blog folder
-      const templateResponse = await fetch(`/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioFile}`);
+      const templateResponse = await fetch(`/veilpix/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioFile}`);
       if (!templateResponse.ok) {
         throw new Error(`Failed to load aspect ratio template: ${aspectRatioFile}`);
       }
