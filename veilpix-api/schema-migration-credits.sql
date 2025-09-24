@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_users_clerk_user_id ON public.users(clerk_user_id
 ALTER TABLE public.credit_purchases ENABLE ROW LEVEL SECURITY;
 
 -- 6. Create RLS policy for credit purchases (ensure JWT claim matches clerk_user_id or adjust accordingly)
+DROP POLICY IF EXISTS "Users can view own credit purchases" ON public.credit_purchases;
 CREATE POLICY "Users can view own credit purchases" ON public.credit_purchases
     FOR SELECT TO authenticated USING (clerk_user_id = auth.jwt() ->> 'sub');
 
@@ -87,7 +88,7 @@ BEGIN
 
     RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
 
 -- 10 Create function public.add_user_credits (schema-qualified, set search_path, SECURITY INVOKER) 
 CREATE OR REPLACE FUNCTION public.add_user_credits(p_clerk_user_id TEXT, p_credits INTEGER)
@@ -105,4 +106,4 @@ BEGIN
 
     RETURN FOUND;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY INVOKER;

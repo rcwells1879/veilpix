@@ -93,6 +93,17 @@ async function handleCheckoutSessionCompleted(session) {
       
       if (!creditResult.success) {
         console.error('Failed to add credits to user:', creditResult.error);
+        
+        // Update credit purchase record to failed
+        await supabase
+          .from('credit_purchases')
+          .update({ 
+            status: 'failed',
+            completed_at: new Date().toISOString(),
+            stripe_payment_intent_id: session.payment_intent
+          })
+          .eq('stripe_checkout_session_id', session.id);
+          
         return;
       }
 
