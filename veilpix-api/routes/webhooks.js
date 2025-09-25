@@ -12,6 +12,12 @@ const router = express.Router();
 // Create a single Supabase client for this module
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// --- DIAGNOSTIC LOGS ---
+console.log('supabase type:', typeof supabase);
+console.log('supabase keys:', Object.keys(supabase || {}));
+console.log('@supabase/supabase-js version:', require('@supabase/supabase-js/package.json').version);
+// -----------------------
+
 // Stripe webhook endpoint
 router.post('/stripe', async (req, res) => {
   const sig = req.headers['stripe-signature'];
