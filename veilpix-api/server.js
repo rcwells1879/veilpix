@@ -70,7 +70,7 @@ app.use(clerkMiddleware());
 const webhookRoutes = require('./routes/webhooks');
 
 // Webhook routes need raw body parsing - must come before JSON parsing
-app.use('/api/webhooks', webhookRoutes);
+app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookRoutes);
 
 // Enhanced rate limiting with different limits for different endpoints
 const createRateLimiter = (windowMs, max, message) => rateLimit({

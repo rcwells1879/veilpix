@@ -9,7 +9,7 @@ const { db, supabase } = require('../utils/database');
 const router = express.Router();
 
 // Stripe webhook endpoint
-router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/stripe', async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -95,7 +95,7 @@ async function handleCheckoutSessionCompleted(session) {
         console.error('Failed to add credits to user:', creditResult.error);
         
         // Update credit purchase record to failed
-        await supabase
+        await supabase()
           .from('credit_purchases')
           .update({ 
             status: 'failed',
@@ -108,7 +108,7 @@ async function handleCheckoutSessionCompleted(session) {
       }
 
       // Update credit purchase record to completed
-      const supabaseClient = supabase;
+      const supabaseClient = supabase();
       await supabaseClient
         .from('credit_purchases')
         .update({ 
@@ -132,7 +132,7 @@ async function handleCheckoutSessionCompleted(session) {
         updateData.stripe_subscription_id = session.subscription;
       }
 
-      const { error } = await supabase
+const { error } = await supabase()
         .from('users')
         .upsert({
           clerk_user_id: clerkUserId,
@@ -157,7 +157,7 @@ async function handleSubscriptionCreated(subscription) {
     const customerId = subscription.customer;
     
     // Find user by Stripe customer ID
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: userError } = await supabase()
       .from('users')
       .select('clerk_user_id')
       .eq('stripe_customer_id', customerId)
@@ -169,7 +169,7 @@ async function handleSubscriptionCreated(subscription) {
     }
 
     // Update user with subscription details
-    const { error } = await supabase
+    const { error } = await supabase()
       .from('users')
       .update({
         stripe_subscription_id: subscription.id,
@@ -195,7 +195,7 @@ async function handleSubscriptionUpdated(subscription) {
   try {
     const customerId = subscription.customer;
     
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: userError } = await supabase()
       .from('users')
       .select('clerk_user_id')
       .eq('stripe_customer_id', customerId)
@@ -207,7 +207,7 @@ async function handleSubscriptionUpdated(subscription) {
     }
 
     // Update subscription status
-    const { error } = await supabase
+    const { error } = await supabase()
       .from('users')
       .update({
         subscription_status: subscription.status,
@@ -231,7 +231,7 @@ async function handleSubscriptionDeleted(subscription) {
   try {
     const customerId = subscription.customer;
     
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: userError } = await supabase()
       .from('users')
       .select('clerk_user_id')
       .eq('stripe_customer_id', customerId)
@@ -243,7 +243,7 @@ async function handleSubscriptionDeleted(subscription) {
     }
 
     // Update user to reflect cancelled subscription
-    const { error } = await supabase
+    const { error } = await supabase()
       .from('users')
       .update({
         subscription_status: 'cancelled',
@@ -268,7 +268,7 @@ async function handlePaymentSucceeded(invoice) {
   try {
     const customerId = invoice.customer;
     
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: userError } = await supabase()
       .from('users')
       .select('clerk_user_id')
       .eq('stripe_customer_id', customerId)
@@ -280,7 +280,7 @@ async function handlePaymentSucceeded(invoice) {
     }
 
     // Update last successful payment timestamp
-    const { error } = await supabase
+    const { error } = await supabase()
       .from('users')
       .update({
         payment_status: 'active',
@@ -305,7 +305,7 @@ async function handlePaymentFailed(invoice) {
   try {
     const customerId = invoice.customer;
     
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: userError } = await supabase()
       .from('users')
       .select('clerk_user_id')
       .eq('stripe_customer_id', customerId)
@@ -317,7 +317,7 @@ async function handlePaymentFailed(invoice) {
     }
 
     // Update payment status to reflect failure
-    const { error } = await supabase
+    const { error } = await supabase()
       .from('users')
       .update({
         payment_status: 'failed',
@@ -341,7 +341,7 @@ async function handleSetupIntentSucceeded(setupIntent) {
   try {
     const customerId = setupIntent.customer;
     
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: userError } = await supabase()
       .from('users')
       .select('clerk_user_id')
       .eq('stripe_customer_id', customerId)
@@ -353,7 +353,7 @@ async function handleSetupIntentSucceeded(setupIntent) {
     }
 
     // Update user to reflect payment method added
-    const { error } = await supabase
+    const { error } = await supabase()
       .from('users')
       .update({
         payment_status: 'active',
