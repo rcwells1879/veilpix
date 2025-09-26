@@ -51,8 +51,9 @@ jobs:
           # Install dependencies
           npm ci --production
 
-          # Restart application
-          pm2 restart veilpix-api || pm2 start ecosystem.config.js
+          # Restart application by deleting and starting fresh
+          pm2 delete veilpix-api || true
+          pm2 start ecosystem.config.js
 
           # Health check
           sleep 5
