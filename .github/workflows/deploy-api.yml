@@ -48,7 +48,8 @@ jobs:
           # Pull latest changes
           git pull origin main
 
-          # Install dependencies
+          # Install dependencies in the API subdirectory
+          cd veilpix-api
           npm ci --production
 
           # Restart application by deleting and starting fresh
