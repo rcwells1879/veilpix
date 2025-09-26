@@ -4,6 +4,7 @@
  */
 
 // TEST DEPLOYMENT - This comment verifies deployment is working
+// FINAL TEST - Deployment pipeline is fully functional!
 
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
