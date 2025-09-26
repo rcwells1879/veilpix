@@ -9,11 +9,11 @@
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createClient } = require('@supabase/supabase-js');
-const { db, supabase: getSupabaseClient } = require('../utils/database');
+const { db } = require('../utils/database');
 const router = express.Router();
 
-// Use the database utility's supabase client for consistency
-const supabase = getSupabaseClient();
+// Create a single Supabase client for this module following Supabase AI recommendations
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 // Stripe webhook endpoint
 router.post('/stripe', async (req, res) => {
