@@ -15,15 +15,26 @@ const router = express.Router();
 // Create a single Supabase client for this module following Supabase AI recommendations
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// Defensive check recommended by Supabase AI
+if (!supabase || typeof supabase.from !== 'function') {
+  console.error('❌ Invalid supabase client:', supabase);
+  throw new Error('Supabase client not initialized properly');
+}
+console.log('✅ Supabase client initialized successfully');
+
 // Stripe webhook endpoint
 router.post('/stripe', async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
+  // Debug body type as recommended by Supabase AI
+  console.log('🔍 Webhook body type:', typeof req.body, 'Buffer?', Buffer.isBuffer(req.body));
+
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     console.error('Webhook signature verification failed:', err.message);
+    console.error('Body type during error:', typeof req.body);
   return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
