@@ -34,25 +34,47 @@ jobs:
         npm test || echo "No tests configured"
 
     - name: Deploy to server
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.API_SERVER_HOST }}
+        username: ${{ secrets.API_SERVER_USER }}
+        key: ${{ secrets.API_SERVER_SSH_KEY }}
+        source: "veilpix-api/*"
+        target: "/home/veilpix/veilpix-api-new"
+        strip_components: 1
+
+    - name: Install and restart on server
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.API_SERVER_HOST }}
         username: ${{ secrets.API_SERVER_USER }}
         key: ${{ secrets.API_SERVER_SSH_KEY }}
         script: |
+          # Backup current version
+          if [ -d "/home/veilpix/veilpix-api" ]; then
+            mv /home/veilpix/veilpix-api /home/veilpix/backup-$(date +%Y%m%d-%H%M%S)
+          fi
+
+          # Move new version to production location
+          mv /home/veilpix/veilpix-api-new /home/veilpix/veilpix-api
           cd /home/veilpix/veilpix-api
 
-          # Backup current version
-          cp -r . ../backup-$(date +%Y%m%d-%H%M%S) 2>/dev/null || echo "No previous version to backup"
+          # Restore backed up environment configuration
+          if [ -f "/home/veilpix/.env.backup" ]; then
+            cp /home/veilpix/.env.backup .env
+            echo "✅ Restored .env from backup"
+          else
+            echo "❌ No .env backup found - deployment may fail!"
+            exit 1
+          fi
 
-          # Pull latest changes
-          git pull origin main
-
-          # Install dependencies in the API subdirectory
-          cd veilpix-api
+          # Install dependencies
           npm ci --production
 
-          # Restart application by deleting and starting fresh
+          # Create logs directory for PM2
+          mkdir -p logs
+
+          # Restart application
           pm2 delete veilpix-api || true
           pm2 start ecosystem.config.js
 
@@ -60,7 +82,7 @@ jobs:
           sleep 5
           curl -f http://127.0.0.1:3001/api/health || exit 1
 
-          echo "✅ API deployment successful!"
+          echo "✅ API deployment successful - clean structure!"
 
     - name: Notify deployment status
       if: always()
