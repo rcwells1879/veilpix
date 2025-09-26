@@ -9,11 +9,11 @@
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createClient } = require('@supabase/supabase-js');
-const { db } = require('../utils/database');
+const { db, supabase: getSupabaseClient } = require('../utils/database');
 const router = express.Router();
 
-// Create a single Supabase client for this module
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+// Use the database utility's supabase client for consistency
+const supabase = getSupabaseClient();
 
 // Stripe webhook endpoint
 router.post('/stripe', async (req, res) => {
@@ -78,13 +78,48 @@ async function handleCheckoutSessionCompleted(session) {
 
       if (!creditResult.success) {
         console.error('Failed to add credits to user:', creditResult.error);
-        await supabase.from('credit_purchases').update({ status: 'failed', completed_at: new Date().toISOString(),stripe_payment_intent_id: session.payment_intent 
-        }).eq('stripe_checkout_session_id', session.id);
+        try {
+          await supabase.from('credit_purchases').update({
+            status: 'failed',
+            completed_at: new Date().toISOString(),
+            stripe_payment_intent_id: session.payment_intent
+          }).eq('stripe_checkout_session_id', session.id);
+        } catch (dbError) {
+          console.error('Error updating credit_purchases to failed:', dbError);
+        }
         return;
       }
 
-      await supabase.from('credit_purchases').update({ status: 'completed', completed_at: new Date().toISOString(),stripe_payment_intent_id: session.payment_intent 
-      }).eq('stripe_checkout_session_id', session.id);
+      try {
+        await supabase.from('credit_purchases').update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          stripe_payment_intent_id: session.payment_intent
+        }).eq('stripe_checkout_session_id', session.id);
+        console.log(`Successfully updated credit_purchases to completed for session ${session.id}`);
+      } catch (dbError) {
+        console.error('Error updating credit_purchases to completed:', dbError);
+      }
+
+      // Update users table with payment status for credit purchases
+      try {
+        const updateData = {
+          payment_status: 'active',
+          last_payment_at: new Date().toISOString(),
+          last_invoice_amount: session.amount_total || 0
+        };
+        if (session.customer) {
+          updateData.stripe_customer_id = session.customer;
+        }
+        const { error } = await supabase.from('users').update(updateData).eq('clerk_user_id', clerkUserId);
+        if (error) {
+          console.error('Error updating users table for credit purchase:', error);
+        } else {
+          console.log(`Successfully updated users table payment status for user ${clerkUserId}`);
+        }
+      } catch (dbError) {
+        console.error('Error updating users table for credit purchase:', dbError);
+      }
 
       console.log(`Successfully added ${credits} credits to user ${clerkUserId}`);
     } else {
