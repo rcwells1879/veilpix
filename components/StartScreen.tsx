@@ -15,6 +15,8 @@ interface StartScreenProps {
   onUseWebcamForCompositeClick: () => void;
   initialTab?: 'single' | 'composite';
   compositeFile1?: File | null;
+  isAuthenticated?: boolean;
+  onShowSignupPrompt?: () => void;
 }
 
 const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File | null, label: string, showWebcam?: boolean, onWebcamClick?: () => void }> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick }) => {
@@ -35,6 +37,7 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if(e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
+      console.log('📁 File input change detected:', selectedFile.name);
 
       // Dynamically import HEIC converter when needed
       const { isHEIC, processFileForUpload } = await import('../src/utils/heicConverter');
@@ -66,6 +69,7 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
     setIsDraggingOver(false);
     if(e.dataTransfer.files && e.dataTransfer.files[0]) {
       const droppedFile = e.dataTransfer.files[0];
+      console.log('🎯 File drop detected:', droppedFile.name);
 
       // Dynamically import HEIC converter when needed
       const { isHEIC, processFileForUpload } = await import('../src/utils/heicConverter');
@@ -156,7 +160,7 @@ const ImageDropzone: React.FC<{ onFileSelect: (file: File) => void, file: File |
 }
 
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, initialTab = 'single', compositeFile1: initialCompositeFile1 = null }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, initialTab = 'single', compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt }) => {
   const [activeTab, setActiveTab] = useState<'single' | 'composite'>(initialTab);
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
@@ -171,6 +175,29 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
       onCompositeSelect(compositeFile1, compositeFile2);
     }
   }, [compositeFile1, compositeFile2, onCompositeSelect]);
+
+  // Authentication check wrapper for composite file uploads
+  const handleCompositeFile1Upload = useCallback((file: File) => {
+    console.log('🎯 Composite File 1 upload attempt, authenticated:', isAuthenticated);
+    if (!isAuthenticated && onShowSignupPrompt) {
+      console.log('🚨 User not authenticated, showing signup prompt for composite file 1');
+      onShowSignupPrompt();
+      return;
+    }
+    console.log('✅ User authenticated, setting composite file 1');
+    setCompositeFile1(file);
+  }, [isAuthenticated, onShowSignupPrompt]);
+
+  const handleCompositeFile2Upload = useCallback((file: File) => {
+    console.log('🎯 Composite File 2 upload attempt, authenticated:', isAuthenticated);
+    if (!isAuthenticated && onShowSignupPrompt) {
+      console.log('🚨 User not authenticated, showing signup prompt for composite file 2');
+      onShowSignupPrompt();
+      return;
+    }
+    console.log('✅ User authenticated, setting composite file 2');
+    setCompositeFile2(file);
+  }, [isAuthenticated, onShowSignupPrompt]);
 
   return (
     <div className="flex flex-col items-center gap-6 animate-fade-in w-full max-w-5xl mx-auto">
@@ -199,10 +226,12 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
             <ImageDropzone
               file={null}
               onFileSelect={(file) => {
+                console.log('🚀 StartScreen calling onFileSelect with file:', file?.name);
                 if (file) {
                   // Create a FileList to satisfy the onFileSelect prop type
                   const dt = new DataTransfer();
                   dt.items.add(file);
+                  console.log('📤 Calling App.tsx handleFileSelect with FileList');
                   onFileSelect(dt.files);
                 } else {
                   onFileSelect(null);
@@ -219,8 +248,8 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         {activeTab === 'composite' && (
           <div className="flex flex-col items-center gap-4 animate-fade-in">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                  <ImageDropzone file={compositeFile1} onFileSelect={setCompositeFile1} label="Base Image" showWebcam={true} onWebcamClick={onUseWebcamForCompositeClick} />
-                  <ImageDropzone file={compositeFile2} onFileSelect={setCompositeFile2} label="Style / Element Image" />
+                  <ImageDropzone file={compositeFile1} onFileSelect={handleCompositeFile1Upload} label="Base Image" showWebcam={true} onWebcamClick={onUseWebcamForCompositeClick} />
+                  <ImageDropzone file={compositeFile2} onFileSelect={handleCompositeFile2Upload} label="Style / Element Image" />
               </div>
                <button 
                 onClick={handleComposite}

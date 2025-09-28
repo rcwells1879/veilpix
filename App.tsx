@@ -6,6 +6,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
+import { useUser } from '@clerk/clerk-react';
 import { useGenerateEdit, useGenerateFilter, useGenerateAdjust, useGenerateComposite } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
@@ -14,6 +15,7 @@ import AdjustmentPanel from './components/AdjustmentPanel';
 import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
+import SignupPromptModal from './components/SignupPromptModal';
 
 // Lazy load heavy components that are conditionally rendered
 const WebcamCapture = lazy(() => import('./components/WebcamCapture'));
@@ -65,6 +67,7 @@ type Tab = 'retouch' | 'adjust' | 'filters' | 'crop';
 type View = 'start' | 'webcam' | 'editor' | 'composite';
 
 const App: React.FC = () => {
+  const { isSignedIn, isLoaded } = useUser();
   const [view, setView] = useState<View>('start');
   const [history, setHistory] = useState<File[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
@@ -73,6 +76,7 @@ const App: React.FC = () => {
   const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('adjust');
+  const [showSignupPrompt, setShowSignupPrompt] = useState<boolean>(false);
 
   // Smart preloading for lazy components
   useEffect(() => {
@@ -239,6 +243,12 @@ const App: React.FC = () => {
   }, []);
 
   const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
+    // Check if user is authenticated, if not show signup prompt
+    if (isLoaded && !isSignedIn) {
+      setShowSignupPrompt(true);
+      return;
+    }
+
     setError(null);
 
     // Dynamically import HEIC converter when needed
@@ -288,6 +298,31 @@ const App: React.FC = () => {
       handleImageUpload(file);
     }
   }, [isWebcamForComposite, handleImageUpload]);
+
+  const handleUseWebcamClick = useCallback(() => {
+    // Debug authentication state
+    console.log('🔍 Webcam Debug:', { isLoaded, isSignedIn, showSignupPrompt });
+
+    // Check if user is authenticated, if not show signup prompt
+    if (isLoaded && !isSignedIn) {
+      console.log('🚨 User not authenticated, showing signup prompt for webcam');
+      setShowSignupPrompt(true);
+      return;
+    }
+    console.log('✅ User authenticated, opening webcam');
+    setView('webcam');
+  }, [isLoaded, isSignedIn]);
+
+  const handleUseWebcamForCompositeClick = useCallback(() => {
+    // Check if user is authenticated, if not show signup prompt
+    if (isLoaded && !isSignedIn) {
+      setShowSignupPrompt(true);
+      return;
+    }
+    setIsWebcamForComposite(true);
+    setStartScreenTab('composite');
+    setView('webcam');
+  }, [isLoaded, isSignedIn]);
 
   const handleGenerate = useCallback(async () => {
     if (!currentImage) {
@@ -382,7 +417,7 @@ const App: React.FC = () => {
         setError(`Failed to generate the composite image. ${errorMessage}`);
         console.error(err);
     }
-  }, [sourceImage1, sourceImage2, compositeMutation]);
+  }, [sourceImage1, sourceImage2, compositeMutation, isLoaded, isSignedIn]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -597,6 +632,16 @@ const App: React.FC = () => {
   
   const handleFileSelect = async (files: FileList | null) => {
     if (files && files[0]) {
+      // Debug authentication state
+      console.log('🔍 Authentication Debug:', { isLoaded, isSignedIn, showSignupPrompt });
+
+      // Check if user is authenticated, if not show signup prompt
+      if (isLoaded && !isSignedIn) {
+        console.log('🚨 User not authenticated, showing signup prompt');
+        setShowSignupPrompt(true);
+        return;
+      }
+      console.log('✅ User authenticated, proceeding with upload');
       await handleImageUpload(files[0]);
     }
   };
@@ -644,17 +689,15 @@ const App: React.FC = () => {
     }
     
     if (view === 'start') {
-      return <StartScreen 
-        onFileSelect={handleFileSelect} 
-        onCompositeSelect={handleCompositeSelect} 
-        onUseWebcamClick={() => setView('webcam')}
-        onUseWebcamForCompositeClick={() => {
-          setIsWebcamForComposite(true);
-          setStartScreenTab('composite');
-          setView('webcam');
-        }}
+      return <StartScreen
+        onFileSelect={handleFileSelect}
+        onCompositeSelect={handleCompositeSelect}
+        onUseWebcamClick={handleUseWebcamClick}
+        onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
         initialTab={startScreenTab}
         compositeFile1={sourceImage1}
+        isAuthenticated={isLoaded && isSignedIn}
+        onShowSignupPrompt={() => setShowSignupPrompt(true)}
       />;
     }
 
@@ -859,7 +902,14 @@ const App: React.FC = () => {
     }
     
     // Fallback just in case
-    return <StartScreen onFileSelect={handleFileSelect} onCompositeSelect={handleCompositeSelect} onUseWebcamClick={() => setView('webcam')} />;
+    return <StartScreen
+      onFileSelect={handleFileSelect}
+      onCompositeSelect={handleCompositeSelect}
+      onUseWebcamClick={handleUseWebcamClick}
+      onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
+      isAuthenticated={isLoaded && isSignedIn}
+      onShowSignupPrompt={() => setShowSignupPrompt(true)}
+    />;
   };
   
   return (
@@ -902,6 +952,15 @@ const App: React.FC = () => {
           onClose={() => setShowPricingModal(false)}
         />
       </Suspense>
+
+      {/* Signup Prompt Modal */}
+      <SignupPromptModal
+        isOpen={showSignupPrompt}
+        onClose={() => {
+          console.log('🔴 Closing signup prompt modal');
+          setShowSignupPrompt(false);
+        }}
+      />
     </div>
   );
 };
