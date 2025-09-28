@@ -235,7 +235,7 @@ const App: React.FC = () => {
       setHistoryIndex(0);
       setEditHotspot(null);
       setDisplayHotspot(null);
-      setActiveTab('retouch');
+      setActiveTab('adjust');
       setCrop(undefined);
       setCompletedCrop(undefined);
       setView('editor');
