@@ -435,7 +435,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
 });
 
 // Text-to-image generation endpoint using Imagen 4 Fast
-router.post('/generate-text-to-image', requireAuth, checkUserCredits, async (req, res) => {
+router.post('/generate-text-to-image', express.json(), requireAuth, checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
 
