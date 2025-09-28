@@ -7,7 +7,7 @@
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { useUser } from '@clerk/clerk-react';
-import { useGenerateEdit, useGenerateFilter, useGenerateAdjust, useGenerateComposite } from './src/hooks/useImageGeneration';
+import { useGenerateEdit, useGenerateFilter, useGenerateAdjust, useGenerateComposite, useGenerateTextToImage } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
@@ -120,6 +120,7 @@ const App: React.FC = () => {
   const filterMutation = useGenerateFilter();
   const adjustMutation = useGenerateAdjust();
   const compositeMutation = useGenerateComposite();
+  const textToImageMutation = useGenerateTextToImage();
 
   // React 19 optimistic state for immediate UI feedback
   const [optimisticHistory, setOptimisticHistory] = useOptimistic(
@@ -128,7 +129,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -537,6 +538,43 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory, compositeMutation, setOptimisticHistory]);
 
+  const handleTextToImageGenerate = useCallback(async (textPrompt: string) => {
+    console.log('🎨 Starting text-to-image generation with prompt:', textPrompt);
+
+    setError(null);
+
+    // Add optimistic update for immediate feedback
+    const optimisticFile = new File([new Blob()], `optimistic-text-to-image-${Date.now()}.png`, { type: 'image/png' });
+    startTransition(() => {
+      setOptimisticHistory(optimisticFile);
+    });
+
+    try {
+      const response = await textToImageMutation.mutateAsync({
+        prompt: textPrompt
+      });
+
+      if (response.success && response.image) {
+        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
+        const newImageFile = new File([imageBlob], `text-to-image-${Date.now()}.png`, { type: 'image/png' });
+
+        // Start a new editing session with the generated image
+        setHistory([newImageFile]);
+        setHistoryIndex(0);
+        setActiveTab('adjust');
+        setView('editor');
+
+        console.log('✅ Text-to-image generation successful, image added to history');
+      } else {
+        throw new Error(response.message || 'Failed to generate image from text');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      setError(`Failed to generate image from text. ${errorMessage}`);
+      console.error('💥 Text-to-image generation failed:', err);
+    }
+  }, [addImageToHistory, textToImageMutation, setOptimisticHistory]);
+
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
         setError('Please select an area to crop.');
@@ -694,6 +732,7 @@ const App: React.FC = () => {
         onCompositeSelect={handleCompositeSelect}
         onUseWebcamClick={handleUseWebcamClick}
         onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
+        onTextToImageGenerate={handleTextToImageGenerate}
         initialTab={startScreenTab}
         compositeFile1={sourceImage1}
         isAuthenticated={isLoaded && isSignedIn}
@@ -907,6 +946,7 @@ const App: React.FC = () => {
       onCompositeSelect={handleCompositeSelect}
       onUseWebcamClick={handleUseWebcamClick}
       onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
+      onTextToImageGenerate={handleTextToImageGenerate}
       isAuthenticated={isLoaded && isSignedIn}
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
     />;

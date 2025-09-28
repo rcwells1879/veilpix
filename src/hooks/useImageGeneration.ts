@@ -50,6 +50,10 @@ export interface GenerateCompositeRequest {
   style?: string
 }
 
+export interface GenerateTextToImageRequest {
+  prompt: string
+}
+
 // Custom hook for usage statistics (authenticated only)
 export function useUsageStats() {
   const { apiRequest } = useApiClient()
@@ -211,6 +215,37 @@ export function useGenerateComposite() {
     },
     onError: (error) => {
       console.error('💥 Composite generation failed:', error)
+    },
+  })
+}
+
+// Custom hook for text-to-image generation
+export function useGenerateTextToImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateTextToImageRequest): Promise<ImageGenerationResponse> => {
+      console.log('🎨 Starting text-to-image generation with prompt:', data.prompt)
+
+      const response = await apiRequest<ImageGenerationResponse>('/api/gemini/generate-text-to-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: data.prompt }),
+        requiresAuth: true
+      })
+
+      console.log('✅ Text-to-image generation completed:', response)
+      return response
+    },
+    onSuccess: (data) => {
+      console.log('🎉 Text-to-image generation successful:', data)
+      // Invalidate usage stats to get updated counts
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    onError: (error) => {
+      console.error('💥 Text-to-image generation failed:', error)
     },
   })
 }

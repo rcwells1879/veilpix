@@ -434,4 +434,70 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
     }
 });
 
+// Text-to-image generation endpoint using Imagen 4 Fast
+router.post('/generate-text-to-image', requireAuth, checkUserCredits, async (req, res) => {
+    const startTime = Date.now();
+    let usageLogged = false;
+
+    try {
+        const { prompt } = req.body;
+
+        console.log('🎨 Starting text-to-image generation');
+        console.log('💬 Prompt:', prompt);
+
+        if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+            return res.status(400).json({
+                error: 'Prompt is required and must be a non-empty string'
+            });
+        }
+
+        if (prompt.length > 2000) {
+            return res.status(400).json({
+                error: 'Prompt must be 2000 characters or less'
+            });
+        }
+
+        // Use Imagen 4 Fast model for text-to-image generation
+        const model = genAI.getGenerativeModel({ model: 'imagen-4-fast' });
+
+        // Create request with least restrictive safety settings
+        const request = {
+            contents: [{
+                parts: [{ text: prompt.trim() }]
+            }],
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+            ]
+        };
+
+        console.log('📝 Sending text-to-image request to Imagen 4 Fast');
+        console.log('🛡️ Using least restrictive safety settings');
+
+        const result = await model.generateContent(request);
+        console.log('📥 Received response from Imagen 4 Fast');
+
+        const response = await result.response;
+        console.log('🔍 Processing Imagen response');
+
+        const generatedImage = processGeminiResponse(response);
+        console.log('✨ Generated image processed successfully');
+
+        usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-image', result);
+
+        res.json({
+            success: true,
+            image: generatedImage.inlineData,
+            processingTime: Date.now() - startTime,
+            creditsRemaining: req.creditsInfo?.remaining || 0
+        });
+
+    } catch (error) {
+        const errorResponse = await handleEndpointError(error, req, startTime, 'text-to-image', usageLogged);
+        res.status(500).json(errorResponse);
+    }
+});
+
 module.exports = router;
