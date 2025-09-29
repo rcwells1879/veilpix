@@ -457,39 +457,51 @@ router.post('/generate-text-to-image', express.json(), requireAuth, checkUserCre
             });
         }
 
-        // Use Imagen 4 Fast model for text-to-image generation
-        const model = genAI.getGenerativeModel({ model: 'imagen-4-fast' });
-
-        // Create request with least restrictive safety settings
-        const request = {
-            contents: [{
-                parts: [{ text: prompt.trim() }]
+        // Use Imagen 4 Fast model for text-to-image generation via REST API
+        const imagegenRequest = {
+            instances: [{
+                prompt: prompt.trim()
             }],
-            safetySettings: [
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-            ]
+            parameters: {
+                sampleCount: 1 // Generate only 1 image
+            }
         };
 
         console.log('📝 Sending text-to-image request to Imagen 4 Fast');
-        console.log('🛡️ Using least restrictive safety settings');
+        console.log('🎨 Prompt:', prompt.trim());
 
-        const result = await model.generateContent(request);
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict`, {
+            method: 'POST',
+            headers: {
+                'x-goog-api-key': process.env.GEMINI_API_KEY,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(imagegenRequest)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Imagen API error: ${response.status} ${response.statusText}`);
+        }
+
+        const result = await response.json();
         console.log('📥 Received response from Imagen 4 Fast');
 
-        const response = await result.response;
-        console.log('🔍 Processing Imagen response');
+        // Extract image data from Imagen response
+        if (!result.predictions || !result.predictions[0] || !result.predictions[0].bytesBase64Encoded) {
+            throw new Error('Invalid response from Imagen API - no image data found');
+        }
 
-        const generatedImage = processGeminiResponse(response);
+        const imageBase64 = result.predictions[0].bytesBase64Encoded;
         console.log('✨ Generated image processed successfully');
 
         usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-image', result);
 
         res.json({
             success: true,
-            image: generatedImage.inlineData,
+            image: {
+                data: imageBase64,
+                mimeType: 'image/png'
+            },
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0
         });
