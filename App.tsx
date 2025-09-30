@@ -9,6 +9,7 @@ import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { useUser } from '@clerk/clerk-react';
 import { useGenerateEdit, useGenerateFilter, useGenerateAdjust, useGenerateComposite, useGenerateTextToImage } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
+import Footer from './components/Footer';
 import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
 import AdjustmentPanel from './components/AdjustmentPanel';
@@ -958,7 +959,10 @@ const App: React.FC = () => {
       <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${view === 'editor' ? 'items-start' : 'items-center'}`}>
         {renderContent()}
       </main>
-      
+
+      {/* Footer */}
+      <Footer />
+
       {/* Payment Success Modal */}
       {showPaymentSuccess && (
         <Suspense fallback={null}>

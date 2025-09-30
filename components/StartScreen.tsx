@@ -135,7 +135,7 @@ const ImageDropzone: React.FC<{
   return (
     <div className="relative">
       {isTextToImageMode ? (
-        <div className="flex flex-col items-center justify-center w-full h-64 p-4 border-2 border-dashed border-blue-400 bg-blue-500/10 rounded-lg">
+        <div className="flex flex-col items-center justify-center w-full min-h-[40vh] p-4 border-2 border-dashed border-blue-400 bg-blue-500/10 rounded-lg">
           <div className="w-full h-full flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-200">Generate Image from Text</h3>
@@ -314,7 +314,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
 
         {/* Single Photo Content */}
         {activeTab === 'single' && (
-          <div className="flex flex-col items-center gap-4 py-6 w-full animate-fade-in">
+          <div className="flex flex-col items-center gap-4 animate-fade-in">
             <ImageDropzone
               file={null}
               onFileSelect={(file) => {
