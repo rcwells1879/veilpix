@@ -539,16 +539,18 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory, compositeMutation, setOptimisticHistory]);
 
-  const handleTextToImageGenerate = useCallback(async (textPrompt: string) => {
+  const handleTextToImageGenerate = useCallback(async (textPrompt: string, onSuccess?: (file: File) => void) => {
     console.log('🎨 Starting text-to-image generation with prompt:', textPrompt);
 
     setError(null);
 
-    // Add optimistic update for immediate feedback
-    const optimisticFile = new File([new Blob()], `optimistic-text-to-image-${Date.now()}.png`, { type: 'image/png' });
-    startTransition(() => {
-      setOptimisticHistory(optimisticFile);
-    });
+    // Add optimistic update for immediate feedback (only if not using callback)
+    if (!onSuccess) {
+      const optimisticFile = new File([new Blob()], `optimistic-text-to-image-${Date.now()}.png`, { type: 'image/png' });
+      startTransition(() => {
+        setOptimisticHistory(optimisticFile);
+      });
+    }
 
     try {
       const response = await textToImageMutation.mutateAsync({
@@ -559,13 +561,18 @@ const App: React.FC = () => {
         const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
         const newImageFile = new File([imageBlob], `text-to-image-${Date.now()}.png`, { type: 'image/png' });
 
-        // Start a new editing session with the generated image
-        setHistory([newImageFile]);
-        setHistoryIndex(0);
-        setActiveTab('adjust');
-        setView('editor');
-
-        console.log('✅ Text-to-image generation successful, image added to history');
+        if (onSuccess) {
+          // Callback mode: Pass the file to the callback (for composite mode)
+          onSuccess(newImageFile);
+          console.log('✅ Text-to-image generation successful, file passed to callback');
+        } else {
+          // Default mode: Start a new editing session with the generated image (for single photo mode)
+          setHistory([newImageFile]);
+          setHistoryIndex(0);
+          setActiveTab('adjust');
+          setView('editor');
+          console.log('✅ Text-to-image generation successful, image added to history');
+        }
       } else {
         throw new Error(response.message || 'Failed to generate image from text');
       }

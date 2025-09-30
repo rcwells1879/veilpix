@@ -14,7 +14,7 @@ interface StartScreenProps {
   onCompositeSelect: (file1: File, file2: File) => void;
   onUseWebcamClick: () => void;
   onUseWebcamForCompositeClick: () => void;
-  onTextToImageGenerate?: (prompt: string) => void;
+  onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void) => void;
   initialTab?: 'single' | 'composite';
   compositeFile1?: File | null;
   isAuthenticated?: boolean;
@@ -195,7 +195,7 @@ const ImageDropzone: React.FC<{
             <div className="flex flex-col items-center justify-center text-center">
                 <PhotoIcon className="w-12 h-12 text-gray-500 mb-2" />
                 <span className="font-semibold text-gray-300">{label}</span>
-                <span className="text-sm text-gray-500">Click to upload or drag & drop</span>
+                <span className="text-sm text-gray-500">Click to upload, drag & drop, generate with text, or use webcam</span>
             </div>
           )}
           <input type="file" className="hidden" accept="image/*,.heic,.heif" onChange={handleFileChange} disabled={isProcessing} />
@@ -206,7 +206,7 @@ const ImageDropzone: React.FC<{
       {showWebcam && onWebcamClick && !isTextToImageMode && (
           <button
               onClick={onWebcamClick}
-              className="absolute bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-colors shadow-lg z-10"
+              className="absolute bg-blue-600/30 hover:bg-blue-600/40 text-white rounded-full transition-colors shadow-lg backdrop-blur-sm z-10"
               style={{
                   bottom: '8px',
                   right: '8px',
@@ -229,7 +229,7 @@ const ImageDropzone: React.FC<{
       {showTextToImage && onTextToImageGenerate && !isTextToImageMode && (
           <button
               onClick={handleTextToImageClick}
-              className="absolute bg-purple-600 hover:bg-purple-700 text-white rounded-full transition-colors shadow-lg z-10"
+              className="absolute bg-purple-600/30 hover:bg-purple-600/40 text-white rounded-full transition-colors shadow-lg backdrop-blur-sm z-10"
               style={{
                   bottom: '8px',
                   left: '8px',
@@ -291,6 +291,27 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     setCompositeFile2(file);
   }, [isAuthenticated, onShowSignupPrompt]);
 
+  // Text-to-image handlers for composite mode
+  const handleTextToImageForComposite1 = useCallback((prompt: string) => {
+    console.log('🎨 Text-to-image for composite file 1, prompt:', prompt);
+    if (onTextToImageGenerate) {
+      onTextToImageGenerate(prompt, (file: File) => {
+        console.log('✅ Generated image received for composite file 1');
+        setCompositeFile1(file);
+      });
+    }
+  }, [onTextToImageGenerate]);
+
+  const handleTextToImageForComposite2 = useCallback((prompt: string) => {
+    console.log('🎨 Text-to-image for composite file 2, prompt:', prompt);
+    if (onTextToImageGenerate) {
+      onTextToImageGenerate(prompt, (file: File) => {
+        console.log('✅ Generated image received for composite file 2');
+        setCompositeFile2(file);
+      });
+    }
+  }, [onTextToImageGenerate]);
+
   return (
     <div className="flex flex-col items-center gap-6 animate-fade-in w-full max-w-5xl mx-auto">
       <h1 className="text-5xl font-extrabold tracking-tight text-gray-100 sm:text-6xl md:text-7xl text-center">
@@ -344,8 +365,28 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         {activeTab === 'composite' && (
           <div className="flex flex-col items-center gap-4 animate-fade-in">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                  <ImageDropzone file={compositeFile1} onFileSelect={handleCompositeFile1Upload} label="Base Image" showWebcam={true} onWebcamClick={onUseWebcamForCompositeClick} />
-                  <ImageDropzone file={compositeFile2} onFileSelect={handleCompositeFile2Upload} label="Style / Element Image" />
+                  <ImageDropzone
+                    file={compositeFile1}
+                    onFileSelect={handleCompositeFile1Upload}
+                    label="Base Image"
+                    showWebcam={true}
+                    onWebcamClick={onUseWebcamForCompositeClick}
+                    showTextToImage={true}
+                    onTextToImageGenerate={handleTextToImageForComposite1}
+                    isAuthenticated={isAuthenticated}
+                    onShowSignupPrompt={onShowSignupPrompt}
+                  />
+                  <ImageDropzone
+                    file={compositeFile2}
+                    onFileSelect={handleCompositeFile2Upload}
+                    label="Style / Element Image"
+                    showWebcam={true}
+                    onWebcamClick={onUseWebcamForCompositeClick}
+                    showTextToImage={true}
+                    onTextToImageGenerate={handleTextToImageForComposite2}
+                    isAuthenticated={isAuthenticated}
+                    onShowSignupPrompt={onShowSignupPrompt}
+                  />
               </div>
                <button 
                 onClick={handleComposite}
