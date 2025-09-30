@@ -18,28 +18,23 @@ export const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => 
 
 const Header: React.FC<HeaderProps> = ({ onShowPricing }) => {
   return (
-    <header className="w-full py-4 px-8 border-b border-gray-700 bg-gray-800/30 backdrop-blur-sm sticky top-0 z-50">
+    <header className="w-full py-2 sm:py-4 px-4 sm:px-8 border-b border-gray-700 bg-gray-800/30 backdrop-blur-sm sticky top-0 z-50">
       <div className="flex items-center justify-between w-full max-w-[1600px] mx-auto">
         {/* Logo */}
-        <div className="flex items-center gap-3">
-          <SparkleIcon className="w-6 h-6 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight text-gray-100">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <SparkleIcon className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
+          <h1 className="text-base sm:text-xl font-bold tracking-tight text-gray-100">
             VeilPix
           </h1>
         </div>
 
         {/* Usage Stats */}
-        <div className="hidden sm:block">
+        <div className="flex-shrink">
           <UsageCounter onShowPricing={onShowPricing} />
         </div>
 
         {/* Authentication */}
         <AuthButton />
-      </div>
-      
-      {/* Mobile Usage Counter */}
-      <div className="sm:hidden mt-3 flex justify-center">
-        <UsageCounter onShowPricing={onShowPricing} />
       </div>
     </header>
   );

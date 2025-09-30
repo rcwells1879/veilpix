@@ -819,15 +819,17 @@ const App: React.FC = () => {
               )}
               
               {activeTab === 'crop' ? (
-                <ReactCrop 
-                  crop={crop} 
-                  onChange={c => setCrop(c)} 
-                  onComplete={c => setCompletedCrop(c)}
-                  aspect={aspect}
-                  className="max-h-[60vh]"
-                >
-                  {cropImageElement}
-                </ReactCrop>
+                <div className="flex justify-center items-center w-full">
+                  <ReactCrop
+                    crop={crop}
+                    onChange={c => setCrop(c)}
+                    onComplete={c => setCompletedCrop(c)}
+                    aspect={aspect}
+                    className="max-h-[60vh]"
+                  >
+                    {cropImageElement}
+                  </ReactCrop>
+                </div>
               ) : imageDisplay }
 
               {displayHotspot && !isLoading && activeTab === 'retouch' && (
@@ -839,15 +841,74 @@ const App: React.FC = () => {
                   </div>
               )}
           </div>
-          
-          <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-2 flex items-center justify-center gap-2 backdrop-blur-sm">
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                  onClick={handleUndo}
+                  disabled={!canUndo}
+                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
+                  aria-label="Undo last action"
+              >
+                  <UndoIcon className="w-5 h-5 mr-2" />
+                  Undo
+              </button>
+              <button
+                  onClick={handleRedo}
+                  disabled={!canRedo}
+                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
+                  aria-label="Redo last action"
+              >
+                  <RedoIcon className="w-5 h-5 mr-2" />
+                  Redo
+              </button>
+
+              <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
+
+              {canUndo && (
+                <button
+                    onMouseDown={() => setIsComparing(true)}
+                    onMouseUp={() => setIsComparing(false)}
+                    onMouseLeave={() => setIsComparing(false)}
+                    onTouchStart={() => setIsComparing(true)}
+                    onTouchEnd={() => setIsComparing(false)}
+                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
+                    aria-label="Press and hold to see original image"
+                >
+                    <EyeIcon className="w-5 h-5 mr-2" />
+                    Compare
+                </button>
+              )}
+
+              <button
+                  onClick={handleReset}
+                  disabled={!canUndo}
+                  className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
+                >
+                  Reset
+              </button>
+              <button
+                  onClick={handleUploadNew}
+                  className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
+              >
+                  Upload New
+              </button>
+
+              <button
+                  onClick={handleDownload}
+                  className="flex-grow sm:flex-grow-0 ml-auto bg-green-600/20 border border-green-500 text-green-300 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-green-600/30 hover:border-green-400 active:scale-95 text-base"
+              >
+                  Download Image
+              </button>
+          </div>
+
+          <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-2 flex items-center justify-center gap-1 sm:gap-2 backdrop-blur-sm">
               {(['adjust', 'crop', 'retouch', 'filters'] as Tab[]).map(tab => (
                    <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
-                      className={`w-full capitalize font-semibold py-3 px-5 rounded-md transition-all duration-200 text-base ${
-                          activeTab === tab 
-                          ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40' 
+                      className={`flex-1 capitalize font-semibold py-3 px-2 sm:px-5 rounded-md transition-all duration-200 text-sm sm:text-base ${
+                          activeTab === tab
+                          ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40'
                           : 'text-gray-300 hover:text-white hover:bg-white/10'
                       }`}
                   >
@@ -884,65 +945,6 @@ const App: React.FC = () => {
               {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
               {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} />}
               {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
-          </div>
-          
-          <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
-              <button 
-                  onClick={handleUndo}
-                  disabled={!canUndo}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                  aria-label="Undo last action"
-              >
-                  <UndoIcon className="w-5 h-5 mr-2" />
-                  Undo
-              </button>
-              <button 
-                  onClick={handleRedo}
-                  disabled={!canRedo}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                  aria-label="Redo last action"
-              >
-                  <RedoIcon className="w-5 h-5 mr-2" />
-                  Redo
-              </button>
-              
-              <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
-
-              {canUndo && (
-                <button 
-                    onMouseDown={() => setIsComparing(true)}
-                    onMouseUp={() => setIsComparing(false)}
-                    onMouseLeave={() => setIsComparing(false)}
-                    onTouchStart={() => setIsComparing(true)}
-                    onTouchEnd={() => setIsComparing(false)}
-                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-                    aria-label="Press and hold to see original image"
-                >
-                    <EyeIcon className="w-5 h-5 mr-2" />
-                    Compare
-                </button>
-              )}
-
-              <button 
-                  onClick={handleReset}
-                  disabled={!canUndo}
-                  className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
-                >
-                  Reset
-              </button>
-              <button 
-                  onClick={handleUploadNew}
-                  className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-              >
-                  Upload New
-              </button>
-
-              <button 
-                  onClick={handleDownload}
-                  className="flex-grow sm:flex-grow-0 ml-auto bg-gradient-to-br from-green-600 to-green-500 text-white font-bold py-3 px-5 rounded-md transition-all duration-300 ease-in-out shadow-lg shadow-green-500/20 hover:shadow-xl hover:shadow-green-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base"
-              >
-                  Download Image
-              </button>
           </div>
         </div>
       );
