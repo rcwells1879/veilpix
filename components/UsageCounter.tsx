@@ -32,7 +32,7 @@ export const UsageCounter: React.FC<UsageCounterProps> = ({ onShowPricing }) => 
       <div className="flex items-center space-x-2 px-2 py-1 sm:px-3 sm:py-2 bg-red-900/20 rounded-lg border border-red-800/30">
         <span className="text-red-400 text-xs sm:text-sm">
           <span className="hidden sm:inline">Credits unavailable</span>
-          <span className="sm:hidden">N/A</span>
+          <span className="sm:hidden">no credits</span>
         </span>
       </div>
     )
@@ -77,29 +77,21 @@ export const UsageCounter: React.FC<UsageCounterProps> = ({ onShowPricing }) => 
             ? 'text-yellow-300'
             : 'text-purple-300'
         }`}>
-          {creditsRemaining} <span className="hidden sm:inline">{creditsRemaining === 1 ? 'credit' : 'credits'}</span>
+          {creditsRemaining} {creditsRemaining === 1 ? 'credit' : 'credits'}
         </span>
       </div>
 
-      {/* Total Usage Counter */}
-      <div className="flex items-center space-x-2 px-2 py-1 sm:px-3 sm:py-2 bg-gray-800/30 rounded-lg border border-gray-600/30">
-        <div className="w-2 h-2 bg-[#E04F67] rounded-full"></div>
-        <span className="text-gray-300 text-xs sm:text-sm font-medium">
-          {totalUsage}<span className="hidden sm:inline"> generated</span>
-        </span>
-      </div>
-
-      {/* Buy More Credits Button - Hidden on mobile */}
+      {/* Buy More Credits Button - Always visible when needed */}
       {(hasNoCredits || isLowCredits) && onShowPricing && (
         <button
           onClick={onShowPricing}
-          className={`hidden sm:block text-xs px-3 py-1.5 font-semibold rounded-lg transition-all duration-200 ${
+          className={`text-xs px-2 py-1 sm:px-3 sm:py-1.5 font-semibold rounded-lg transition-all duration-200 ${
             hasNoCredits
               ? 'bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white animate-pulse'
               : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white'
           }`}
         >
-          {hasNoCredits ? 'Buy Credits' : 'Get More'}
+          {hasNoCredits ? 'Buy' : 'Get More'}
         </button>
       )}
     </div>
