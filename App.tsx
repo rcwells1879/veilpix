@@ -43,6 +43,27 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     return new File([u8arr], filename, {type:mime});
 }
 
+// Helper to detect if error is related to content safety filters
+const isSafetyFilterError = (errorMessage: string): boolean => {
+    const safetyKeywords = [
+        'safety',
+        'blocked',
+        'inappropriate',
+        'policy',
+        'violation',
+        'nsfw',
+        'harmful',
+        'terms of service',
+        'content policy',
+        'not allowed',
+        '500',
+        'internal server error'
+    ];
+
+    const lowerError = errorMessage.toLowerCase();
+    return safetyKeywords.some(keyword => lowerError.includes(keyword));
+}
+
 // Helper to parse adjustment prompt into structured adjustments
 const parseAdjustmentPrompt = (prompt: string) => {
   const adjustments: any = {};
@@ -715,10 +736,34 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     if (error) {
+       const isSafetyIssue = isSafetyFilterError(error);
+
        return (
-           <div className="text-center animate-fade-in bg-red-500/10 border border-red-500/20 p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4">
-            <h2 className="text-2xl font-bold text-red-300">An Error Occurred</h2>
-            <p className="text-md text-red-400">{error}</p>
+           <div className={`text-center animate-fade-in p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4 ${
+             isSafetyIssue
+               ? 'bg-yellow-500/10 border border-yellow-500/20'
+               : 'bg-red-500/10 border border-red-500/20'
+           }`}>
+            <h2 className={`text-2xl font-bold ${isSafetyIssue ? 'text-yellow-300' : 'text-red-300'}`}>
+              {isSafetyIssue ? 'Content Not Allowed' : 'An Error Occurred'}
+            </h2>
+
+            {isSafetyIssue ? (
+              <div className="flex flex-col gap-3 text-md text-yellow-200">
+                <p>
+                  Your image or prompt couldn't be processed because it may contain content that doesn't meet Google's safety guidelines.
+                </p>
+                <p className="text-sm text-yellow-300/80">
+                  VeilPix does not log your prompts or photos, but Google's AI service filters content it deems harmful, including NSFW material, violence, or other policy violations.
+                </p>
+                <p className="text-sm text-yellow-300/80">
+                  Please try again with a different image or prompt that complies with content policies.
+                </p>
+              </div>
+            ) : (
+              <p className="text-md text-red-400">{error}</p>
+            )}
+
             <button
                 onClick={() => {
                   setError(null);
@@ -726,7 +771,11 @@ const App: React.FC = () => {
                     handleUploadNew();
                   }
                 }}
-                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg text-md transition-colors"
+                className={`font-bold py-2 px-6 rounded-lg text-md transition-colors ${
+                  isSafetyIssue
+                    ? 'bg-yellow-500 hover:bg-yellow-600 text-gray-900'
+                    : 'bg-red-500 hover:bg-red-600 text-white'
+                }`}
               >
                 Try Again
             </button>
