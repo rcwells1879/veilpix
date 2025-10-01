@@ -40,7 +40,8 @@ const ImageDropzone: React.FC<{
   const [isProcessing, setIsProcessing] = useState(false);
   const [isTextToImageMode, setIsTextToImageMode] = useState(false);
   const [textPrompt, setTextPrompt] = useState('');
-  
+  const [wasGenerating, setWasGenerating] = useState(false);
+
   useEffect(() => {
     if (file) {
       const url = URL.createObjectURL(file);
@@ -50,6 +51,18 @@ const ImageDropzone: React.FC<{
       setFileUrl(null);
     }
   }, [file]);
+
+  // Close text-to-image mode when generation completes
+  useEffect(() => {
+    if (wasGenerating && !isGeneratingImage) {
+      // Generation just completed
+      setIsTextToImageMode(false);
+      setWasGenerating(false);
+    } else if (isGeneratingImage && isTextToImageMode) {
+      // Generation started
+      setWasGenerating(true);
+    }
+  }, [isGeneratingImage, wasGenerating, isTextToImageMode]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if(e.target.files && e.target.files[0]) {
@@ -126,7 +139,8 @@ const ImageDropzone: React.FC<{
     if (textPrompt.trim() && onTextToImageGenerate) {
       onTextToImageGenerate(textPrompt.trim());
       setTextPrompt('');
-      setIsTextToImageMode(false);
+      // Don't close the text-to-image mode immediately - let the loading state show
+      // The mode will be closed when the user returns to start screen or uploads a new image
     }
   };
 
