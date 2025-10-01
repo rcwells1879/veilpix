@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { UploadIcon, MagicWandIcon, PaletteIcon, SunIcon, CameraIcon, CombineIcon, PhotoIcon } from './icons';
 import { SparkleIcon } from './Header';
+import Spinner from './Spinner';
 // HEIC converter will be dynamically imported when needed
 import FAQ from './FAQ';
 
@@ -19,6 +20,7 @@ interface StartScreenProps {
   compositeFile1?: File | null;
   isAuthenticated?: boolean;
   onShowSignupPrompt?: () => void;
+  isGeneratingImage?: boolean;
 }
 
 const ImageDropzone: React.FC<{
@@ -30,8 +32,9 @@ const ImageDropzone: React.FC<{
   showTextToImage?: boolean,
   onTextToImageGenerate?: (prompt: string) => void,
   isAuthenticated?: boolean,
-  onShowSignupPrompt?: () => void
-}> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick, showTextToImage = false, onTextToImageGenerate, isAuthenticated = false, onShowSignupPrompt }) => {
+  onShowSignupPrompt?: () => void,
+  isGeneratingImage?: boolean
+}> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick, showTextToImage = false, onTextToImageGenerate, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false }) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -136,6 +139,12 @@ const ImageDropzone: React.FC<{
     <div className="relative">
       {isTextToImageMode ? (
         <div className="flex flex-col items-center justify-center w-full min-h-[40vh] p-4 border-2 border-dashed border-blue-400 bg-blue-500/10 rounded-lg">
+          {isGeneratingImage && (
+            <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in rounded-lg">
+              <Spinner />
+              <p className="text-gray-300">AI is generating your image...</p>
+            </div>
+          )}
           <div className="w-full h-full flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-200">Generate Image from Text</h3>
@@ -155,10 +164,11 @@ const ImageDropzone: React.FC<{
               placeholder="Describe the image you want to generate... (e.g., 'A serene mountain landscape at sunset with a lake in the foreground')"
               className="flex-grow w-full bg-gray-800/50 border border-gray-600 text-gray-200 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none transition resize-none"
               rows={4}
+              disabled={isGeneratingImage}
             />
             <button
               onClick={handleTextToImageGenerate}
-              disabled={!textPrompt.trim()}
+              disabled={!textPrompt.trim() || isGeneratingImage}
               className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
             >
               Generate Image
@@ -252,7 +262,7 @@ const ImageDropzone: React.FC<{
 }
 
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, initialTab = 'single', compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, initialTab = 'single', compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false }) => {
   const [activeTab, setActiveTab] = useState<'single' | 'composite'>(initialTab);
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
@@ -357,6 +367,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               onTextToImageGenerate={onTextToImageGenerate}
               isAuthenticated={isAuthenticated}
               onShowSignupPrompt={onShowSignupPrompt}
+              isGeneratingImage={isGeneratingImage}
             />
           </div>
         )}
@@ -375,6 +386,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     onTextToImageGenerate={handleTextToImageForComposite1}
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
+                    isGeneratingImage={isGeneratingImage}
                   />
                   <ImageDropzone
                     file={compositeFile2}
@@ -386,6 +398,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     onTextToImageGenerate={handleTextToImageForComposite2}
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
+                    isGeneratingImage={isGeneratingImage}
                   />
               </div>
                <button 

@@ -794,6 +794,7 @@ const App: React.FC = () => {
         compositeFile1={sourceImage1}
         isAuthenticated={isLoaded && isSignedIn}
         onShowSignupPrompt={() => setShowSignupPrompt(true)}
+        isGeneratingImage={isLoading}
       />;
     }
 
@@ -1008,6 +1009,7 @@ const App: React.FC = () => {
       onTextToImageGenerate={handleTextToImageGenerate}
       isAuthenticated={isLoaded && isSignedIn}
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
+      isGeneratingImage={isLoading}
     />;
   };
   
