@@ -6,7 +6,6 @@ on:
     paths:
       - 'src/**'
       - 'public/**'
-      - 'blog/**'
       - 'components/**'
       - 'App.tsx'
       - 'index.tsx'
