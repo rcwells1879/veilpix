@@ -1,8 +1,17 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
-*/
-
+ *
+ * VeilPix - AI-Powered Image Editor
+ * Main application component managing the entire image editing workflow
+ *
+ * Architecture:
+ * - State management via React hooks (no external state library)
+ * - History-based undo/redo system with File objects
+ * - Optimistic UI updates for perceived performance
+ * - Authentication-gated features via Clerk
+ * - Backend API for all AI operations (Gemini 2.5 Flash)
+ */
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
@@ -18,15 +27,30 @@ import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import SignupPromptModal from './components/SignupPromptModal';
 
-// Lazy load heavy components that are conditionally rendered
+/**
+ * Lazy-loaded components for better initial bundle size
+ * These components are only loaded when their respective features are accessed
+ * - WebcamCapture: Heavy library (react-webcam) only needed for webcam mode
+ * - CompositeScreen: Only needed for multi-image composition workflow
+ * - Payment/Pricing modals: Rarely used, safe to code-split
+ */
 const WebcamCapture = lazy(() => import('./components/WebcamCapture'));
 const CompositeScreen = lazy(() => import('./components/CompositeScreen'));
 const PaymentSuccess = lazy(() => import('./components/PaymentSuccess').then(module => ({ default: module.PaymentSuccess })));
 const PaymentCancelled = lazy(() => import('./components/PaymentCancelled').then(module => ({ default: module.PaymentCancelled })));
 const PricingModal = lazy(() => import('./components/PricingModal').then(module => ({ default: module.PricingModal })));
-// HEIC converter will be dynamically imported when needed
+// HEIC converter is dynamically imported only when HEIC files are detected (rare on web)
 
-// Helper to convert a data URL string to a File object
+/**
+ * Converts a data URL string to a File object
+ * Used primarily for crop operations where canvas.toDataURL() produces a data URL
+ * that needs to be converted back to a File for consistency with history management
+ *
+ * @param dataurl - Base64 encoded data URL (format: "data:image/png;base64,...")
+ * @param filename - Desired filename for the resulting File object
+ * @returns File object suitable for storing in history array
+ * @throws Error if data URL format is invalid or MIME type cannot be parsed
+ */
 const dataURLtoFile = (dataurl: string, filename: string): File => {
     const arr = dataurl.split(',');
     if (arr.length < 2) throw new Error("Invalid data URL");
@@ -34,16 +58,27 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     if (!mimeMatch || !mimeMatch[1]) throw new Error("Could not parse MIME type from data URL");
 
     const mime = mimeMatch[1];
-    const bstr = atob(arr[1]);
+    const bstr = atob(arr[1]); // Decode base64 string
     let n = bstr.length;
     const u8arr = new Uint8Array(n);
+    // Convert binary string to byte array (working backwards for efficiency)
     while(n--){
         u8arr[n] = bstr.charCodeAt(n);
     }
     return new File([u8arr], filename, {type:mime});
 }
 
-// Helper to detect if error is related to content safety filters
+/**
+ * Detects if an error message indicates a content safety filter violation
+ * Google's Gemini API filters content for safety (NSFW, violence, policy violations)
+ * This helps provide user-friendly messaging for safety-related failures vs technical errors
+ *
+ * @param errorMessage - The error message string to analyze
+ * @returns true if the error appears to be safety-related, false otherwise
+ *
+ * Note: Includes '500' and 'internal server error' as safety keywords because
+ * Google's API sometimes returns 500 errors for safety violations without clear messaging
+ */
 const isSafetyFilterError = (errorMessage: string): boolean => {
     const safetyKeywords = [
         'safety',
@@ -56,7 +91,7 @@ const isSafetyFilterError = (errorMessage: string): boolean => {
         'terms of service',
         'content policy',
         'not allowed',
-        '500',
+        '500', // Google sometimes returns 500 for safety violations
         'internal server error'
     ];
 
@@ -64,10 +99,16 @@ const isSafetyFilterError = (errorMessage: string): boolean => {
     return safetyKeywords.some(keyword => lowerError.includes(keyword));
 }
 
-// Helper to parse adjustment prompt into structured adjustments
+/**
+ * DEPRECATED - Legacy function no longer used in production
+ * Previously attempted to parse natural language adjustment prompts into structured values
+ * Now replaced by direct prompt-to-API approach where Gemini interprets prompts natively
+ *
+ * Kept for reference but not actively called in the codebase
+ */
 const parseAdjustmentPrompt = (prompt: string) => {
   const adjustments: any = {};
-  
+
   // Simple parsing logic - in production you might want more sophisticated parsing
   if (prompt.toLowerCase().includes('bright')) {
     adjustments.brightness = 0.2; // Default adjustment value
@@ -81,7 +122,7 @@ const parseAdjustmentPrompt = (prompt: string) => {
   if (prompt.toLowerCase().includes('warm') || prompt.toLowerCase().includes('cool')) {
     adjustments.temperature = prompt.toLowerCase().includes('warm') ? 0.2 : -0.2;
   }
-  
+
   return adjustments;
 }
 
