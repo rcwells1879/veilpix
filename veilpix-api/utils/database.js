@@ -359,4 +359,4 @@ const db = {
     }
 };
 
-module.exports = { supabase: getSupabaseClient, db, testConnection };
+module.exports = { supabase: getSupabaseClient, getSupabaseClient, db, testConnection };

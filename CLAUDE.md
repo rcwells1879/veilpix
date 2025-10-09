@@ -3,16 +3,18 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-VeilPix is an AI-powered image editing React web application that uses Google's Gemini AI model for generative image editing. The app provides localized photo editing, global filters, adjustments, and cropping capabilities through an intuitive web interface.
+VeilPix is an AI-powered image editing React web application that supports multiple AI providers for generative image editing. The app provides localized photo editing, global filters, adjustments, and cropping capabilities through an intuitive web interface.
 
 ## Architecture
 - **Frontend**: React 19 with TypeScript using Vite as the build tool
 - **Backend API**: Node.js/Express server with authentication, usage tracking, and billing
-- **AI Service**: Google Gemini API (`gemini-2.5-flash-image-preview`) for image generation via backend
+- **AI Services**:
+  - **Nano Banana** (Google Gemini `gemini-2.5-flash-image-preview`) - Default provider, uses in-memory base64 encoding
+  - **SeeDream 4.0** (ByteDance SeeDream V4 Edit) - Alternative provider, uses Supabase Storage for temporary image URLs
 - **Authentication**: Clerk for user management and session handling
-- **Database**: Supabase for usage tracking, billing records, and user data
+- **Database**: Supabase for usage tracking, billing records, user data, and temporary image storage
 - **Payment Processing**: Stripe for billing and usage metering
-- **State Management**: React hooks with local state (no external state library)
+- **State Management**: React hooks with local state (no external state library) + localStorage for settings persistence
 - **Image Processing**: Canvas API for cropping, react-image-crop for crop selection
 - **Styling**: Tailwind CSS with custom animations and gradients
 
@@ -32,11 +34,9 @@ npm run preview
 ```
 
 ## Environment Setup
-Create a `.env.local` file with:
-```
-# Legacy: Gemini API key (now used in backend only)
-GEMINI_API_KEY=your_gemini_api_key_here
 
+### Frontend (.env.local)
+```
 # Clerk Configuration (Required)
 VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 
@@ -47,6 +47,29 @@ VITE_API_BASE_URL=https://api.veilstudio.io
 
 # Optional: Environment
 VITE_NODE_ENV=development
+```
+
+### Backend (veilpix-api/.env)
+```
+NODE_ENV=production
+PORT=3001
+
+# AI Service APIs
+GEMINI_API_KEY=your_gemini_api_key_here
+SEEDREAM_API_KEY=your_kie_ai_api_key_here
+SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
+
+# Authentication (Clerk)
+CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+CLERK_SECRET_KEY=your_clerk_secret_key
+
+# Database (Supabase)
+SUPABASE_URL=https://your_project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# Payment Processing (Stripe)
+STRIPE_SECRET_KEY=your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=your_webhook_secret
 ```
 
 ### WSL Development Environment Notes
@@ -107,6 +130,58 @@ VITE_NODE_ENV=development
 - **Data Format**: Image data structure is `{ inlineData: { data: "base64...", mimeType: "image/png" } }`
 - **Critical Note**: All Gemini image generation endpoints (single edit, filter, adjust, combine) return the same response structure with `inlineData` (not `inline_data`)
 - **Processing Function**: The `processGeminiResponse()` function in `routes/gemini.js` handles response parsing for all image generation endpoints uniformly
+
+## SeeDream 4.0 AI Implementation Details
+- **Model**: ByteDance SeeDream V4 Edit - Alternative AI provider for image generation and editing
+- **API Provider**: Kie.ai API platform
+- **Image Handling**: Unlike Gemini's base64 approach, SeeDream requires image URLs, so images are temporarily uploaded to Supabase Storage
+- **Resolution Options**: Supports 1K, 2K, and 4K output resolutions (configurable in Settings menu)
+- **Backend Routes**: `/api/seedream/generate-edit`, `/api/seedream/generate-filter`, `/api/seedream/generate-adjust`, `/api/seedream/combine-photos`
+- **Request Format**: Images are uploaded to Supabase Storage (`temp-images` bucket), public URLs are sent to SeeDream API
+- **Response Format**: SeeDream returns image URLs which are fetched and converted to base64 to match Gemini's response structure
+- **Temporary Storage**: Images are automatically deleted from Supabase after SeeDream processing (2-hour cleanup window)
+- **Credit System**: Uses the same unified credit deduction and usage tracking as Gemini
+
+### SeeDream Configuration Requirements
+**IMPORTANT**: SeeDream integration requires the following setup before it will work:
+
+1. **Environment Variables** (add to `veilpix-api/.env`):
+   ```env
+   SEEDREAM_API_KEY=your_kie_ai_api_key_here
+   SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
+   ```
+   - Get API key from: https://kie.ai/ (requires account signup)
+   - Whitelist server IP (`140.82.7.169`) in Kie.ai dashboard for API access
+
+2. **Supabase Storage Bucket** (create in Supabase dashboard):
+   - Bucket name: `temp-images`
+   - Public access: Enabled (images need public URLs for SeeDream API)
+   - File size limit: 10MB
+   - RLS policies: Disabled (service role key bypasses RLS)
+
+3. **API Endpoint Verification**:
+   - Current endpoint placeholder: `https://api.kie.ai/v1/edit`
+   - **TODO**: Verify actual SeeDream API endpoint from Kie.ai documentation
+   - Update `SEEDREAM_API_BASE_URL` in `.env` if different
+
+### Settings UI
+- **Location**: Header component settings icon (gear icon next to usage counter)
+- **Persistence**: Settings saved to localStorage (`veilpix-settings` key)
+- **Default Provider**: Nano Banana (Gemini)
+- **Options**:
+  - **API Provider**: Radio selection between "Nano Banana" and "SeeDream 4.0"
+  - **Resolution**: Dropdown (1K/2K/4K) - only shown when SeeDream is selected
+- **Conditional Hook Usage**: App.tsx dynamically switches between `useGenerateEdit()` and `useGenerateEditSeeDream()` based on settings
+
+### SeeDream vs Nano Banana Comparison
+| Feature | Nano Banana (Gemini) | SeeDream 4.0 |
+|---------|---------------------|--------------|
+| **Image Input** | Base64 in-memory | URLs from Supabase Storage |
+| **Processing** | Direct base64 response | URL response → fetch → base64 conversion |
+| **Storage** | None (in-memory only) | Temporary Supabase Storage (auto-cleanup) |
+| **Resolution** | Fixed (model default) | User-selectable (1K/2K/4K) |
+| **Speed** | Very fast (<2s) | Fast (<1.8s per docs) |
+| **Cost** | Included in credit system | Included in credit system |
 
 ## Critical Database Architecture Notes
 - **Supabase Client**: Uses lazy loading pattern with service role key to prevent module loading failures

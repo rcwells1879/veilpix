@@ -16,7 +16,17 @@
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { useUser } from '@clerk/clerk-react';
-import { useGenerateEdit, useGenerateFilter, useGenerateAdjust, useGenerateComposite, useGenerateTextToImage } from './src/hooks/useImageGeneration';
+import {
+  useGenerateEdit,
+  useGenerateFilter,
+  useGenerateAdjust,
+  useGenerateComposite,
+  useGenerateTextToImage,
+  useGenerateEditSeeDream,
+  useGenerateFilterSeeDream,
+  useGenerateAdjustSeeDream,
+  useGenerateCompositeSeeDream
+} from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Spinner from './components/Spinner';
@@ -26,6 +36,7 @@ import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import SignupPromptModal from './components/SignupPromptModal';
+import { SettingsState } from './components/SettingsMenu';
 
 /**
  * Lazy-loaded components for better initial bundle size
@@ -129,6 +140,15 @@ const parseAdjustmentPrompt = (prompt: string) => {
 type Tab = 'retouch' | 'adjust' | 'filters' | 'crop';
 type View = 'start' | 'webcam' | 'editor' | 'composite';
 
+// LocalStorage keys for settings persistence
+const SETTINGS_STORAGE_KEY = 'veilpix-settings';
+
+// Default settings
+const DEFAULT_SETTINGS: SettingsState = {
+  apiProvider: 'gemini',
+  resolution: '2K'
+};
+
 const App: React.FC = () => {
   const { isSignedIn, isLoaded } = useUser();
   const [view, setView] = useState<View>('start');
@@ -140,6 +160,36 @@ const App: React.FC = () => {
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('adjust');
   const [showSignupPrompt, setShowSignupPrompt] = useState<boolean>(false);
+
+  // Settings state with localStorage persistence
+  const [settings, setSettings] = useState<SettingsState>(() => {
+    try {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        console.log('📋 Loaded settings from localStorage:', parsed);
+        return { ...DEFAULT_SETTINGS, ...parsed };
+      }
+    } catch (error) {
+      console.error('Failed to load settings from localStorage:', error);
+    }
+    return DEFAULT_SETTINGS;
+  });
+
+  // Persist settings to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+      console.log('💾 Saved settings to localStorage:', settings);
+    } catch (error) {
+      console.error('Failed to save settings to localStorage:', error);
+    }
+  }, [settings]);
+
+  const handleSettingsChange = useCallback((newSettings: SettingsState) => {
+    setSettings(newSettings);
+    console.log('⚙️ Settings updated:', newSettings);
+  }, []);
 
   // Smart preloading for lazy components
   useEffect(() => {
@@ -178,12 +228,12 @@ const App: React.FC = () => {
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
 
-  // TanStack Query mutations
-  const editMutation = useGenerateEdit();
-  const filterMutation = useGenerateFilter();
-  const adjustMutation = useGenerateAdjust();
-  const compositeMutation = useGenerateComposite();
-  const textToImageMutation = useGenerateTextToImage();
+  // TanStack Query mutations - conditionally use Gemini or SeeDream based on settings
+  const editMutation = settings.apiProvider === 'seedream' ? useGenerateEditSeeDream() : useGenerateEdit();
+  const filterMutation = settings.apiProvider === 'seedream' ? useGenerateFilterSeeDream() : useGenerateFilter();
+  const adjustMutation = settings.apiProvider === 'seedream' ? useGenerateAdjustSeeDream() : useGenerateAdjust();
+  const compositeMutation = settings.apiProvider === 'seedream' ? useGenerateCompositeSeeDream() : useGenerateComposite();
+  const textToImageMutation = useGenerateTextToImage(); // Only uses Gemini for now
 
   // React 19 optimistic state for immediate UI feedback
   const [optimisticHistory, setOptimisticHistory] = useOptimistic(
@@ -419,7 +469,8 @@ const App: React.FC = () => {
         image: currentImage,
         prompt,
         x: editHotspot.x,
-        y: editHotspot.y
+        y: editHotspot.y,
+        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -458,7 +509,8 @@ const App: React.FC = () => {
         const response = await compositeMutation.mutateAsync({
             image1: sourceImage1,
             image2: sourceImage2,
-            prompt: compositePrompt
+            prompt: compositePrompt,
+            ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
         });
         console.log('✅ compositeMutation.mutateAsync returned:', response)
 
@@ -500,7 +552,8 @@ const App: React.FC = () => {
     try {
       const response = await filterMutation.mutateAsync({
         image: currentImage,
-        filterType: filterPrompt
+        filterType: filterPrompt,
+        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -535,7 +588,8 @@ const App: React.FC = () => {
       // Send the prompt directly to the API
       const response = await adjustMutation.mutateAsync({
         image: currentImage,
-        prompt: adjustmentPrompt
+        prompt: adjustmentPrompt,
+        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -584,7 +638,8 @@ const App: React.FC = () => {
       const response = await compositeMutation.mutateAsync({
         image1: currentImage,
         image2: templateFile,
-        prompt: compositePrompt
+        prompt: compositePrompt,
+        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -1056,7 +1111,11 @@ const App: React.FC = () => {
   
   return (
     <div className="min-h-screen text-gray-100 flex flex-col">
-      <Header onShowPricing={() => setShowPricingModal(true)} />
+      <Header
+        onShowPricing={() => setShowPricingModal(true)}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
+      />
       <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${view === 'editor' ? 'items-start' : 'items-center'}`}>
         {renderContent()}
       </main>

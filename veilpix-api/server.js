@@ -86,14 +86,15 @@ const createRateLimiter = (windowMs, max, message) => rateLimit({
 // Apply different rate limits (exclude webhooks from rate limiting)
 app.use('/api/auth', createRateLimiter(15 * 60 * 1000, 20, 'Too many authentication requests'));
 app.use('/api/gemini', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
+app.use('/api/seedream', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/', createRateLimiter(15 * 60 * 1000, 100, 'Too many requests from this IP'));
 
-// Body parsing middleware with enhanced security (exclude /api/gemini for file uploads)
+// Body parsing middleware with enhanced security (exclude /api/gemini and /api/seedream for file uploads)
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/gemini')) {
-        return next(); // Skip JSON parsing for Gemini routes (they handle multipart data)
+    if (req.path.startsWith('/api/gemini') || req.path.startsWith('/api/seedream')) {
+        return next(); // Skip JSON parsing for image generation routes (they handle multipart data)
     }
-    express.json({ 
+    express.json({
         limit: '10mb',
         strict: true,
         type: 'application/json'
@@ -101,11 +102,11 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/gemini')) {
-        return next(); // Skip URL encoding for Gemini routes
+    if (req.path.startsWith('/api/gemini') || req.path.startsWith('/api/seedream')) {
+        return next(); // Skip URL encoding for image generation routes
     }
-    express.urlencoded({ 
-        extended: true, 
+    express.urlencoded({
+        extended: true,
         limit: '10mb',
         parameterLimit: 20
     })(req, res, next);
@@ -134,6 +135,7 @@ app.use((req, res, next) => {
 // Import routes
 const authRoutes = require('./routes/auth');
 const geminiRoutes = require('./routes/gemini');
+const seedreamRoutes = require('./routes/seedream');
 const usageRoutes = require('./routes/usage');
 const stripeRoutes = require('./routes/stripe');
 const checkoutRoutes = require('./routes/checkout');
@@ -141,6 +143,7 @@ const checkoutRoutes = require('./routes/checkout');
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/gemini', geminiRoutes);
+app.use('/api/seedream', seedreamRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/checkout', checkoutRoutes);

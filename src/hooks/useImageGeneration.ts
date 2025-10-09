@@ -31,16 +31,19 @@ export interface GenerateEditRequest {
   prompt: string
   x: number
   y: number
+  resolution?: string  // For SeeDream API
 }
 
 export interface GenerateFilterRequest {
   image: File
   filterType: string
+  resolution?: string  // For SeeDream API
 }
 
 export interface GenerateAdjustRequest {
   image: File
   prompt: string
+  resolution?: string  // For SeeDream API
 }
 
 export interface GenerateCompositeRequest {
@@ -48,6 +51,7 @@ export interface GenerateCompositeRequest {
   image2: File
   prompt: string
   style?: string
+  resolution?: string  // For SeeDream API
 }
 
 export interface GenerateTextToImageRequest {
@@ -246,6 +250,121 @@ export function useGenerateTextToImage() {
     },
     onError: (error) => {
       console.error('💥 Text-to-image generation failed:', error)
+    },
+  })
+}
+
+// ============================================================================
+// SeeDream 4.0 API Hooks
+// These hooks use the SeeDream API instead of Gemini for image generation
+// ============================================================================
+
+// Custom hook for localized editing with SeeDream
+export function useGenerateEditSeeDream() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateEditRequest): Promise<ImageGenerationResponse> => {
+      const formData = new FormData()
+      formData.append('image', data.image)
+      formData.append('prompt', data.prompt)
+      formData.append('x', data.x.toString())
+      formData.append('y', data.y.toString())
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-edit', {
+        method: 'POST',
+        body: formData,
+        headers: {}, // Let browser set Content-Type for FormData
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// Custom hook for style filters with SeeDream
+export function useGenerateFilterSeeDream() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateFilterRequest): Promise<ImageGenerationResponse> => {
+      const formData = new FormData()
+      formData.append('image', data.image)
+      formData.append('filterType', data.filterType)
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-filter', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// Custom hook for photo adjustments with SeeDream
+export function useGenerateAdjustSeeDream() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateAdjustRequest): Promise<ImageGenerationResponse> => {
+      const formData = new FormData()
+      formData.append('image', data.image)
+      formData.append('adjustment', data.prompt)
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-adjust', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// Custom hook for image composition with SeeDream
+export function useGenerateCompositeSeeDream() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
+      const formData = new FormData()
+      formData.append('images', data.image1)
+      formData.append('images', data.image2)
+      formData.append('prompt', data.prompt)
+      if (data.style) {
+        formData.append('style', data.style)
+      }
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/seedream/combine-photos', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
   })
 }
