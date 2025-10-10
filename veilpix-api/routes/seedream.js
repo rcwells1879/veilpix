@@ -65,7 +65,15 @@ const SEEDREAM_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.a
 async function createSeedreamTask(requestBody) {
     try {
         console.log('🌐 Creating SeeDream task');
-        console.log('📝 Request body:', JSON.stringify(requestBody, null, 2));
+        console.log('📝 Input parameters:', JSON.stringify(requestBody, null, 2));
+
+        // Kie.ai expects parameters nested inside "input" object
+        const payload = {
+            model: 'bytedance/seedream-v4-edit',
+            input: requestBody
+        };
+
+        console.log('📤 Full request payload:', JSON.stringify(payload, null, 2));
 
         const response = await fetch(`${SEEDREAM_API_URL}/api/v1/jobs/createTask`, {
             method: 'POST',
@@ -73,10 +81,7 @@ async function createSeedreamTask(requestBody) {
                 'Authorization': `Bearer ${SEEDREAM_API_KEY}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                model: 'bytedance/seedream-v4-edit',
-                ...requestBody
-            })
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
@@ -87,6 +92,11 @@ async function createSeedreamTask(requestBody) {
         const result = await response.json();
         console.log('✅ SeeDream task created:', result);
 
+        // Kie.ai response format: { code: 200, message: "success", data: { taskId: "..." } }
+        if (result.code !== 200 || !result.data || !result.data.taskId) {
+            throw new Error(`Task creation failed: ${result.message || 'Unknown error'}`);
+        }
+
         return result;
 
     } catch (error) {
@@ -96,12 +106,12 @@ async function createSeedreamTask(requestBody) {
 }
 
 // Helper function to poll SeeDream job status
-async function pollSeedreamJob(jobId, maxAttempts = 60, intervalMs = 1000) {
+async function pollSeedreamJob(taskId, maxAttempts = 60, intervalMs = 1000) {
     try {
-        console.log(`⏳ Polling SeeDream job: ${jobId}`);
+        console.log(`⏳ Polling SeeDream task: ${taskId}`);
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            const response = await fetch(`${SEEDREAM_API_URL}/api/v1/jobs/${jobId}`, {
+            const response = await fetch(`${SEEDREAM_API_URL}/api/v1/jobs/recordInfo?taskId=${taskId}`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${SEEDREAM_API_KEY}`
@@ -110,29 +120,42 @@ async function pollSeedreamJob(jobId, maxAttempts = 60, intervalMs = 1000) {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`Job status check failed: ${response.status} - ${errorText}`);
+                throw new Error(`Task status check failed: ${response.status} - ${errorText}`);
             }
 
-            const jobStatus = await response.json();
-            console.log(`📊 Job status (attempt ${attempt + 1}/${maxAttempts}):`, jobStatus.status);
+            const result = await response.json();
 
-            if (jobStatus.status === 'completed') {
-                console.log('✅ Job completed successfully');
-                return jobStatus;
+            // Kie.ai response: { code: 200, message: "success", data: { state: "...", resultJson: "..." } }
+            if (result.code !== 200) {
+                throw new Error(`Task query failed: ${result.message || 'Unknown error'}`);
             }
 
-            if (jobStatus.status === 'failed') {
-                throw new Error(`Job failed: ${jobStatus.error || 'Unknown error'}`);
+            const taskData = result.data;
+            const state = taskData.state;
+
+            console.log(`📊 Task status (attempt ${attempt + 1}/${maxAttempts}): ${state}`);
+
+            if (state === 'success') {
+                console.log('✅ Task completed successfully');
+
+                // Parse resultJson string to get resultUrls
+                const resultData = JSON.parse(taskData.resultJson);
+                return resultData;
             }
 
+            if (state === 'fail') {
+                throw new Error(`Task failed: ${taskData.failMsg || taskData.failCode || 'Unknown error'}`);
+            }
+
+            // States: waiting, queuing, generating - continue polling
             // Wait before next poll
             await new Promise(resolve => setTimeout(resolve, intervalMs));
         }
 
-        throw new Error('Job polling timeout - exceeded maximum attempts');
+        throw new Error('Task polling timeout - exceeded maximum attempts');
 
     } catch (error) {
-        console.error('❌ Job polling failed:', error);
+        console.error('❌ Task polling failed:', error);
         throw error;
     }
 }
@@ -143,14 +166,12 @@ async function callSeedreamAPI(requestBody) {
         // Step 1: Create task
         const taskResponse = await createSeedreamTask(requestBody);
 
-        if (!taskResponse.job_id && !taskResponse.id) {
-            throw new Error('No job ID returned from task creation');
-        }
-
-        const jobId = taskResponse.job_id || taskResponse.id;
+        // Extract taskId from Kie.ai response
+        const taskId = taskResponse.data.taskId;
+        console.log(`📋 Task created with ID: ${taskId}`);
 
         // Step 2: Poll for completion
-        const completedJob = await pollSeedreamJob(jobId);
+        const completedJob = await pollSeedreamJob(taskId);
 
         // Step 3: Return result
         return completedJob;
