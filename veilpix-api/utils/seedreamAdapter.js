@@ -62,6 +62,7 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null) {
     return {
         prompt: enhancedPrompt,
         image_urls: imageUrls,
+        image_size: 'square_hd', // Default to square HD, could be made dynamic
         image_resolution: mapResolution(resolution),
         max_images: 1 // Single output image
     };
@@ -79,6 +80,7 @@ function buildFilterRequest(imageUrls, filterType, resolution) {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
         image_urls: imageUrls,
+        image_size: 'square_hd',
         image_resolution: mapResolution(resolution),
         max_images: 1
     };
@@ -96,6 +98,7 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution) {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
         image_urls: imageUrls,
+        image_size: 'square_hd',
         image_resolution: mapResolution(resolution),
         max_images: 1
     };
@@ -113,6 +116,7 @@ function buildCombineRequest(imageUrls, prompt, resolution) {
     return {
         prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
         image_urls: imageUrls,
+        image_size: 'square_hd',
         image_resolution: mapResolution(resolution),
         max_images: 1
     };
