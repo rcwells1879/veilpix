@@ -130,43 +130,53 @@ function buildCombineRequest(imageUrls, prompt, resolution) {
  */
 function normalizeResponse(seedreamResponse) {
     try {
-        // SeeDream response structure (based on typical image generation APIs):
+        // Kie.ai SeeDream response structure:
         // {
-        //   images: [{
-        //     url: "https://...",
-        //     base64: "...",  // if requested
-        //   }],
-        //   status: "success"
+        //   resultUrls: ["https://..."],
+        //   job_id: "...",
+        //   status: "completed"
         // }
 
-        if (!seedreamResponse || !seedreamResponse.images || seedreamResponse.images.length === 0) {
-            throw new Error('No images in SeeDream response');
+        if (!seedreamResponse) {
+            throw new Error('Empty SeeDream response');
         }
 
-        const firstImage = seedreamResponse.images[0];
-
-        // If response includes base64, use it directly
-        if (firstImage.base64) {
+        // Check for resultUrls array (Kie.ai format)
+        if (seedreamResponse.resultUrls && Array.isArray(seedreamResponse.resultUrls) && seedreamResponse.resultUrls.length > 0) {
+            const imageUrl = seedreamResponse.resultUrls[0];
             return {
                 success: true,
-                image: {
-                    data: firstImage.base64,
-                    mimeType: 'image/png'
-                }
-            };
-        }
-
-        // If response includes URL, we need to fetch and convert to base64
-        if (firstImage.url) {
-            // Return the URL and let the route handler fetch and convert
-            return {
-                success: true,
-                imageUrl: firstImage.url,
+                imageUrl: imageUrl,
                 needsConversion: true
             };
         }
 
-        throw new Error('SeeDream response missing both base64 and url');
+        // Fallback: Check for images array (alternative format)
+        if (seedreamResponse.images && Array.isArray(seedreamResponse.images) && seedreamResponse.images.length > 0) {
+            const firstImage = seedreamResponse.images[0];
+
+            // If response includes base64, use it directly
+            if (firstImage.base64) {
+                return {
+                    success: true,
+                    image: {
+                        data: firstImage.base64,
+                        mimeType: 'image/png'
+                    }
+                };
+            }
+
+            // If response includes URL, we need to fetch and convert to base64
+            if (firstImage.url) {
+                return {
+                    success: true,
+                    imageUrl: firstImage.url,
+                    needsConversion: true
+                };
+            }
+        }
+
+        throw new Error('SeeDream response missing resultUrls or images array');
 
     } catch (error) {
         console.error('❌ Failed to normalize SeeDream response:', error);
