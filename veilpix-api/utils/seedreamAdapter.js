@@ -55,9 +55,9 @@ function mapAspectRatioFileToSeedreamSize(aspectRatioFile) {
     const aspectRatioMap = {
         'transparent-1-1.png': 'square_hd',           // 1:1 Square
         'transparent-16-9.png': 'landscape_16_9',     // 16:9 Widescreen
-        'transparent-9-16.png': 'portrait_9_16',      // 9:16 Vertical
+        'transparent-9-16.png': 'portrait_16_9',      // 9:16 Vertical (note: SeeDream uses width:height even for portraits)
         'transparent-4-3.png': 'landscape_4_3',       // 4:3 Standard
-        'transparent-3-4.png': 'portrait_3_4'         // 3:4 Portrait
+        'transparent-3-4.png': 'portrait_4_3'         // 3:4 Portrait (note: SeeDream uses width:height format)
     };
 
     return aspectRatioMap[aspectRatioFile] || 'square_hd'; // Default to square
