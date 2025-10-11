@@ -66,7 +66,7 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
   return (
     <div
       ref={menuRef}
-      className="absolute right-0 top-12 mt-2 w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 animate-fade-in"
+      className="absolute left-1/2 -translate-x-1/2 top-12 mt-2 w-[calc(100vw-2rem)] max-w-80 sm:left-auto sm:translate-x-0 sm:right-0 sm:w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 animate-fade-in"
     >
       <div className="p-4">
         <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-700">

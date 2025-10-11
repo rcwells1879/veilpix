@@ -159,10 +159,47 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
    - File size limit: 10MB
    - RLS policies: Disabled (service role key bypasses RLS)
 
-3. **API Endpoint Verification**:
-   - Current endpoint placeholder: `https://api.kie.ai/v1/edit`
-   - **TODO**: Verify actual SeeDream API endpoint from Kie.ai documentation
-   - Update `SEEDREAM_API_BASE_URL` in `.env` if different
+3. **API Endpoints** (Async Job Pattern):
+   - Create Task: `POST https://api.kie.ai/api/v1/jobs/createTask`
+   - Query Status: `GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId={taskId}`
+   - **Flow**: Submit task → get taskId → poll recordInfo until `state === "success"` → extract resultUrls
+
+### SeeDream API Format (Kie.ai)
+
+**Request** (createTask):
+```json
+{
+  "model": "bytedance/seedream-v4-edit",
+  "input": {
+    "prompt": "editing instruction",
+    "image_urls": ["https://public-url.jpg"],
+    "image_size": "square_hd",
+    "image_resolution": "2K",
+    "max_images": 1
+  }
+}
+```
+
+**Valid `image_size`**: `square`, `square_hd`, `portrait_4_3`, `portrait_3_2`, `portrait_16_9`, `landscape_4_3`, `landscape_3_2`, `landscape_16_9`, `landscape_21_9`
+**Note**: Names use width:height (e.g., `portrait_4_3` = 3:4 portrait)
+
+**Response** (recordInfo when complete):
+```json
+{
+  "code": 200,
+  "data": {
+    "state": "success",
+    "resultJson": "{\"resultUrls\":[\"https://output.png\"]}"
+  }
+}
+```
+
+**VeilPix Mapping** (UI identifier → API value):
+- `transparent-1-1.png` → `square_hd`
+- `transparent-16-9.png` → `landscape_16_9`
+- `transparent-9-16.png` → `portrait_16_9`
+- `transparent-4-3.png` → `landscape_4_3`
+- `transparent-3-4.png` → `portrait_4_3`
 
 ### Settings UI
 - **Location**: Header component settings icon (gear icon next to usage counter)
