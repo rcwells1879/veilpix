@@ -44,6 +44,7 @@ export interface GenerateAdjustRequest {
   image: File
   prompt: string
   resolution?: string  // For SeeDream API
+  aspectRatioFile?: string  // For SeeDream aspect ratio changes
 }
 
 export interface GenerateCompositeRequest {
@@ -324,6 +325,9 @@ export function useGenerateAdjustSeeDream() {
       formData.append('adjustment', data.prompt)
       if (data.resolution) {
         formData.append('resolution', data.resolution)
+      }
+      if (data.aspectRatioFile) {
+        formData.append('aspectRatioFile', data.aspectRatioFile)
       }
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-adjust', {
