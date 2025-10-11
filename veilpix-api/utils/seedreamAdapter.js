@@ -45,6 +45,25 @@ function mapImageSize(width, height) {
 }
 
 /**
+ * Map aspect ratio template filename to SeeDream image_size parameter
+ * Used when user selects aspect ratio from UI buttons
+ *
+ * @param {string} aspectRatioFile - Template filename (e.g., 'transparent-1-1.png')
+ * @returns {string} SeeDream image_size format
+ */
+function mapAspectRatioFileToSeedreamSize(aspectRatioFile) {
+    const aspectRatioMap = {
+        'transparent-1-1.png': 'square_hd',           // 1:1 Square
+        'transparent-16-9.png': 'landscape_16_9',     // 16:9 Widescreen
+        'transparent-9-16.png': 'portrait_9_16',      // 9:16 Vertical
+        'transparent-4-3.png': 'landscape_4_3',       // 4:3 Standard
+        'transparent-3-4.png': 'portrait_3_4'         // 3:4 Portrait
+    };
+
+    return aspectRatioMap[aspectRatioFile] || 'square_hd'; // Default to square
+}
+
+/**
  * Build SeeDream API request for localized editing
  *
  * @param {string[]} imageUrls - Array of public image URLs
@@ -52,9 +71,10 @@ function mapImageSize(width, height) {
  * @param {string} resolution - '1K', '2K', or '4K'
  * @param {number} x - X coordinate for localized edit (optional)
  * @param {number} y - Y coordinate for localized edit (optional)
+ * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
  * @returns {object} SeeDream API request body
  */
-function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null) {
+function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, imageSize = 'square_hd') {
     const enhancedPrompt = x !== null && y !== null
         ? `${prompt}. Focus the edit on the area around coordinates (${x}, ${y}).`
         : prompt;
@@ -62,7 +82,7 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null) {
     return {
         prompt: enhancedPrompt,
         image_urls: imageUrls,
-        image_size: 'square_hd', // Default to square HD, could be made dynamic
+        image_size: imageSize,
         image_resolution: mapResolution(resolution),
         max_images: 1 // Single output image
     };
@@ -74,13 +94,14 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null) {
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} filterType - The filter description
  * @param {string} resolution - '1K', '2K', or '4K'
+ * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
  * @returns {object} SeeDream API request body
  */
-function buildFilterRequest(imageUrls, filterType, resolution) {
+function buildFilterRequest(imageUrls, filterType, resolution, imageSize = 'square_hd') {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
         image_urls: imageUrls,
-        image_size: 'square_hd',
+        image_size: imageSize,
         image_resolution: mapResolution(resolution),
         max_images: 1
     };
@@ -92,13 +113,14 @@ function buildFilterRequest(imageUrls, filterType, resolution) {
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} adjustmentPrompt - The adjustment instruction
  * @param {string} resolution - '1K', '2K', or '4K'
+ * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
  * @returns {object} SeeDream API request body
  */
-function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution) {
+function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, imageSize = 'square_hd') {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
         image_urls: imageUrls,
-        image_size: 'square_hd',
+        image_size: imageSize,
         image_resolution: mapResolution(resolution),
         max_images: 1
     };
@@ -110,13 +132,14 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution) {
  * @param {string[]} imageUrls - Array of public image URLs (2-5 images)
  * @param {string} prompt - The combination instruction
  * @param {string} resolution - '1K', '2K', or '4K'
+ * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
  * @returns {object} SeeDream API request body
  */
-function buildCombineRequest(imageUrls, prompt, resolution) {
+function buildCombineRequest(imageUrls, prompt, resolution, imageSize = 'square_hd') {
     return {
         prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
         image_urls: imageUrls,
-        image_size: 'square_hd',
+        image_size: imageSize,
         image_resolution: mapResolution(resolution),
         max_images: 1
     };
@@ -229,6 +252,7 @@ async function urlToBase64(imageUrl) {
 module.exports = {
     mapResolution,
     mapImageSize,
+    mapAspectRatioFileToSeedreamSize,
     buildEditRequest,
     buildFilterRequest,
     buildAdjustRequest,

@@ -20,7 +20,8 @@ const {
     buildAdjustRequest,
     buildCombineRequest,
     normalizeResponse,
-    urlToBase64
+    urlToBase64,
+    mapAspectRatioFileToSeedreamSize
 } = require('../utils/seedreamAdapter');
 
 const router = express.Router();
@@ -470,7 +471,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { adjustment, resolution = '2K' } = req.body;
+        const { adjustment, resolution = '2K', aspectRatioFile } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -492,8 +493,15 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
 
         uploadedFilename = uploadResult.filename;
 
+        // Map aspect ratio if provided
+        let imageSize = 'square_hd'; // Default
+        if (aspectRatioFile) {
+            imageSize = mapAspectRatioFileToSeedreamSize(aspectRatioFile);
+            console.log(`📐 Aspect ratio requested: ${aspectRatioFile} → ${imageSize}`);
+        }
+
         // Build and call SeeDream API
-        const seedreamRequest = buildAdjustRequest([uploadResult.url], adjustment, resolution);
+        const seedreamRequest = buildAdjustRequest([uploadResult.url], adjustment, resolution, imageSize);
         const seedreamResponse = await callSeedreamAPI(seedreamRequest);
 
         // Normalize response

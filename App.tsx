@@ -615,46 +615,67 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      // Load the transparent aspect ratio template from the blog folder
-      const templateResponse = await fetch(`/veilpix/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioFile}`);
-      if (!templateResponse.ok) {
-        throw new Error(`Failed to load aspect ratio template: ${aspectRatioFile}`);
-      }
-
-      const templateBlob = await templateResponse.blob();
-      const templateFile = new File([templateBlob], aspectRatioFile, { type: 'image/png' });
-
-      // Create the composite prompt with the magic instruction
-      const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
-      const compositePrompt = `${basePrompt}. Use the uploaded image as the reference for final aspect ratio.`;
-
       // Add optimistic update for immediate feedback
       const optimisticFile = new File([currentImage], `optimistic-aspect-${Date.now()}.png`, { type: currentImage.type });
       startTransition(() => {
         setOptimisticHistory(optimisticFile);
       });
 
-      // Use the existing composite functionality with current image + template
-      const response = await compositeMutation.mutateAsync({
-        image1: currentImage,
-        image2: templateFile,
-        prompt: compositePrompt,
-        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
-      });
+      // SeeDream: Use native aspect ratio support
+      if (settings.apiProvider === 'seedream') {
+        const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
 
-      if (response.success && response.image) {
-        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-        const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
-        addImageToHistory(newImageFile);
-      } else {
-        throw new Error(response.message || 'Failed to apply aspect ratio change');
+        const response = await adjustMutation.mutateAsync({
+          image: currentImage,
+          prompt: basePrompt,
+          aspectRatioFile: aspectRatioFile, // Backend will map this to SeeDream format
+          resolution: settings.resolution
+        });
+
+        if (response.success && response.image) {
+          const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
+          const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
+          addImageToHistory(newImageFile);
+        } else {
+          throw new Error(response.message || 'Failed to apply aspect ratio change');
+        }
+      }
+      // Nano Banana: Use transparent template workaround
+      else {
+        // Load the transparent aspect ratio template from the blog folder
+        const templateResponse = await fetch(`/veilpix/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioFile}`);
+        if (!templateResponse.ok) {
+          throw new Error(`Failed to load aspect ratio template: ${aspectRatioFile}`);
+        }
+
+        const templateBlob = await templateResponse.blob();
+        const templateFile = new File([templateBlob], aspectRatioFile, { type: 'image/png' });
+
+        // Create the composite prompt with the magic instruction
+        const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
+        const compositePrompt = `${basePrompt}. Use the uploaded image as the reference for final aspect ratio.`;
+
+        // Use the existing composite functionality with current image + template
+        const response = await compositeMutation.mutateAsync({
+          image1: currentImage,
+          image2: templateFile,
+          prompt: compositePrompt
+        });
+
+        if (response.success && response.image) {
+          const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
+          const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
+          addImageToHistory(newImageFile);
+        } else {
+          throw new Error(response.message || 'Failed to apply aspect ratio change');
+        }
       }
     } catch (err: any) {
       const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
       setError(`Failed to apply the aspect ratio change. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, addImageToHistory, compositeMutation, setOptimisticHistory]);
+  }, [currentImage, addImageToHistory, adjustMutation, compositeMutation, setOptimisticHistory, settings.apiProvider, settings.resolution]);
 
   const handleTextToImageGenerate = useCallback(async (textPrompt: string, onSuccess?: (file: File) => void) => {
     console.log('🎨 Starting text-to-image generation with prompt:', textPrompt);
@@ -1089,7 +1110,7 @@ const App: React.FC = () => {
                   </div>
               )}
               {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-              {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} />}
+              {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} apiProvider={settings.apiProvider} />}
               {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
           </div>
         </div>
