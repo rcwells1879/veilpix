@@ -66,7 +66,7 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
   return (
     <div
       ref={menuRef}
-      className="absolute left-1/2 -translate-x-1/2 top-12 mt-2 w-[calc(100vw-2rem)] max-w-80 sm:left-auto sm:translate-x-0 sm:right-0 sm:w-80 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 animate-fade-in"
+      className="fixed right-[8px] top-16 w-80 max-w-[calc(100vw-2rem)] sm:absolute sm:right-0 sm:top-12 sm:mt-2 bg-gray-800/95 backdrop-blur-md border border-gray-700 rounded-lg shadow-xl z-50 animate-fade-in"
     >
       <div className="p-4">
         <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-700">
@@ -75,9 +75,8 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
         </div>
 
         {/* API Provider Selection */}
-        <div className="mb-4">
+        <div className="mb-4">  
           <label className="block text-sm font-medium text-gray-300 mb-2">
-            Image Generation API
           </label>
           <div className="space-y-2">
             <button
