@@ -88,11 +88,11 @@ const validateImageFile = (req, res, next) => {
         });
     }
 
-    // Check file size (max 10MB)
-    if (req.file.size > 10 * 1024 * 1024) {
+    // Check file size (max 50MB - supports 4K images)
+    if (req.file.size > 50 * 1024 * 1024) {
         return res.status(413).json({
             error: 'File too large',
-            message: 'Image file must be smaller than 10MB',
+            message: 'Image file must be smaller than 50MB',
             requestId: req.id,
             timestamp: new Date().toISOString()
         });
