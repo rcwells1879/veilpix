@@ -107,7 +107,7 @@ async function createSeedreamTask(requestBody) {
 }
 
 // Helper function to poll SeeDream job status
-async function pollSeedreamJob(taskId, maxAttempts = 60, intervalMs = 1000) {
+async function pollSeedreamJob(taskId, maxAttempts = 120, intervalMs = 1000) {
     try {
         console.log(`⏳ Polling SeeDream task: ${taskId}`);
 
