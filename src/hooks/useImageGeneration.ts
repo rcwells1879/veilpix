@@ -7,6 +7,7 @@ import React from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useApiClient } from '../services/apiClient'
 import { queryClient } from '../queryClient'
+import { compressImageIfNeeded, compressMultipleImages } from '../utils/imageCompression'
 
 export interface ImageGenerationResponse {
   imageUrl?: string
@@ -266,8 +267,11 @@ export function useGenerateEditSeeDream() {
 
   return useMutation({
     mutationFn: async (data: GenerateEditRequest): Promise<ImageGenerationResponse> => {
+      // Compress image if needed (SeeDream has 20MB limit)
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
       const formData = new FormData()
-      formData.append('image', data.image)
+      formData.append('image', compressedImage)
       formData.append('prompt', data.prompt)
       formData.append('x', data.x.toString())
       formData.append('y', data.y.toString())
@@ -294,8 +298,11 @@ export function useGenerateFilterSeeDream() {
 
   return useMutation({
     mutationFn: async (data: GenerateFilterRequest): Promise<ImageGenerationResponse> => {
+      // Compress image if needed (SeeDream has 20MB limit)
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
       const formData = new FormData()
-      formData.append('image', data.image)
+      formData.append('image', compressedImage)
       formData.append('filterType', data.filterType)
       if (data.resolution) {
         formData.append('resolution', data.resolution)
@@ -320,8 +327,11 @@ export function useGenerateAdjustSeeDream() {
 
   return useMutation({
     mutationFn: async (data: GenerateAdjustRequest): Promise<ImageGenerationResponse> => {
+      // Compress image if needed (SeeDream has 20MB limit)
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
       const formData = new FormData()
-      formData.append('image', data.image)
+      formData.append('image', compressedImage)
       formData.append('adjustment', data.prompt)
       if (data.resolution) {
         formData.append('resolution', data.resolution)
@@ -349,9 +359,15 @@ export function useGenerateCompositeSeeDream() {
 
   return useMutation({
     mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
+      // Compress both images if needed (SeeDream has 20MB limit per image)
+      const [compressedImage1, compressedImage2] = await compressMultipleImages(
+        [data.image1, data.image2],
+        20
+      )
+
       const formData = new FormData()
-      formData.append('images', data.image1)
-      formData.append('images', data.image2)
+      formData.append('images', compressedImage1)
+      formData.append('images', compressedImage2)
       formData.append('prompt', data.prompt)
       if (data.style) {
         formData.append('style', data.style)
