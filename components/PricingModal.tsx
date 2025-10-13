@@ -4,8 +4,10 @@
  */
 
 import React, { useState } from 'react'
+import { useUser } from '@clerk/clerk-react'
 import { useCreditPackages, useCreateCreditCheckout, redirectToStripe } from '../src/hooks/useStripeCheckout'
 import { useUsageStats } from '../src/hooks/useImageGeneration'
+import AuthRequiredModal from './AuthRequiredModal'
 
 interface PricingModalProps {
   isOpen: boolean
@@ -15,7 +17,9 @@ interface PricingModalProps {
 export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) => {
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
-  
+  const [showAuthRequired, setShowAuthRequired] = useState(false)
+
+  const { isSignedIn, isLoaded } = useUser()
   const { data: packagesData, isLoading: packagesLoading } = useCreditPackages()
   const { data: usageStats } = useUsageStats()
   const createCheckout = useCreateCreditCheckout()
@@ -24,6 +28,12 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
 
   const handlePurchase = async (packageType: '50_credits' | '100_credits' | '200_credits') => {
     if (isProcessing) return
+
+    // Check if user is signed in
+    if (!isLoaded || !isSignedIn) {
+      setShowAuthRequired(true)
+      return
+    }
 
     setIsProcessing(true)
     setSelectedPackage(packageType)
@@ -163,6 +173,12 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
           </div>
         </div>
       </div>
+
+      {/* Auth Required Modal */}
+      <AuthRequiredModal
+        isOpen={showAuthRequired}
+        onClose={() => setShowAuthRequired(false)}
+      />
     </div>
   )
 }

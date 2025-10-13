@@ -3,16 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { SignInButton, SignUpButton, SignOutButton, useUser, useClerk } from '@clerk/clerk-react';
-import { UserIcon, LogInIcon, UserPlusIcon, LogOutIcon, SettingsIcon } from './icons';
-import { ManageBillingButton, AddPaymentMethodButton } from './PaymentButton';
+import { LogInIcon, UserPlusIcon, LogOutIcon } from './icons';
 
 export const AuthButton: React.FC = () => {
   const { isSignedIn, user, isLoaded } = useUser();
   const { openUserProfile } = useClerk();
-  const [showBillingError, setShowBillingError] = useState<string | null>(null);
-  const [needsPaymentMethod, setNeedsPaymentMethod] = useState(false);
 
   if (!isLoaded) {
     return (
@@ -24,48 +21,7 @@ export const AuthButton: React.FC = () => {
 
   if (isSignedIn) {
     return (
-      <div className="flex flex-col items-end space-y-2">
-        {/* Error Message */}
-        {showBillingError && (
-          <div className="px-3 py-2 bg-red-900/20 rounded-lg border border-red-800/30 flex items-center justify-between space-x-2">
-            <span className="text-red-400 text-xs">{showBillingError}</span>
-            <button
-              onClick={() => setShowBillingError(null)}
-              className="text-red-400 hover:text-red-300 transition-colors"
-            >
-              ×
-            </button>
-          </div>
-        )}
-        
-        <div className="flex items-center space-x-1 sm:space-x-2">
-          {/* Billing Button - Manage or Add Payment Method - Hidden on mobile */}
-          {needsPaymentMethod ? (
-            <AddPaymentMethodButton
-              className="hidden sm:flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-800/50 hover:bg-gray-700/50 transition-colors duration-200 border border-gray-600/50 group"
-              onError={setShowBillingError}
-              onSuccess={() => {
-                setShowBillingError(null);
-                setNeedsPaymentMethod(false);
-              }}
-            >
-              <SettingsIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 group-hover:text-blue-400 transition-colors" />
-            </AddPaymentMethodButton>
-          ) : (
-            <ManageBillingButton
-              className="hidden sm:flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-800/50 hover:bg-gray-700/50 transition-colors duration-200 border border-gray-600/50 group"
-              onError={(error) => {
-                setShowBillingError(error);
-                if (error.includes('payment method')) {
-                  setNeedsPaymentMethod(true);
-                }
-              }}
-              onSuccess={() => setShowBillingError(null)}
-            >
-              <SettingsIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 group-hover:text-green-400 transition-colors" />
-            </ManageBillingButton>
-          )}
-
+      <div className="flex items-center space-x-1 sm:space-x-2">
           {/* User Profile Button */}
           <button
             onClick={() => openUserProfile()}
@@ -85,7 +41,6 @@ export const AuthButton: React.FC = () => {
               <LogOutIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 group-hover:text-red-400 transition-colors" />
             </button>
           </SignOutButton>
-        </div>
       </div>
     );
   }

@@ -4,11 +4,15 @@
 */
 import React from 'react';
 
+interface FooterProps {
+  onShowPricing?: () => void;
+}
+
 const footerLinks = {
   product: [
     { name: 'Features', href: '#features' },
     { name: 'Apps', href: 'https://veilstudio.io/veilchat/index.html' },
-    { name: 'Pricing', href: '#pricing' },
+    { name: 'Pricing', onClick: 'pricing' }, // Special marker for pricing
     { name: 'Documentation', href: '#docs' },
   ],
   company: [
@@ -61,7 +65,7 @@ const socialLinks = [
   { name: 'Google', icon: GoogleIcon, href: 'https://share.google/hOcx0JGyOS8D4FTqR' },
 ];
 
-const Footer: React.FC = () => {
+const Footer: React.FC<FooterProps> = ({ onShowPricing }) => {
   return (
     <footer className="bg-gray-800/30 backdrop-blur-sm border-t border-gray-700">
       <div className="max-w-[1600px] mx-auto px-4 md:px-8">
@@ -98,12 +102,21 @@ const Footer: React.FC = () => {
               <ul className="space-y-3">
                 {footerLinks.product.map((item) => (
                   <li key={item.name}>
-                    <a
-                      href={item.href}
-                      className="text-gray-300 hover:text-white transition-colors duration-300"
-                    >
-                      {item.name}
-                    </a>
+                    {'onClick' in item && item.onClick === 'pricing' && onShowPricing ? (
+                      <button
+                        onClick={onShowPricing}
+                        className="text-gray-300 hover:text-white transition-colors duration-300 text-left"
+                      >
+                        {item.name}
+                      </button>
+                    ) : (
+                      <a
+                        href={'href' in item ? item.href : '#'}
+                        className="text-gray-300 hover:text-white transition-colors duration-300"
+                      >
+                        {item.name}
+                      </a>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -70,6 +70,15 @@ const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, on
         disabled={isLoading}
       />
 
+      {/* Apply Button */}
+      <button
+        onClick={handleApply}
+        className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+        disabled={isLoading || (!customPrompt.trim() && !selectedAspectRatio)}
+      >
+        Apply Adjustment
+      </button>
+
       {/* Always-Visible Aspect Ratio Selector */}
       <div className="bg-gray-900/50 border border-gray-600 rounded-lg p-4">
         <h4 className="text-md font-semibold text-gray-300 mb-3">Select Aspect Ratio</h4>
@@ -89,19 +98,6 @@ const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, on
           ))}
         </div>
       </div>
-
-      {/* Apply Button */}
-      {(customPrompt.trim() || selectedAspectRatio) && (
-        <div className="animate-fade-in flex flex-col gap-4 pt-2">
-          <button
-            onClick={handleApply}
-            className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
-            disabled={isLoading || (!customPrompt.trim() && !selectedAspectRatio)}
-          >
-            {selectedAspectRatio ? 'Apply Aspect Ratio' : 'Apply Adjustment'}
-          </button>
-        </div>
-      )}
     </div>
   );
 };

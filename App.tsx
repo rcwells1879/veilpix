@@ -1142,7 +1142,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <Footer />
+      <Footer onShowPricing={() => setShowPricingModal(true)} />
 
       {/* Payment Success Modal */}
       {showPaymentSuccess && (
