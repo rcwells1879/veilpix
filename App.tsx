@@ -25,7 +25,11 @@ import {
   useGenerateEditSeeDream,
   useGenerateFilterSeeDream,
   useGenerateAdjustSeeDream,
-  useGenerateCompositeSeeDream
+  useGenerateCompositeSeeDream,
+  useGenerateEditNanoBananaPro,
+  useGenerateFilterNanoBananaPro,
+  useGenerateAdjustNanoBananaPro,
+  useGenerateCompositeNanoBananaPro
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -228,11 +232,27 @@ const App: React.FC = () => {
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
 
-  // TanStack Query mutations - conditionally use Gemini or SeeDream based on settings
-  const editMutation = settings.apiProvider === 'seedream' ? useGenerateEditSeeDream() : useGenerateEdit();
-  const filterMutation = settings.apiProvider === 'seedream' ? useGenerateFilterSeeDream() : useGenerateFilter();
-  const adjustMutation = settings.apiProvider === 'seedream' ? useGenerateAdjustSeeDream() : useGenerateAdjust();
-  const compositeMutation = settings.apiProvider === 'seedream' ? useGenerateCompositeSeeDream() : useGenerateComposite();
+  // TanStack Query mutations - conditionally use Gemini, SeeDream, or Nano Banana Pro based on settings
+  const editMutation = settings.apiProvider === 'nanobananapro'
+    ? useGenerateEditNanoBananaPro()
+    : settings.apiProvider === 'seedream'
+      ? useGenerateEditSeeDream()
+      : useGenerateEdit();
+  const filterMutation = settings.apiProvider === 'nanobananapro'
+    ? useGenerateFilterNanoBananaPro()
+    : settings.apiProvider === 'seedream'
+      ? useGenerateFilterSeeDream()
+      : useGenerateFilter();
+  const adjustMutation = settings.apiProvider === 'nanobananapro'
+    ? useGenerateAdjustNanoBananaPro()
+    : settings.apiProvider === 'seedream'
+      ? useGenerateAdjustSeeDream()
+      : useGenerateAdjust();
+  const compositeMutation = settings.apiProvider === 'nanobananapro'
+    ? useGenerateCompositeNanoBananaPro()
+    : settings.apiProvider === 'seedream'
+      ? useGenerateCompositeSeeDream()
+      : useGenerateComposite();
   const textToImageMutation = useGenerateTextToImage(); // Only uses Gemini for now
 
   // React 19 optimistic state for immediate UI feedback
@@ -470,7 +490,7 @@ const App: React.FC = () => {
         prompt,
         x: editHotspot.x,
         y: editHotspot.y,
-        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
+        ...((settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -606,7 +626,8 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory]);
 
-  const handleApplyAspectRatio = useCallback(async (aspectRatioFile: string, customPrompt: string) => {
+  // Handle aspect ratio changes - supports PNG filename (Gemini/SeeDream) or direct ratio string (Nano Banana Pro)
+  const handleApplyAspectRatio = useCallback(async (aspectRatioInput: string, customPrompt: string) => {
     if (!currentImage) {
       setError('No image loaded to apply aspect ratio change to.');
       return;
@@ -621,14 +642,14 @@ const App: React.FC = () => {
         setOptimisticHistory(optimisticFile);
       });
 
-      // SeeDream: Use native aspect ratio support
-      if (settings.apiProvider === 'seedream') {
-        const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
+      const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
 
+      // Nano Banana Pro: Use native aspect ratio support with direct ratio strings
+      if (settings.apiProvider === 'nanobananapro') {
         const response = await adjustMutation.mutateAsync({
           image: currentImage,
           prompt: basePrompt,
-          aspectRatioFile: aspectRatioFile, // Backend will map this to SeeDream format
+          aspectRatio: aspectRatioInput, // Direct ratio string like '1:1', '16:9'
           resolution: settings.resolution
         });
 
@@ -640,19 +661,35 @@ const App: React.FC = () => {
           throw new Error(response.message || 'Failed to apply aspect ratio change');
         }
       }
-      // Nano Banana: Use transparent template workaround
+      // SeeDream: Use native aspect ratio support with PNG filename mapping
+      else if (settings.apiProvider === 'seedream') {
+        const response = await adjustMutation.mutateAsync({
+          image: currentImage,
+          prompt: basePrompt,
+          aspectRatioFile: aspectRatioInput, // Backend will map PNG filename to SeeDream format
+          resolution: settings.resolution
+        });
+
+        if (response.success && response.image) {
+          const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
+          const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
+          addImageToHistory(newImageFile);
+        } else {
+          throw new Error(response.message || 'Failed to apply aspect ratio change');
+        }
+      }
+      // Nano Banana (Gemini): Use transparent template workaround
       else {
         // Load the transparent aspect ratio template from the blog folder
-        const templateResponse = await fetch(`/veilpix/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioFile}`);
+        const templateResponse = await fetch(`/veilpix/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioInput}`);
         if (!templateResponse.ok) {
-          throw new Error(`Failed to load aspect ratio template: ${aspectRatioFile}`);
+          throw new Error(`Failed to load aspect ratio template: ${aspectRatioInput}`);
         }
 
         const templateBlob = await templateResponse.blob();
-        const templateFile = new File([templateBlob], aspectRatioFile, { type: 'image/png' });
+        const templateFile = new File([templateBlob], aspectRatioInput, { type: 'image/png' });
 
         // Create the composite prompt with the magic instruction
-        const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
         const compositePrompt = `${basePrompt}. Use the uploaded image as the reference for final aspect ratio.`;
 
         // Use the existing composite functionality with current image + template

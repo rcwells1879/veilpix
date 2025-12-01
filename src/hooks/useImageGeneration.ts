@@ -44,8 +44,9 @@ export interface GenerateFilterRequest {
 export interface GenerateAdjustRequest {
   image: File
   prompt: string
-  resolution?: string  // For SeeDream API
-  aspectRatioFile?: string  // For SeeDream aspect ratio changes
+  resolution?: string  // For SeeDream and Nano Banana Pro APIs
+  aspectRatioFile?: string  // For SeeDream aspect ratio changes (PNG filename)
+  aspectRatio?: string  // For Nano Banana Pro aspect ratio (direct string like '1:1', '16:9')
 }
 
 export interface GenerateCompositeRequest {
@@ -377,6 +378,141 @@ export function useGenerateCompositeSeeDream() {
       }
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/combine-photos', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// ============================================================================
+// Nano Banana Pro (Google Gemini 3 Pro Image) API Hooks
+// These hooks use the Nano Banana Pro API (via Kie.ai) for image generation
+// Costs 2 credits per generation
+// ============================================================================
+
+// Custom hook for localized editing with Nano Banana Pro
+export function useGenerateEditNanoBananaPro() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateEditRequest): Promise<ImageGenerationResponse> => {
+      // Compress image if needed (20MB limit)
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
+      const formData = new FormData()
+      formData.append('image', compressedImage)
+      formData.append('prompt', data.prompt)
+      formData.append('x', data.x.toString())
+      formData.append('y', data.y.toString())
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/nanobananapro/generate-edit', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// Custom hook for style filters with Nano Banana Pro
+export function useGenerateFilterNanoBananaPro() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateFilterRequest): Promise<ImageGenerationResponse> => {
+      // Compress image if needed (20MB limit)
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
+      const formData = new FormData()
+      formData.append('image', compressedImage)
+      formData.append('filterType', data.filterType)
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/nanobananapro/generate-filter', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// Custom hook for photo adjustments with Nano Banana Pro
+export function useGenerateAdjustNanoBananaPro() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateAdjustRequest): Promise<ImageGenerationResponse> => {
+      // Compress image if needed (20MB limit)
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
+      const formData = new FormData()
+      formData.append('image', compressedImage)
+      formData.append('adjustment', data.prompt)
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+      // Nano Banana Pro uses direct aspect ratio strings (e.g., '1:1', '16:9')
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/nanobananapro/generate-adjust', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
+// Custom hook for image composition with Nano Banana Pro
+export function useGenerateCompositeNanoBananaPro() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
+      // Compress both images if needed (20MB limit per image)
+      const [compressedImage1, compressedImage2] = await compressMultipleImages(
+        [data.image1, data.image2],
+        20
+      )
+
+      const formData = new FormData()
+      formData.append('images', compressedImage1)
+      formData.append('images', compressedImage2)
+      formData.append('prompt', data.prompt)
+      if (data.style) {
+        formData.append('style', data.style)
+      }
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<ImageGenerationResponse>('/api/nanobananapro/combine-photos', {
         method: 'POST',
         body: formData,
         headers: {},

@@ -87,11 +87,12 @@ const createRateLimiter = (windowMs, max, message) => rateLimit({
 app.use('/api/auth', createRateLimiter(15 * 60 * 1000, 20, 'Too many authentication requests'));
 app.use('/api/gemini', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/seedream', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
+app.use('/api/nanobananapro', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/', createRateLimiter(15 * 60 * 1000, 100, 'Too many requests from this IP'));
 
-// Body parsing middleware with enhanced security (exclude /api/gemini and /api/seedream for file uploads)
+// Body parsing middleware with enhanced security (exclude image generation routes for file uploads)
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/gemini') || req.path.startsWith('/api/seedream')) {
+    if (req.path.startsWith('/api/gemini') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro')) {
         return next(); // Skip JSON parsing for image generation routes (they handle multipart data)
     }
     express.json({
@@ -102,7 +103,7 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/gemini') || req.path.startsWith('/api/seedream')) {
+    if (req.path.startsWith('/api/gemini') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro')) {
         return next(); // Skip URL encoding for image generation routes
     }
     express.urlencoded({
@@ -136,6 +137,7 @@ app.use((req, res, next) => {
 const authRoutes = require('./routes/auth');
 const geminiRoutes = require('./routes/gemini');
 const seedreamRoutes = require('./routes/seedream');
+const nanoBananaProRoutes = require('./routes/nanobananapro');
 const usageRoutes = require('./routes/usage');
 const stripeRoutes = require('./routes/stripe');
 const checkoutRoutes = require('./routes/checkout');
@@ -144,6 +146,7 @@ const checkoutRoutes = require('./routes/checkout');
 app.use('/api/auth', authRoutes);
 app.use('/api/gemini', geminiRoutes);
 app.use('/api/seedream', seedreamRoutes);
+app.use('/api/nanobananapro', nanoBananaProRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/checkout', checkoutRoutes);

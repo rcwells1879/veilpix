@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
-export type ApiProvider = 'gemini' | 'seedream';
+export type ApiProvider = 'gemini' | 'seedream' | 'nanobananapro';
 export type Resolution = '1K' | '2K' | '4K';
 
 export interface SettingsState {
@@ -128,11 +128,36 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
                 </div>
               </div>
             </button>
+
+            <button
+              onClick={() => handleProviderChange('nanobananapro')}
+              className={`w-full text-left px-4 py-3 rounded-lg transition-all duration-200 ${
+                settings.apiProvider === 'nanobananapro'
+                  ? 'bg-blue-500/20 border-2 border-blue-500 text-blue-300'
+                  : 'bg-gray-700/50 border-2 border-transparent text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  settings.apiProvider === 'nanobananapro'
+                    ? 'border-blue-500'
+                    : 'border-gray-500'
+                }`}>
+                  {settings.apiProvider === 'nanobananapro' && (
+                    <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  )}
+                </div>
+                <div>
+                  <div className="font-semibold">Nano Banana Pro</div>
+                  <div className="text-xs text-gray-400">Google Gemini 3 Pro</div>
+                </div>
+              </div>
+            </button>
           </div>
         </div>
 
-        {/* Resolution Selection (only for SeeDream) */}
-        {settings.apiProvider === 'seedream' && (
+        {/* Resolution Selection (for SeeDream and Nano Banana Pro) */}
+        {(settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && (
           <div className="animate-fade-in">
             <label className="block text-sm font-medium text-gray-300 mb-2">
               Output Resolution
@@ -161,7 +186,10 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
         {/* Info Footer */}
         <div className="mt-4 pt-3 border-t border-gray-700">
           <p className="text-xs text-gray-400">
-            Both APIs use the same credit system. Changes are saved automatically.
+            {settings.apiProvider === 'nanobananapro'
+              ? '2 credits per image \u2022 '
+              : '1 credit per image \u2022 '}
+            Changes are saved automatically.
           </p>
         </div>
       </div>

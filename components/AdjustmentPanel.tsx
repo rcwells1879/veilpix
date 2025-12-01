@@ -12,24 +12,24 @@ interface AdjustmentPanelProps {
   apiProvider?: string;
 }
 
-const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, onApplyAspectRatio, isLoading, apiProvider = 'nano-banana' }) => {
+const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, onApplyAspectRatio, isLoading, apiProvider = 'gemini' }) => {
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<string | null>(null);
 
-  // All aspect ratios
-  const allAspectRatios = [
-    { name: '1:1 Square', file: 'transparent-1-1.png', description: 'Instagram Posts, Profile Pictures' },
-    { name: '16:9 Widescreen', file: 'transparent-16-9.png', description: 'YouTube Thumbnails, Presentations' },
-    { name: '4:3 Standard', file: 'transparent-4-3.png', description: 'Classic Photos, Traditional Displays' },
-    { name: '21:9 Ultrawide', file: 'transparent-21-9.png', description: 'Cinematic, Banner Images' },
-    { name: '9:16 Vertical', file: 'transparent-9-16.png', description: 'Instagram Stories, TikTok' },
-    { name: '3:4 Portrait', file: 'transparent-3-4.png', description: 'Vertical Photos, Posters' },
-    { name: '2:3 Classic', file: 'transparent-2-3.png', description: 'Traditional Portrait Format' },
-    { name: '3:2 Photography', file: 'transparent-3-2.png', description: 'DSLR Standard Format' },
+  // All PNG-based aspect ratios (for Gemini and SeeDream)
+  const pngAspectRatios = [
+    { name: '1:1 Square', value: 'transparent-1-1.png', description: 'Instagram Posts, Profile Pictures' },
+    { name: '16:9 Widescreen', value: 'transparent-16-9.png', description: 'YouTube Thumbnails, Presentations' },
+    { name: '4:3 Standard', value: 'transparent-4-3.png', description: 'Classic Photos, Traditional Displays' },
+    { name: '21:9 Ultrawide', value: 'transparent-21-9.png', description: 'Cinematic, Banner Images' },
+    { name: '9:16 Vertical', value: 'transparent-9-16.png', description: 'Instagram Stories, TikTok' },
+    { name: '3:4 Portrait', value: 'transparent-3-4.png', description: 'Vertical Photos, Posters' },
+    { name: '2:3 Classic', value: 'transparent-2-3.png', description: 'Traditional Portrait Format' },
+    { name: '3:2 Photography', value: 'transparent-3-2.png', description: 'DSLR Standard Format' },
   ];
 
   // SeeDream supported aspect ratios (only 5 formats)
-  const seedreamSupportedFiles = [
+  const seedreamSupportedValues = [
     'transparent-1-1.png',    // square_hd
     'transparent-16-9.png',   // landscape_16_9
     'transparent-4-3.png',    // landscape_4_3
@@ -37,10 +37,26 @@ const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, on
     'transparent-3-4.png'     // portrait_3_4
   ];
 
-  // Filter aspect ratios based on provider
-  const aspectRatios = apiProvider === 'seedream'
-    ? allAspectRatios.filter(ratio => seedreamSupportedFiles.includes(ratio.file))
-    : allAspectRatios;
+  // Nano Banana Pro aspect ratios - uses direct ratio strings (all 10 supported)
+  const nanoBananaProAspectRatios = [
+    { name: '1:1 Square', value: '1:1', description: 'Instagram Posts, Profile Pictures' },
+    { name: '4:5 Portrait', value: '4:5', description: 'Instagram Portrait' },
+    { name: '5:4 Landscape', value: '5:4', description: 'Album Format' },
+    { name: '16:9 Widescreen', value: '16:9', description: 'YouTube, Presentations' },
+    { name: '9:16 Vertical', value: '9:16', description: 'Stories, TikTok' },
+    { name: '4:3 Standard', value: '4:3', description: 'Classic Photos' },
+    { name: '3:4 Portrait', value: '3:4', description: 'Vertical Standard' },
+    { name: '2:3 Classic', value: '2:3', description: 'Traditional Portrait' },
+    { name: '3:2 Photography', value: '3:2', description: 'DSLR Format' },
+    { name: '21:9 Ultrawide', value: '21:9', description: 'Cinematic, Banners' },
+  ];
+
+  // Select aspect ratios based on provider
+  const aspectRatios = apiProvider === 'nanobananapro'
+    ? nanoBananaProAspectRatios
+    : apiProvider === 'seedream'
+      ? pngAspectRatios.filter(ratio => seedreamSupportedValues.includes(ratio.value))
+      : pngAspectRatios;
 
   const handleAspectRatioSelect = (aspectRatio: string) => {
     setSelectedAspectRatio(aspectRatio);
@@ -85,11 +101,11 @@ const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, on
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {aspectRatios.map(ratio => (
             <button
-              key={ratio.file}
-              onClick={() => handleAspectRatioSelect(ratio.file)}
+              key={ratio.value}
+              onClick={() => handleAspectRatioSelect(ratio.value)}
               disabled={isLoading}
               className={`w-full text-left bg-white/5 border border-gray-600 rounded-lg p-3 transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
-                selectedAspectRatio === ratio.file ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500 bg-white/10' : ''
+                selectedAspectRatio === ratio.value ? 'ring-2 ring-offset-2 ring-offset-gray-900 ring-blue-500 bg-white/10' : ''
               }`}
             >
               <div className="font-semibold text-gray-200 text-sm">{ratio.name}</div>
