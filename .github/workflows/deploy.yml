@@ -49,7 +49,7 @@ jobs:
         protocol: ftp
         port: 21
         local-dir: ./dist/
-        server-dir: ./
+        server-dir: ./public_html/veilpix/
         state-name: .ftp-deploy-sync-state-v2.json
         exclude: |
           **/.git*
