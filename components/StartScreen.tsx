@@ -9,6 +9,7 @@ import { SparkleIcon } from './Header';
 import Spinner from './Spinner';
 // HEIC converter will be dynamically imported when needed
 import FAQ from './FAQ';
+import BeforeAfterShowcase from './BeforeAfterShowcase';
 
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;
@@ -451,6 +452,9 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               </div>
           </div>
       </div>
+
+      {/* Before/After Showcase */}
+      <BeforeAfterShowcase />
 
       {/* FAQ Section */}
       <FAQ />

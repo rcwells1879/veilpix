@@ -14,7 +14,9 @@
       "Bash(npm run build:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(node scripts/optimize-images.mjs:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []
