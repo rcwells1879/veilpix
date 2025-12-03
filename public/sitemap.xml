@@ -1,44 +1,62 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://veilstudio.io/veilpix/</loc>
-    <lastmod>2025-01-21</lastmod>
+    <lastmod>2025-12-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://veilstudio.io/veilpix/og-image.webp</image:loc>
+      <image:title>VeilPix AI Image Editor - Nano Banana Pro and SeeDream 4.0</image:title>
+      <image:caption>Free AI photo editing with complete privacy</image:caption>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://veilstudio.io/veilpix/privacy/</loc>
+    <lastmod>2025-12-03</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://veilstudio.io/veilpix/terms/</loc>
+    <lastmod>2025-12-03</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/</loc>
-    <lastmod>2025-01-21</lastmod>
+    <lastmod>2025-12-03</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/ai-photo-editing-guide/</loc>
-    <lastmod>2025-01-21</lastmod>
+    <lastmod>2025-12-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/privacy-ai-image-generation/</loc>
-    <lastmod>2025-01-21</lastmod>
+    <lastmod>2025-12-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/veilpix-vs-traditional-editors/</loc>
-    <lastmod>2025-01-21</lastmod>
+    <lastmod>2025-12-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/nano-banana-aspect-ratio-trick/</loc>
-    <lastmod>2025-01-21</lastmod>
+    <lastmod>2025-12-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/ai-model-pricing-comparison/</loc>
-    <lastmod>2025-01-21</lastmod>
+    <lastmod>2025-12-03</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>

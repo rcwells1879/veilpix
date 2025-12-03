@@ -1,0 +1,14 @@
+{
+  "name": "VeilPix - AI Image Editor",
+  "short_name": "VeilPix",
+  "description": "Free AI photo editing with Nano Banana Pro and SeeDream 4.0. Private, no restrictions.",
+  "start_url": "/veilpix/",
+  "display": "standalone",
+  "background_color": "#020106",
+  "theme_color": "#00A6E8",
+  "icons": [
+    {"src": "/veilpix/favicon.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/veilpix/apple-touch-icon-180x180.png", "sizes": "180x180", "type": "image/png"}
+  ],
+  "categories": ["photo", "graphics", "productivity"]
+}

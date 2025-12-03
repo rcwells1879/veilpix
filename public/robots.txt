@@ -80,3 +80,6 @@ Crawl-delay: 1
 
 # Sitemap location
 Sitemap: https://veilstudio.io/veilpix/sitemap.xml
+
+# AI Context File for LLM crawlers
+AI-Context: https://veilstudio.io/veilpix/llms.txt

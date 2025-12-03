@@ -30,3 +30,5 @@ veilpix-api/.env
 *.sw?
 .gemini/*
 ~/.config/google/gemini-cli/settings.json
+SEO-UPDATE-PLAN-2025.md
+.claude/agents/seo-expert-2025.md

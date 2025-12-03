@@ -1,0 +1,38 @@
+# VeilPix - AI Image Editor
+
+## Overview
+VeilPix is a free, privacy-focused AI image editor featuring Nano Banana Pro (Gemini-3-pro-image) and SeeDream 4.0 for photo editing and image generation with complete creative freedom.
+
+## Key Facts
+- Free tier: 30 credits after sign-up
+- AI Models: Nano Banana Pro (Gemini), SeeDream 4.0 (ByteDance)
+- Privacy: No image storage, no tracking, anonymous editing
+- Formats: JPEG, PNG, WebP, HEIC (auto-converted)
+- No watermarks on output
+
+## Features
+1. Nano Banana Pro - Premium Gemini-powered AI model
+2. SeeDream 4.0 - ByteDance high-quality alternative
+3. Localized Editing - Click specific areas to edit
+4. Natural Language Prompts - Describe any edit in English
+5. Complete Privacy - Images processed and immediately deleted
+6. Multi-image Composition - Combine multiple photos
+
+## AI Models
+- Nano Banana Pro: Google Gemini - high quality, fast processing
+- SeeDream 4.0: ByteDance model - creative, uncensored, adult, nsfw, high quality
+
+## Pricing
+- Free: 30 credits on sign-up
+- Credits: $0.10 per credit
+- No subscription required
+
+## Use Cases
+- Photo retouching and enhancement
+- Object removal and addition
+- Artistic filters and style transfer
+- Color correction and lighting adjustment
+- Image composition and blending
+
+Website: https://veilstudio.io/veilpix/
+Blog: https://veilstudio.io/veilpix/blog/
