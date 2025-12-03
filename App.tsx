@@ -149,7 +149,7 @@ const SETTINGS_STORAGE_KEY = 'veilpix-settings';
 
 // Default settings
 const DEFAULT_SETTINGS: SettingsState = {
-  apiProvider: 'gemini',
+  apiProvider: 'seedream',
   resolution: '2K'
 };
 
