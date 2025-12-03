@@ -50,6 +50,7 @@ jobs:
         port: 21
         local-dir: ./dist/
         server-dir: ./
+        state-name: .ftp-deploy-sync-state-v2.json
         exclude: |
           **/.git*
           **/.git*/**
@@ -58,4 +59,3 @@ jobs:
           Thumbs.db
         dry-run: false
         log-level: verbose
-        dangerous-clean-slate: true
