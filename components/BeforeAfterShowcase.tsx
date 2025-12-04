@@ -20,93 +20,168 @@ const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const BeforeAfterShowcase: React.FC = () => {
-  const promptText = "replace the teenager's busted old car with an audi sports car";
+// Showcase example data structure
+interface ShowcaseExample {
+  id: string;
+  title: string;
+  highlightWord: string;
+  prompt: string;
+  before: {
+    image: string;
+    alt: string;
+  };
+  after: {
+    image: string;
+    alt: string;
+  };
+  caption: string;
+}
 
+const showcaseExamples: ShowcaseExample[] = [
+  {
+    id: 'car-transformation',
+    title: 'See the Magic in Action',
+    highlightWord: 'Magic',
+    prompt: "replace the teenager's busted old car with an audi sports car",
+    before: {
+      image: 'civic',
+      alt: 'Before: Teenager looking dejected next to an old dusty Honda Civic'
+    },
+    after: {
+      image: 'audi',
+      alt: 'After: Same teenager now happy in a suit next to a sleek Audi R8 sports car'
+    },
+    caption: 'One prompt. Total transformation.'
+  },
+  {
+    id: '3d-model',
+    title: 'Create Stunning 3D Models',
+    highlightWord: '3D Models',
+    prompt: 'transform this floor plan blueprint into a photorealistic 3D rendered model with furniture and landscaping',
+    before: {
+      image: 'blueprint',
+      alt: 'Before: 2D architectural floor plan blueprint showing room layout'
+    },
+    after: {
+      image: '3d-model',
+      alt: 'After: Stunning 3D rendered model of the same floor plan with realistic furniture, textures, and pool'
+    },
+    caption: 'From blueprint to reality in seconds.'
+  }
+];
+
+interface ShowcaseItemProps {
+  example: ShowcaseExample;
+  basePath: string;
+}
+
+const ShowcaseItem: React.FC<ShowcaseItemProps> = ({ example, basePath }) => {
+  // Split title to highlight the keyword
+  const titleParts = example.title.split(example.highlightWord);
+
+  return (
+    <div className="bg-black/20 border border-gray-700/50 rounded-xl p-4 sm:p-6 md:p-8">
+      {/* Section Title */}
+      <h3 className="text-2xl sm:text-3xl font-bold text-gray-100 mb-6 text-center">
+        {titleParts[0]}
+        <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+          {example.highlightWord}
+        </span>
+        {titleParts[1] || ''}
+      </h3>
+
+      {/* Fake Prompt Input */}
+      <div className="mb-6 sm:mb-8">
+        <div className="flex items-center gap-3 bg-gray-800/50 border border-gray-600 rounded-lg px-4 py-3">
+          <SparkleIcon className="w-5 h-5 text-cyan-400 flex-shrink-0" />
+          <p className="text-gray-300 italic text-sm sm:text-base leading-relaxed">
+            "{example.prompt}"
+          </p>
+        </div>
+      </div>
+
+      {/* Before/After Images Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+        {/* Before Image */}
+        <div className="relative group">
+          <div className="absolute top-3 left-3 z-10">
+            <span className="bg-gray-800/90 backdrop-blur-sm text-gray-300 text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full border border-gray-600/50">
+              BEFORE
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-lg shadow-lg">
+            <picture>
+              <source
+                srcSet={`${basePath}showcase/${example.before.image}-400w.webp 400w, ${basePath}showcase/${example.before.image}-800w.webp 800w`}
+                sizes="(max-width: 768px) 100vw, 50vw"
+                type="image/webp"
+              />
+              <img
+                src={`${basePath}showcase/${example.before.image}-800w.webp`}
+                alt={example.before.alt}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-auto aspect-[4/3] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+              />
+            </picture>
+          </div>
+        </div>
+
+        {/* After Image */}
+        <div className="relative group">
+          <div className="absolute top-3 left-3 z-10">
+            <span className="bg-gradient-to-r from-blue-500 to-cyan-400 text-white text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full shadow-lg shadow-blue-500/20">
+              AFTER
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-lg shadow-lg ring-1 ring-blue-500/20">
+            <picture>
+              <source
+                srcSet={`${basePath}showcase/${example.after.image}-400w.webp 400w, ${basePath}showcase/${example.after.image}-800w.webp 800w`}
+                sizes="(max-width: 768px) 100vw, 50vw"
+                type="image/webp"
+              />
+              <img
+                src={`${basePath}showcase/${example.after.image}-800w.webp`}
+                alt={example.after.alt}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-auto aspect-[4/3] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+              />
+            </picture>
+          </div>
+        </div>
+      </div>
+
+      {/* Subtle Caption */}
+      <p className="text-center text-gray-500 text-sm mt-6">
+        {example.caption}
+      </p>
+    </div>
+  );
+};
+
+const BeforeAfterShowcase: React.FC = () => {
   // Use Vite's base URL for correct asset paths in both dev and production
   const basePath = import.meta.env.BASE_URL || '/';
 
   return (
     <section className="mt-16 w-full">
-      {/* Section Header */}
+      {/* Main Section Header */}
       <div className="text-center mb-8">
         <h2 className="text-3xl sm:text-4xl font-bold text-gray-100 mb-3">
           See the <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">Magic</span> in Action
         </h2>
         <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-          Watch how a simple text prompt transforms reality
+          Watch how simple text prompts transform reality
         </p>
       </div>
 
-      {/* Main Showcase Container */}
-      <div className="bg-black/20 border border-gray-700/50 rounded-xl p-4 sm:p-6 md:p-8">
-        {/* Fake Prompt Input */}
-        <div className="mb-6 sm:mb-8">
-          <div className="flex items-center gap-3 bg-gray-800/50 border border-gray-600 rounded-lg px-4 py-3">
-            <SparkleIcon className="w-5 h-5 text-cyan-400 flex-shrink-0" />
-            <p className="text-gray-300 italic text-sm sm:text-base leading-relaxed">
-              "{promptText}"
-            </p>
-          </div>
-        </div>
-
-        {/* Before/After Images Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          {/* Before Image */}
-          <div className="relative group">
-            <div className="absolute top-3 left-3 z-10">
-              <span className="bg-gray-800/90 backdrop-blur-sm text-gray-300 text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full border border-gray-600/50">
-                BEFORE
-              </span>
-            </div>
-            <div className="overflow-hidden rounded-lg shadow-lg">
-              <picture>
-                <source
-                  srcSet={`${basePath}showcase/civic-400w.webp 400w, ${basePath}showcase/civic-800w.webp 800w`}
-                  sizes="(max-width: 768px) 100vw, 50vw"
-                  type="image/webp"
-                />
-                <img
-                  src={`${basePath}showcase/civic-800w.webp`}
-                  alt="Before: Teenager looking dejected next to an old dusty Honda Civic"
-                  loading="lazy"
-                  decoding="async"
-                  className="w-full h-auto aspect-[4/3] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                />
-              </picture>
-            </div>
-          </div>
-
-          {/* After Image */}
-          <div className="relative group">
-            <div className="absolute top-3 left-3 z-10">
-              <span className="bg-gradient-to-r from-blue-500 to-cyan-400 text-white text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full shadow-lg shadow-blue-500/20">
-                AFTER
-              </span>
-            </div>
-            <div className="overflow-hidden rounded-lg shadow-lg ring-1 ring-blue-500/20">
-              <picture>
-                <source
-                  srcSet={`${basePath}showcase/audi-400w.webp 400w, ${basePath}showcase/audi-800w.webp 800w`}
-                  sizes="(max-width: 768px) 100vw, 50vw"
-                  type="image/webp"
-                />
-                <img
-                  src={`${basePath}showcase/audi-800w.webp`}
-                  alt="After: Same teenager now happy in a suit next to a sleek Audi R8 sports car"
-                  loading="lazy"
-                  decoding="async"
-                  className="w-full h-auto aspect-[4/3] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                />
-              </picture>
-            </div>
-          </div>
-        </div>
-
-        {/* Subtle Caption */}
-        <p className="text-center text-gray-500 text-sm mt-6">
-          One prompt. Total transformation.
-        </p>
+      {/* Showcase Examples */}
+      <div className="flex flex-col gap-8">
+        {showcaseExamples.map((example) => (
+          <ShowcaseItem key={example.id} example={example} basePath={basePath} />
+        ))}
       </div>
     </section>
   );

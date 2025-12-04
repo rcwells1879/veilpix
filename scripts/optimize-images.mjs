@@ -19,8 +19,12 @@ const outputDir = join(publicDir, 'showcase');
 
 // Images to optimize
 const images = [
+  // Car transformation example
   { name: 'civic', source: 'civic.jpeg', alt: 'before' },
-  { name: 'audi', source: 'audi.jpeg', alt: 'after' }
+  { name: 'audi', source: 'audi.jpeg', alt: 'after' },
+  // Blueprint to 3D model example
+  { name: 'blueprint', source: 'blueprint.jpeg', alt: 'before' },
+  { name: '3d-model', source: '3d model.jpeg', alt: 'after' }
 ];
 
 // Output sizes (width in pixels)
