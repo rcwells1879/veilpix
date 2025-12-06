@@ -10,6 +10,7 @@ import Spinner from './Spinner';
 // HEIC converter will be dynamically imported when needed
 import FAQ from './FAQ';
 import BeforeAfterShowcase from './BeforeAfterShowcase';
+import Gallery from './Gallery';
 
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;
@@ -22,6 +23,8 @@ interface StartScreenProps {
   isAuthenticated?: boolean;
   onShowSignupPrompt?: () => void;
   isGeneratingImage?: boolean;
+  onSelectGalleryImage?: (file: File) => void;
+  galleryRefreshTrigger?: number;
 }
 
 const ImageDropzone: React.FC<{
@@ -277,7 +280,7 @@ const ImageDropzone: React.FC<{
 }
 
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, initialTab = 'single', compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, initialTab = 'single', compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, galleryRefreshTrigger }) => {
   const [activeTab, setActiveTab] = useState<'single' | 'composite'>(initialTab);
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
@@ -426,6 +429,14 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
           </div>
         )}
       </div>
+
+      {/* Gallery Section */}
+      {onSelectGalleryImage && (
+        <Gallery
+          onSelectImage={onSelectGalleryImage}
+          refreshTrigger={galleryRefreshTrigger}
+        />
+      )}
 
       {/* Before/After Showcase */}
       <BeforeAfterShowcase />

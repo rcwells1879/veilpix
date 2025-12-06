@@ -41,7 +41,7 @@ import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import SignupPromptModal from './components/SignupPromptModal';
 import { SettingsState } from './components/SettingsMenu';
-import { loadWorkflow, debouncedSaveWorkflow } from './src/utils/workflowStorage';
+import { loadWorkflow, debouncedSaveWorkflow, saveToGallery } from './src/utils/workflowStorage';
 
 /**
  * Lazy-loaded components for better initial bundle size
@@ -358,6 +358,8 @@ const App: React.FC = () => {
     // Reset transient states after an action
     setCrop(undefined);
     setCompletedCrop(undefined);
+    // Save AI-generated image to gallery
+    saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
   }, [history, historyIndex]);
 
   const handleImageUpload = useCallback(async (file: File) => {
@@ -383,6 +385,8 @@ const App: React.FC = () => {
         setCrop(undefined);
         setCompletedCrop(undefined);
         setView('editor');
+        // Save to gallery
+        saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
       } catch (error) {
         console.error('Failed to process HEIC file:', error);
         setError(`Failed to process HEIC image: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -399,7 +403,21 @@ const App: React.FC = () => {
       setCrop(undefined);
       setCompletedCrop(undefined);
       setView('editor');
+      // Save to gallery
+      saveToGallery(file).then(() => setGalleryRefreshTrigger(n => n + 1));
     }
+  }, []);
+
+  // Handle selecting an image from the gallery
+  const handleSelectGalleryImage = useCallback((file: File) => {
+    setHistory([file]);
+    setHistoryIndex(0);
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    setActiveTab('adjust');
+    setCrop(undefined);
+    setCompletedCrop(undefined);
+    setView('editor');
   }, []);
 
   const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
@@ -448,6 +466,7 @@ const App: React.FC = () => {
 
   const [isWebcamForComposite, setIsWebcamForComposite] = useState(false);
   const [startScreenTab, setStartScreenTab] = useState<'single' | 'composite'>('single');
+  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
 
   const handleWebcamCapture = useCallback((file: File) => {
     if (isWebcamForComposite) {
@@ -975,6 +994,8 @@ const App: React.FC = () => {
         isAuthenticated={isLoaded && isSignedIn}
         onShowSignupPrompt={() => setShowSignupPrompt(true)}
         isGeneratingImage={isLoading}
+        onSelectGalleryImage={handleSelectGalleryImage}
+        galleryRefreshTrigger={galleryRefreshTrigger}
       />;
     }
 
@@ -1190,6 +1211,8 @@ const App: React.FC = () => {
       isAuthenticated={isLoaded && isSignedIn}
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
       isGeneratingImage={isLoading}
+      onSelectGalleryImage={handleSelectGalleryImage}
+      galleryRefreshTrigger={galleryRefreshTrigger}
     />;
   };
   
