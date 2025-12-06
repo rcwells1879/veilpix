@@ -40,8 +40,8 @@ interface ShowcaseExample {
 const showcaseExamples: ShowcaseExample[] = [
   {
     id: 'car-transformation',
-    title: 'See the Magic in Action',
-    highlightWord: 'Magic',
+    title: 'Instant Transformation',
+    highlightWord: 'Transformation',
     prompt: "replace the teenager's busted old car with an audi sports car",
     before: {
       image: 'civic',

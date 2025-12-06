@@ -505,7 +505,7 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to generate image');
       }
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
       setError(`Failed to generate the image. ${errorMessage}`);
       console.error(err);
     }
@@ -549,7 +549,7 @@ const App: React.FC = () => {
             throw new Error(response.message || 'Failed to generate composite image');
         }
     } catch (err: any) {
-        const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+        const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
         setError(`Failed to generate the composite image. ${errorMessage}`);
         console.error(err);
     }
@@ -584,7 +584,7 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to apply filter');
       }
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
       setError(`Failed to apply the filter. ${errorMessage}`);
       console.error(err);
     }
@@ -620,7 +620,7 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to apply adjustment');
       }
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
       setError(`Failed to apply the adjustment. ${errorMessage}`);
       console.error(err);
     }
@@ -708,7 +708,7 @@ const App: React.FC = () => {
         }
       }
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
       setError(`Failed to apply the aspect ratio change. ${errorMessage}`);
       console.error(err);
     }
@@ -752,7 +752,7 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to generate image from text');
       }
     } catch (err: any) {
-      const errorMessage = err?.response?.data?.message || err.message || 'An unknown error occurred.';
+      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
       setError(`Failed to generate image from text. ${errorMessage}`);
       console.error('💥 Text-to-image generation failed:', err);
     }

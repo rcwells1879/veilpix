@@ -16,64 +16,60 @@ const handleValidationErrors = (req, res, next) => {
 };
 
 // Validation rules for image generation endpoints
+// Note: We don't use .escape() because prompts are sent to AI APIs, not rendered as HTML
 const validateImageGeneration = [
     body('prompt')
         .trim()
         .isLength({ min: 1, max: 500 })
-        .withMessage('Prompt must be between 1 and 500 characters')
-        .escape(),
-    
+        .withMessage('Prompt must be between 1 and 500 characters'),
+
     body('x')
         .optional()
         .isNumeric()
         .withMessage('X coordinate must be a number'),
-    
+
     body('y')
         .optional()
         .isNumeric()
         .withMessage('Y coordinate must be a number'),
-    
+
     header('x-session-id')
         .optional()
         .isUUID(4)
         .withMessage('Session ID must be a valid UUID v4'),
-    
+
     handleValidationErrors
 ];
 
 // Validation rules for filter generation
+// Note: We don't use .escape() because prompts are sent to AI APIs, not rendered as HTML
 const validateFilterGeneration = [
     body('filterType')
         .trim()
         .isLength({ min: 1, max: 500 })
-        .withMessage('Filter type must be between 1 and 500 characters')
-        .matches(/^[a-zA-Z0-9\s,.\-+%():&'"!?/]+$/)
-        .withMessage('Filter type contains invalid characters')
-        .escape(),
-    
+        .withMessage('Filter type must be between 1 and 500 characters'),
+
     header('x-session-id')
         .optional()
         .isUUID(4)
         .withMessage('Session ID must be a valid UUID v4'),
-    
+
     handleValidationErrors
 ];
 
 // Validation rules for adjustment generation
+// Note: We don't use .escape() because prompts are sent to AI APIs, not rendered as HTML
 const validateAdjustmentGeneration = [
     body('adjustment')
         .trim()
         .isLength({ min: 1, max: 200 })
-        .withMessage('Adjustment must be between 1 and 200 characters')
-        .matches(/^[a-zA-Z0-9\s,.\-+%():&'"!?/]+$/)
-        .withMessage('Adjustment contains invalid characters')
-        .escape(),
-    
+        .withMessage('Adjustment must be between 1 and 200 characters'),
+
     header('x-session-id')
         .optional()
         .isUUID(4)
         .withMessage('Session ID must be a valid UUID v4'),
-    
+
     handleValidationErrors
 ];
 

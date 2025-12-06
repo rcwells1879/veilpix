@@ -427,6 +427,9 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         )}
       </div>
 
+      {/* Before/After Showcase */}
+      <BeforeAfterShowcase />
+
       <div className="mt-12 w-full">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               <div className="bg-black/20 p-6 rounded-lg border border-gray-700/50 flex flex-col items-center text-center">
@@ -452,9 +455,6 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               </div>
           </div>
       </div>
-
-      {/* Before/After Showcase */}
-      <BeforeAfterShowcase />
 
       {/* FAQ Section */}
       <FAQ />
