@@ -100,6 +100,12 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
         } catch {
           errorData = { message: response.statusText }
         }
+
+        // Log validation errors clearly to browser console
+        if (response.status === 400 && errorData.details) {
+          console.error('❌ Validation Error:', errorData.details)
+        }
+
         throw new ApiError(response.status, response.statusText, errorData)
       }
 
