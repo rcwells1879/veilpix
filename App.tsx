@@ -41,6 +41,7 @@ import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import SignupPromptModal from './components/SignupPromptModal';
 import { SettingsState } from './components/SettingsMenu';
+import { loadWorkflow, debouncedSaveWorkflow } from './src/utils/workflowStorage';
 
 /**
  * Lazy-loaded components for better initial bundle size
@@ -189,6 +190,31 @@ const App: React.FC = () => {
       console.error('Failed to save settings to localStorage:', error);
     }
   }, [settings]);
+
+  // Restore workflow from IndexedDB on mount (survives browser refresh)
+  useEffect(() => {
+    const restoreWorkflow = async () => {
+      try {
+        const savedWorkflow = await loadWorkflow();
+        if (savedWorkflow && savedWorkflow.history.length > 0) {
+          console.log('🔄 Restoring workflow from IndexedDB:', savedWorkflow.history.length, 'images');
+          setHistory(savedWorkflow.history);
+          setHistoryIndex(savedWorkflow.historyIndex);
+          setView('editor');
+        }
+      } catch (error) {
+        console.error('Failed to restore workflow:', error);
+      }
+    };
+    restoreWorkflow();
+  }, []);
+
+  // Auto-save workflow to IndexedDB when history changes (debounced)
+  useEffect(() => {
+    if (history.length > 0) {
+      debouncedSaveWorkflow(history, historyIndex);
+    }
+  }, [history, historyIndex]);
 
   const handleSettingsChange = useCallback((newSettings: SettingsState) => {
     setSettings(newSettings);
