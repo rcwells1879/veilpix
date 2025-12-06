@@ -15,7 +15,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
-import { useUser } from '@clerk/clerk-react';
+import { useUser, useClerk } from '@clerk/clerk-react';
 import {
   useGenerateEdit,
   useGenerateFilter,
@@ -156,6 +156,7 @@ const DEFAULT_SETTINGS: SettingsState = {
 
 const App: React.FC = () => {
   const { isSignedIn, isLoaded } = useUser();
+  const clerk = useClerk();
   const [view, setView] = useState<View>('start');
   const [history, setHistory] = useState<File[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
@@ -229,27 +230,42 @@ const App: React.FC = () => {
     }
   }, [history.length]);
 
-  // Handle SSO callback from Clerk OAuth
+  // Debug: Log auth state on every load to diagnose OAuth redirects
   useEffect(() => {
-    const handleSSOCallback = () => {
-      const hash = window.location.hash;
-      if (hash.includes('/sso-callback')) {
-        console.log('🔄 Handling SSO callback, clearing hash...');
-        // Clear the hash to return to normal app state
-        window.history.replaceState(null, '', window.location.pathname);
-      }
-    };
+    console.log('🔍 Auth debug:', {
+      url: window.location.href,
+      search: window.location.search,
+      hash: window.location.hash,
+      isSignedIn,
+      isLoaded,
+      clerkLoaded: clerk.loaded
+    });
+  }, [isSignedIn, isLoaded, clerk.loaded]);
 
-    handleSSOCallback();
+  // Handle SSO callback from OAuth providers (Google, GitHub, etc.)
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const isSSOCallback = window.location.hash.includes('/sso-callback') ||
+                          window.location.pathname.includes('/sso-callback') ||
+                          searchParams.has('__clerk_status') ||
+                          searchParams.has('__clerk_created_session') ||
+                          searchParams.has('__clerk_ticket');
 
-    // Listen for hash changes
-    const handleHashChange = () => {
-      handleSSOCallback();
-    };
+    console.log('🔄 SSO check:', { isSSOCallback, clerkLoaded: clerk.loaded });
 
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+    if (isSSOCallback && clerk.loaded) {
+      console.log('🔄 Handling SSO callback...');
+      clerk.handleRedirectCallback({
+        signInForceRedirectUrl: '/veilpix/',
+        signUpForceRedirectUrl: '/veilpix/',
+      }).then(() => {
+        console.log('✅ SSO callback handled successfully');
+        window.history.replaceState({}, '', window.location.pathname);
+      }).catch((err) => {
+        console.error('❌ SSO callback error:', err);
+      });
+    }
+  }, [clerk.loaded]);
 
   // Payment flow state
   const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
@@ -1216,6 +1232,7 @@ const App: React.FC = () => {
     />;
   };
   
+
   return (
     <div className="min-h-screen text-gray-100 flex flex-col">
       <Header
