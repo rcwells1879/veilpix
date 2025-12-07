@@ -57,15 +57,17 @@ const db = {
             console.log('🔍 DB: createOrGetUser called with:', { clerkUserId, email });
             const supabase = getSupabaseClient();
             console.log('🔍 DB: Got supabase client');
-            
-            // First try to get existing user
+
+            // First try to get existing user - use maybeSingle() to handle 0 or 1 rows gracefully
+            // Also use limit(1) in case there are duplicate rows (shouldn't happen but defensive)
             console.log('🔍 DB: About to query users table...');
-            const { data: existingUser, error: fetchError } = await supabase
+            const { data: existingUsers, error: fetchError } = await supabase
                 .from('users')
                 .select('*')
                 .eq('clerk_user_id', clerkUserId)
-                .single();
-            
+                .limit(1);
+
+            const existingUser = existingUsers?.[0] || null;
             console.log('🔍 DB: Query completed. Data:', !!existingUser, 'Error:', fetchError?.message);
 
             if (existingUser && !fetchError) {
@@ -74,26 +76,30 @@ const db = {
             }
 
             // Create new user if doesn't exist (with 30 initial credits)
+            // Use upsert with onConflict to handle race conditions
             console.log('🔍 DB: Creating new user with 30 initial credits...');
             const { data: newUser, error: createError } = await supabase
                 .from('users')
-                .insert({
+                .upsert({
                     clerk_user_id: clerkUserId,
                     email: email,
                     subscription_status: 'free',
                     credits_remaining: 30,
                     total_credits_purchased: 0
+                }, {
+                    onConflict: 'clerk_user_id',
+                    ignoreDuplicates: false
                 })
                 .select()
                 .single();
-            
-            console.log('🔍 DB: Insert completed. Data:', !!newUser, 'Error:', createError?.message);
+
+            console.log('🔍 DB: Upsert completed. Data:', !!newUser, 'Error:', createError?.message);
 
             if (createError) {
                 throw createError;
             }
 
-            console.log('🔍 DB: Created new user with 30 credits, returning');
+            console.log('🔍 DB: Created/updated user with credits, returning');
             return { user: newUser, created: true };
         } catch (error) {
             console.error('Error creating/getting user:', error);
@@ -176,12 +182,14 @@ const db = {
         try {
             console.log('🔍 DB: getUserCredits called for:', clerkUserId);
             const supabase = getSupabaseClient();
-            
-            const { data: user, error } = await supabase
+
+            const { data: users, error } = await supabase
                 .from('users')
                 .select('credits_remaining, total_credits_purchased')
                 .eq('clerk_user_id', clerkUserId)
-                .single();
+                .limit(1);
+
+            const user = users?.[0] || null;
 
             if (error) {
                 console.error('🚨 DB: Error getting user credits:', error);
@@ -339,19 +347,19 @@ const db = {
     async updateUserStripeCustomerId(clerkUserId, stripeCustomerId) {
         try {
             const supabase = getSupabaseClient();
-            
+
             const { data, error } = await supabase
                 .from('users')
                 .update({ stripe_customer_id: stripeCustomerId })
                 .eq('clerk_user_id', clerkUserId)
                 .select()
-                .single();
+                .limit(1);
 
             if (error) {
                 throw error;
             }
 
-            return data;
+            return data?.[0] || null;
         } catch (error) {
             console.error('Error updating Stripe customer ID:', error);
             throw error;

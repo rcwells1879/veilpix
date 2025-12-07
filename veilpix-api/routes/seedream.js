@@ -70,7 +70,7 @@ async function createSeedreamTask(requestBody) {
 
         // Kie.ai expects parameters nested inside "input" object
         const payload = {
-            model: 'bytedance/seedream-v4-edit',
+            model: 'seedream/4.5-edit',
             input: requestBody
         };
 
@@ -493,8 +493,8 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
 
         uploadedFilename = uploadResult.filename;
 
-        // Map aspect ratio if provided
-        let imageSize = 'square_hd'; // Default
+        // Map aspect ratio if provided (SeeDream 4.5 uses '1:1', '16:9', etc.)
+        let imageSize = '1:1'; // Default for SeeDream 4.5
         if (aspectRatioFile) {
             imageSize = mapAspectRatioFileToSeedreamSize(aspectRatioFile);
             console.log(`📐 Aspect ratio requested: ${aspectRatioFile} → ${imageSize}`);

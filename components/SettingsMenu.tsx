@@ -123,8 +123,8 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
                   )}
                 </div>
                 <div>
-                  <div className="font-semibold">SeeDream 4.0</div>
-                  <div className="text-xs text-gray-400">ByteDance SeeDream V4</div>
+                  <div className="font-semibold">SeeDream 4.5</div>
+                  <div className="text-xs text-gray-400">ByteDance SeeDream V4.5</div>
                 </div>
               </div>
             </button>

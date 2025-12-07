@@ -70,7 +70,7 @@ async function getUser(req, res, next) {
                 console.error(`🚨 AUTH[${requestId}]: Database error (attempt ${attempt + 1}):`, dbError);
                 
                 // Check if this is a retryable error
-                if (attempt < maxRetries && this._isRetryableDbError(dbError)) {
+                if (attempt < maxRetries && _isRetryableDbError(dbError)) {
                     attempt++;
                     const delay = Math.min(1000 * Math.pow(2, attempt), 3000);
                     console.log(`🔄 AUTH[${requestId}]: Retrying database operation in ${delay}ms...`);

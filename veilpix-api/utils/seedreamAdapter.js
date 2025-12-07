@@ -1,80 +1,80 @@
 /**
  * SeeDream API Adapter
  *
- * Transforms VeilPix requests into SeeDream 4.0 API format
+ * Transforms VeilPix requests into SeeDream 4.5 Edit API format
  * and normalizes SeeDream responses to match Gemini response structure
  */
 
 /**
- * Map resolution setting to SeeDream image_resolution parameter
+ * Map resolution setting to SeeDream 4.5 quality parameter
  *
  * @param {string} resolution - '1K', '2K', or '4K'
- * @returns {string} SeeDream resolution format
+ * @returns {string} SeeDream quality format ('basic' for 2K, 'high' for 4K)
  */
-function mapResolution(resolution) {
-    const resolutionMap = {
-        '1K': '1K',
-        '2K': '2K',
-        '4K': '4K'
+function mapQuality(resolution) {
+    const qualityMap = {
+        '1K': 'basic',  // 1K maps to basic (2K output)
+        '2K': 'basic',
+        '4K': 'high'
     };
-    return resolutionMap[resolution] || '2K'; // Default to 2K
+    return qualityMap[resolution] || 'basic'; // Default to basic (2K)
 }
 
 /**
- * Map image aspect to SeeDream image_size parameter
+ * Map image aspect to SeeDream 4.5 aspect_ratio parameter
  * Based on the uploaded image dimensions or user preference
  *
  * @param {number} width - Image width
  * @param {number} height - Image height
- * @returns {string} SeeDream image_size format
+ * @returns {string} SeeDream aspect_ratio format (e.g., '1:1', '16:9')
  */
 function mapImageSize(width, height) {
-    const aspectRatio = width / height;
+    const ratio = width / height;
 
-    if (Math.abs(aspectRatio - 1) < 0.1) {
-        return 'square_hd'; // 1:1
-    } else if (aspectRatio > 1.5) {
-        return 'landscape_16_9'; // Widescreen
-    } else if (aspectRatio < 0.7) {
-        return 'portrait_9_16'; // Vertical
-    } else if (aspectRatio > 1) {
-        return 'landscape_4_3'; // Standard landscape
+    if (Math.abs(ratio - 1) < 0.1) {
+        return '1:1'; // Square
+    } else if (ratio > 1.5) {
+        return '16:9'; // Widescreen
+    } else if (ratio < 0.7) {
+        return '9:16'; // Vertical
+    } else if (ratio > 1) {
+        return '4:3'; // Standard landscape
     } else {
-        return 'portrait_3_4'; // Standard portrait
+        return '3:4'; // Standard portrait
     }
 }
 
 /**
- * Map aspect ratio template filename to SeeDream image_size parameter
+ * Map aspect ratio template filename to SeeDream 4.5 aspect_ratio parameter
  * Used when user selects aspect ratio from UI buttons
  *
  * @param {string} aspectRatioFile - Template filename (e.g., 'transparent-1-1.png')
- * @returns {string} SeeDream image_size format
+ * @returns {string} SeeDream aspect_ratio format (e.g., '1:1', '16:9')
  */
 function mapAspectRatioFileToSeedreamSize(aspectRatioFile) {
     const aspectRatioMap = {
-        'transparent-1-1.png': 'square_hd',           // 1:1 Square
-        'transparent-16-9.png': 'landscape_16_9',     // 16:9 Widescreen
-        'transparent-9-16.png': 'portrait_16_9',      // 9:16 Vertical (note: SeeDream uses width:height even for portraits)
-        'transparent-4-3.png': 'landscape_4_3',       // 4:3 Standard
-        'transparent-3-4.png': 'portrait_4_3'         // 3:4 Portrait (note: SeeDream uses width:height format)
+        'transparent-1-1.png': '1:1',     // 1:1 Square
+        'transparent-16-9.png': '16:9',   // 16:9 Widescreen
+        'transparent-9-16.png': '9:16',   // 9:16 Vertical
+        'transparent-4-3.png': '4:3',     // 4:3 Standard
+        'transparent-3-4.png': '3:4'      // 3:4 Portrait
     };
 
-    return aspectRatioMap[aspectRatioFile] || 'square_hd'; // Default to square
+    return aspectRatioMap[aspectRatioFile] || '1:1'; // Default to square
 }
 
 /**
- * Build SeeDream API request for localized editing
+ * Build SeeDream 4.5 Edit API request for localized editing
  *
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} prompt - The edit instruction
  * @param {string} resolution - '1K', '2K', or '4K'
  * @param {number} x - X coordinate for localized edit (optional)
  * @param {number} y - Y coordinate for localized edit (optional)
- * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
+ * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, imageSize = 'square_hd') {
+function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = '1:1') {
     const enhancedPrompt = x !== null && y !== null
         ? `${prompt}. Focus the edit on the area around coordinates (${x}, ${y}).`
         : prompt;
@@ -82,66 +82,62 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, ima
     return {
         prompt: enhancedPrompt,
         image_urls: imageUrls,
-        image_size: imageSize,
-        image_resolution: mapResolution(resolution),
-        max_images: 1 // Single output image
+        aspect_ratio: aspectRatio,
+        quality: mapQuality(resolution)
     };
 }
 
 /**
- * Build SeeDream API request for filter application
+ * Build SeeDream 4.5 Edit API request for filter application
  *
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} filterType - The filter description
  * @param {string} resolution - '1K', '2K', or '4K'
- * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
+ * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildFilterRequest(imageUrls, filterType, resolution, imageSize = 'square_hd') {
+function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1') {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
         image_urls: imageUrls,
-        image_size: imageSize,
-        image_resolution: mapResolution(resolution),
-        max_images: 1
+        aspect_ratio: aspectRatio,
+        quality: mapQuality(resolution)
     };
 }
 
 /**
- * Build SeeDream API request for global adjustments
+ * Build SeeDream 4.5 Edit API request for global adjustments
  *
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} adjustmentPrompt - The adjustment instruction
  * @param {string} resolution - '1K', '2K', or '4K'
- * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
+ * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, imageSize = 'square_hd') {
+function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1') {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
         image_urls: imageUrls,
-        image_size: imageSize,
-        image_resolution: mapResolution(resolution),
-        max_images: 1
+        aspect_ratio: aspectRatio,
+        quality: mapQuality(resolution)
     };
 }
 
 /**
- * Build SeeDream API request for combining multiple images
+ * Build SeeDream 4.5 Edit API request for combining multiple images
  *
  * @param {string[]} imageUrls - Array of public image URLs (2-5 images)
  * @param {string} prompt - The combination instruction
  * @param {string} resolution - '1K', '2K', or '4K'
- * @param {string} imageSize - SeeDream image_size format (optional, defaults to 'square_hd')
+ * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildCombineRequest(imageUrls, prompt, resolution, imageSize = 'square_hd') {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1') {
     return {
         prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
         image_urls: imageUrls,
-        image_size: imageSize,
-        image_resolution: mapResolution(resolution),
-        max_images: 1
+        aspect_ratio: aspectRatio,
+        quality: mapQuality(resolution)
     };
 }
 
@@ -250,7 +246,7 @@ async function urlToBase64(imageUrl) {
 }
 
 module.exports = {
-    mapResolution,
+    mapQuality,
     mapImageSize,
     mapAspectRatioFileToSeedreamSize,
     buildEditRequest,

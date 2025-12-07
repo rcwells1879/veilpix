@@ -10,7 +10,7 @@ VeilPix is an AI-powered image editing React web application that supports multi
 - **Backend API**: Node.js/Express server with authentication, usage tracking, and billing
 - **AI Services**:
   - **Nano Banana** (Google Gemini `gemini-2.5-flash-image-preview`) - Default provider, uses in-memory base64 encoding
-  - **SeeDream 4.0** (ByteDance SeeDream V4 Edit) - Alternative provider, uses Supabase Storage for temporary image URLs
+  - **SeeDream 4.5** (ByteDance SeeDream V4 Edit) - Alternative provider, uses Supabase Storage for temporary image URLs
 - **Authentication**: Clerk for user management and session handling
 - **Database**: Supabase for usage tracking, billing records, user data, and temporary image storage
 - **Payment Processing**: Stripe for billing and usage metering
@@ -131,7 +131,7 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 - **Critical Note**: All Gemini image generation endpoints (single edit, filter, adjust, combine) return the same response structure with `inlineData` (not `inline_data`)
 - **Processing Function**: The `processGeminiResponse()` function in `routes/gemini.js` handles response parsing for all image generation endpoints uniformly
 
-## SeeDream 4.0 AI Implementation Details
+## SeeDream 4.5 AI Implementation Details
 - **Model**: ByteDance SeeDream V4 Edit - Alternative AI provider for image generation and editing
 - **API Provider**: Kie.ai API platform
 - **Image Handling**: Unlike Gemini's base64 approach, SeeDream requires image URLs, so images are temporarily uploaded to Supabase Storage
@@ -164,24 +164,23 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
    - Query Status: `GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId={taskId}`
    - **Flow**: Submit task → get taskId → poll recordInfo until `state === "success"` → extract resultUrls
 
-### SeeDream API Format (Kie.ai)
+### SeeDream 4.5 Edit API Format (Kie.ai)
 
 **Request** (createTask):
 ```json
 {
-  "model": "bytedance/seedream-v4-edit",
+  "model": "seedream/4.5-edit",
   "input": {
     "prompt": "editing instruction",
     "image_urls": ["https://public-url.jpg"],
-    "image_size": "square_hd",
-    "image_resolution": "2K",
-    "max_images": 1
+    "aspect_ratio": "1:1",
+    "quality": "basic"
   }
 }
 ```
 
-**Valid `image_size`**: `square`, `square_hd`, `portrait_4_3`, `portrait_3_2`, `portrait_16_9`, `landscape_4_3`, `landscape_3_2`, `landscape_16_9`, `landscape_21_9`
-**Note**: Names use width:height (e.g., `portrait_4_3` = 3:4 portrait)
+**Valid `aspect_ratio`**: `1:1`, `4:3`, `3:4`, `16:9`, `9:16`, `2:3`, `3:2`, `21:9`
+**Valid `quality`**: `basic` (2K output), `high` (4K output)
 
 **Response** (recordInfo when complete):
 ```json
@@ -195,23 +194,23 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 ```
 
 **VeilPix Mapping** (UI identifier → API value):
-- `transparent-1-1.png` → `square_hd`
-- `transparent-16-9.png` → `landscape_16_9`
-- `transparent-9-16.png` → `portrait_16_9`
-- `transparent-4-3.png` → `landscape_4_3`
-- `transparent-3-4.png` → `portrait_4_3`
+- `transparent-1-1.png` → `1:1`
+- `transparent-16-9.png` → `16:9`
+- `transparent-9-16.png` → `9:16`
+- `transparent-4-3.png` → `4:3`
+- `transparent-3-4.png` → `3:4`
 
 ### Settings UI
 - **Location**: Header component settings icon (gear icon next to usage counter)
 - **Persistence**: Settings saved to localStorage (`veilpix-settings` key)
 - **Default Provider**: Nano Banana (Gemini)
 - **Options**:
-  - **API Provider**: Radio selection between "Nano Banana" and "SeeDream 4.0"
+  - **API Provider**: Radio selection between "Nano Banana" and "SeeDream 4.5"
   - **Resolution**: Dropdown (1K/2K/4K) - only shown when SeeDream is selected
 - **Conditional Hook Usage**: App.tsx dynamically switches between `useGenerateEdit()` and `useGenerateEditSeeDream()` based on settings
 
 ### SeeDream vs Nano Banana Comparison
-| Feature | Nano Banana (Gemini) | SeeDream 4.0 |
+| Feature | Nano Banana (Gemini) | SeeDream 4.5 |
 |---------|---------------------|--------------|
 | **Image Input** | Base64 in-memory | URLs from Supabase Storage |
 | **Processing** | Direct base64 response | URL response → fetch → base64 conversion |

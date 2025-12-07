@@ -258,8 +258,8 @@ export function useGenerateTextToImage() {
 }
 
 // ============================================================================
-// SeeDream 4.0 API Hooks
-// These hooks use the SeeDream API instead of Gemini for image generation
+// SeeDream 4.5 API Hooks
+// These hooks use the SeeDream 4.5 Edit API instead of Gemini for image generation
 // ============================================================================
 
 // Custom hook for localized editing with SeeDream
