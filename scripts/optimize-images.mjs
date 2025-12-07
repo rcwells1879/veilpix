@@ -24,7 +24,10 @@ const images = [
   { name: 'audi', source: 'audi.jpeg', alt: 'after' },
   // Blueprint to 3D model example
   { name: 'blueprint', source: 'blueprint.jpeg', alt: 'before' },
-  { name: '3d-model', source: '3d model.jpeg', alt: 'after' }
+  { name: '3d-model', source: '3d model.jpeg', alt: 'after' },
+  // Viewpoint change example
+  { name: '3dfloorplan', source: '3dfloorplan.jpeg', alt: 'before' },
+  { name: 'deckview', source: 'deckview.png', alt: 'after' }
 ];
 
 // Output sizes (width in pixels)

@@ -67,6 +67,21 @@ const showcaseExamples: ShowcaseExample[] = [
       alt: 'After: Stunning 3D rendered model of the same floor plan with realistic furniture, textures, and pool'
     },
     caption: 'From blueprint to reality in seconds.'
+  },
+  {
+    id: 'viewpoint-change',
+    title: 'Change Your Viewpoint',
+    highlightWord: 'Viewpoint',
+    prompt: 'show me the view from the back deck looking out at the yard',
+    before: {
+      image: '3dfloorplan',
+      alt: 'Before: 3D aerial view of a home floor plan with pool and landscaping'
+    },
+    after: {
+      image: 'deckview',
+      alt: 'After: Eye-level view from the back deck looking out at the yard and pool'
+    },
+    caption: 'Any perspective, instantly.'
   }
 ];
 
