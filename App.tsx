@@ -37,8 +37,9 @@ import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
 import AdjustmentPanel from './components/AdjustmentPanel';
 import CropPanel from './components/CropPanel';
-import { UndoIcon, RedoIcon, EyeIcon } from './components/icons';
+import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
+import BeforeAfterSlider from './components/BeforeAfterSlider';
 import SignupPromptModal from './components/SignupPromptModal';
 import { SettingsState } from './components/SettingsMenu';
 import { loadWorkflow, debouncedSaveWorkflow, saveToGallery } from './src/utils/workflowStorage';
@@ -313,6 +314,8 @@ const App: React.FC = () => {
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
   const [aspect, setAspect] = useState<number | undefined>();
   const [isComparing, setIsComparing] = useState<boolean>(false);
+  const [showSlider, setShowSlider] = useState<boolean>(false);
+  const [sliderCompareMode, setSliderCompareMode] = useState<'original' | 'previous'>('original');
   const imgRef = useRef<HTMLImageElement>(null);
 
   // Use optimistic history for immediate UI feedback, fallback to real history
@@ -344,6 +347,26 @@ const App: React.FC = () => {
       setOriginalImageUrl(null);
     }
   }, [originalImage]);
+
+  // Previous image for slider comparison (one step back in history)
+  const previousImage = historyIndex > 0 ? history[historyIndex - 1] : null;
+  const [previousImageUrl, setPreviousImageUrl] = useState<string | null>(null);
+
+  // Effect to create and revoke object URLs safely for the previous image
+  useEffect(() => {
+    if (previousImage) {
+      const url = URL.createObjectURL(previousImage);
+      setPreviousImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setPreviousImageUrl(null);
+    }
+  }, [previousImage]);
+
+  // Auto-close slider when history changes (new edit made)
+  useEffect(() => {
+    setShowSlider(false);
+  }, [historyIndex]);
 
   // Effect to handle URL parameters for payment success/cancel
   useEffect(() => {
@@ -879,6 +902,10 @@ const App: React.FC = () => {
     }
   }, [canRedo, historyIndex]);
 
+  const handleToggleSlider = useCallback(() => {
+    setShowSlider(prev => !prev);
+  }, []);
+
   const handleReset = useCallback(() => {
     if (history.length > 0) {
       setHistoryIndex(0);
@@ -1038,7 +1065,18 @@ const App: React.FC = () => {
     }
 
     if (view === 'editor' && currentImageUrl) {
-      const imageDisplay = (
+      // Determine which "before" image to show in slider based on compare mode
+      const sliderBeforeImage = sliderCompareMode === 'original' ? originalImageUrl : previousImageUrl;
+      const sliderBeforeLabel = sliderCompareMode === 'original' ? 'Original' : 'Previous';
+
+      const imageDisplay = showSlider && canUndo && activeTab !== 'crop' && sliderBeforeImage ? (
+        <BeforeAfterSlider
+          beforeImage={sliderBeforeImage}
+          afterImage={currentImageUrl}
+          beforeLabel={sliderBeforeLabel}
+          afterLabel="Current"
+        />
+      ) : (
         <div className="relative">
           {/* Base image is the original, only shown when comparing and current image exists */}
           {originalImageUrl && isComparing && canUndo && (
@@ -1144,6 +1182,33 @@ const App: React.FC = () => {
                     <EyeIcon className="w-5 h-5 mr-2" />
                     Compare
                 </button>
+              )}
+
+              {/* Slider toggle and mode selector */}
+              {canUndo && activeTab !== 'crop' && (
+                <>
+                  <button
+                    onClick={handleToggleSlider}
+                    className={`flex items-center justify-center text-center ${showSlider ? 'bg-blue-600/30 border-blue-400 text-blue-300' : 'bg-white/10 border-white/20 text-gray-200'} border font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base`}
+                    aria-label="Toggle comparison slider"
+                    aria-pressed={showSlider}
+                  >
+                    <SlidersIcon className="w-5 h-5 mr-2" />
+                    Slider
+                  </button>
+
+                  {showSlider && (
+                    <select
+                      value={sliderCompareMode}
+                      onChange={(e) => setSliderCompareMode(e.target.value as 'original' | 'previous')}
+                      className="bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-3 rounded-md text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      aria-label="Select comparison mode"
+                    >
+                      <option value="original" className="bg-gray-800">vs Original</option>
+                      <option value="previous" className="bg-gray-800">vs Previous</option>
+                    </select>
+                  )}
+                </>
               )}
 
               <button
