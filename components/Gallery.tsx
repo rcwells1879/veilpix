@@ -35,7 +35,6 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
   const [images, setImages] = useState<GalleryThumbnail[]>([]);
   const [loading, setLoading] = useState(true);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
-  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [loadingImageId, setLoadingImageId] = useState<number | null>(null);
 
@@ -73,8 +72,13 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
   };
 
   const handleDelete = async (id: number) => {
+    // Revoke the thumbnail URL to free memory
+    if (thumbnailUrls[id]) {
+      URL.revokeObjectURL(thumbnailUrls[id]);
+    }
+    // Delete from IndexedDB
     await deleteGalleryImage(id);
-    setDeleteConfirmId(null);
+    // Reload gallery
     loadImages();
   };
 
@@ -162,11 +166,11 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
               </span>
             </div>
 
-            {/* Delete button */}
+            {/* Delete button - deletes immediately without confirmation */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setDeleteConfirmId(image.id);
+                handleDelete(image.id);
               }}
               className="absolute top-1 right-1 w-6 h-6 bg-black/50 hover:bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
               aria-label="Delete image"
@@ -184,33 +188,6 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
                 />
               </svg>
             </button>
-
-            {/* Delete Confirmation Overlay */}
-            {deleteConfirmId === image.id && (
-              <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 p-2">
-                <span className="text-xs text-gray-300 text-center">Delete?</span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteConfirmId(null);
-                    }}
-                    className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200"
-                  >
-                    No
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(image.id);
-                    }}
-                    className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-500"
-                  >
-                    Yes
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         ))}
       </div>

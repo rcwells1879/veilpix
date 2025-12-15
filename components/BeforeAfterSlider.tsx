@@ -151,15 +151,16 @@ const BeforeAfterSlider: React.FC<BeforeAfterSliderProps> = ({
               boxShadow: '0 2px 10px rgba(0, 0, 0, 0.3), 0 0 20px rgba(59, 130, 246, 0.4)',
             }}
           >
-            {/* Arrows icon inside handle */}
+            {/* Arrows icon inside handle - pointing left/right with spacing */}
             <svg
               className="w-5 h-5 text-blue-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
-              strokeWidth={2}
+              strokeWidth={2.5}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 16l-4-4 4-4" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 8l4 4-4 4" />
             </svg>
           </div>
         </div>

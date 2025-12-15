@@ -37,12 +37,12 @@ import Spinner from './components/Spinner';
 import FilterPanel from './components/FilterPanel';
 import AdjustmentPanel from './components/AdjustmentPanel';
 import CropPanel from './components/CropPanel';
-import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon } from './components/icons';
+import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon, DownloadIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import BeforeAfterSlider from './components/BeforeAfterSlider';
 import SignupPromptModal from './components/SignupPromptModal';
 import { SettingsState } from './components/SettingsMenu';
-import { loadWorkflow, debouncedSaveWorkflow, saveToGallery } from './src/utils/workflowStorage';
+import { debouncedSaveWorkflow, saveToGallery } from './src/utils/workflowStorage';
 
 /**
  * Lazy-loaded components for better initial bundle size
@@ -193,23 +193,24 @@ const App: React.FC = () => {
     }
   }, [settings]);
 
-  // Restore workflow from IndexedDB on mount (survives browser refresh)
-  useEffect(() => {
-    const restoreWorkflow = async () => {
-      try {
-        const savedWorkflow = await loadWorkflow();
-        if (savedWorkflow && savedWorkflow.history.length > 0) {
-          console.log('🔄 Restoring workflow from IndexedDB:', savedWorkflow.history.length, 'images');
-          setHistory(savedWorkflow.history);
-          setHistoryIndex(savedWorkflow.historyIndex);
-          setView('editor');
-        }
-      } catch (error) {
-        console.error('Failed to restore workflow:', error);
-      }
-    };
-    restoreWorkflow();
-  }, []);
+  // Workflow restoration disabled - app always starts at landing page
+  // Users requested fresh start on every visit instead of session persistence
+  // useEffect(() => {
+  //   const restoreWorkflow = async () => {
+  //     try {
+  //       const savedWorkflow = await loadWorkflow();
+  //       if (savedWorkflow && savedWorkflow.history.length > 0) {
+  //         console.log('🔄 Restoring workflow from IndexedDB:', savedWorkflow.history.length, 'images');
+  //         setHistory(savedWorkflow.history);
+  //         setHistoryIndex(savedWorkflow.historyIndex);
+  //         setView('editor');
+  //       }
+  //     } catch (error) {
+  //       console.error('Failed to restore workflow:', error);
+  //     }
+  //   };
+  //   restoreWorkflow();
+  // }, []);
 
   // Auto-save workflow to IndexedDB when history changes (debounced)
   useEffect(() => {
@@ -1138,12 +1139,23 @@ const App: React.FC = () => {
               ) : imageDisplay }
 
               {displayHotspot && !isLoading && activeTab === 'retouch' && (
-                  <div 
+                  <div
                       className="absolute rounded-full w-6 h-6 bg-blue-500/50 border-2 border-white pointer-events-none -translate-x-1/2 -translate-y-1/2 z-10"
                       style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
                   >
                       <div className="absolute inset-0 rounded-full w-6 h-6 animate-ping bg-blue-400"></div>
                   </div>
+              )}
+
+              {/* Download icon overlay - bottom right corner */}
+              {!isLoading && activeTab !== 'crop' && (
+                <button
+                  onClick={handleDownload}
+                  className="absolute bottom-3 right-3 p-2 bg-transparent border border-white rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 active:scale-95 z-20"
+                  aria-label="Download image"
+                >
+                  <DownloadIcon className="w-5 h-5 text-white" />
+                </button>
               )}
           </div>
 
@@ -1223,13 +1235,6 @@ const App: React.FC = () => {
                   className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
               >
                   Upload New
-              </button>
-
-              <button
-                  onClick={handleDownload}
-                  className="flex-grow sm:flex-grow-0 ml-auto bg-green-600/20 border border-green-500 text-green-300 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-green-600/30 hover:border-green-400 active:scale-95 text-base"
-              >
-                  Download Image
               </button>
           </div>
 
