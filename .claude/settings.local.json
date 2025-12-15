@@ -17,7 +17,8 @@
       "Bash(git push)",
       "Bash(node scripts/optimize-images.mjs:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []
