@@ -62,8 +62,8 @@ const validateFilterGeneration = [
 const validateAdjustmentGeneration = [
     body('adjustment')
         .trim()
-        .isLength({ min: 1, max: 200 })
-        .withMessage('Adjustment must be between 1 and 200 characters'),
+        .isLength({ min: 1, max: 500 })
+        .withMessage('Adjustment must be between 1 and 500 characters'),
 
     header('x-session-id')
         .optional()
