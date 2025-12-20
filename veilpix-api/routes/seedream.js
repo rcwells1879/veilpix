@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { db, supabase } = require('../utils/database');
-const { getUser, requireAuth } = require('../middleware/auth');
+const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const {
     validateImageGeneration,
     validateFilterGeneration,
@@ -276,7 +276,7 @@ async function checkUserCredits(req, res, next) {
 }
 
 // Apply authentication middleware to all routes
-router.use(getUser, requireAuth);
+router.use(getUser, requireAuth, requireAllowedEmail);
 
 // Generate edited image endpoint
 router.post('/generate-edit', upload.single('image'), validateImageFile, validateImageGeneration, checkUserCredits, async (req, res) => {

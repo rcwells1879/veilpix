@@ -3,7 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const multer = require('multer');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { db, supabase } = require('../utils/database');
-const { getUser, requireAuth } = require('../middleware/auth');
+const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const { 
     validateImageGeneration, 
     validateFilterGeneration, 
@@ -227,7 +227,7 @@ async function checkUserCredits(req, res, next) {
 }
 
 // Apply authentication middleware to all routes
-router.use(getUser, requireAuth);
+router.use(getUser, requireAuth, requireAllowedEmail);
 
 // Generate edited image endpoint
 router.post('/generate-edit', upload.single('image'), validateImageFile, validateImageGeneration, checkUserCredits, async (req, res) => {

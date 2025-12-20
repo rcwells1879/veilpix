@@ -5,7 +5,7 @@
 
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { getUser, requireAuth } = require('../middleware/auth');
+const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const { db, supabase } = require('../utils/database');
 const router = express.Router();
 
@@ -33,7 +33,7 @@ const CREDIT_PACKAGES = {
 };
 
 // Create a Stripe Checkout session for adding payment method
-router.post('/create-checkout-session', requireAuth, async (req, res) => {
+router.post('/create-checkout-session', requireAuth, requireAllowedEmail, async (req, res) => {
   try {
     const { priceId, successUrl, cancelUrl } = req.body;
     const { userId: clerkUserId } = req.clerkAuth || {};
@@ -99,7 +99,7 @@ router.post('/create-checkout-session', requireAuth, async (req, res) => {
 });
 
 // Create a Checkout session for subscription (usage-based billing)
-router.post('/create-subscription-checkout', requireAuth, async (req, res) => {
+router.post('/create-subscription-checkout', requireAuth, requireAllowedEmail, async (req, res) => {
   try {
     const { successUrl, cancelUrl } = req.body;
     const { userId: clerkUserId } = req.clerkAuth || {};
@@ -168,7 +168,7 @@ router.post('/create-subscription-checkout', requireAuth, async (req, res) => {
 });
 
 // Create Customer Portal session for billing management
-router.post('/create-portal-session', requireAuth, async (req, res) => {
+router.post('/create-portal-session', requireAuth, requireAllowedEmail, async (req, res) => {
   try {
     const { userId: clerkUserId } = req.clerkAuth || {};
     const { returnUrl } = req.body;
@@ -204,7 +204,7 @@ router.post('/create-portal-session', requireAuth, async (req, res) => {
 });
 
 // Get checkout session details (for success page)
-router.get('/checkout-session/:sessionId', requireAuth, async (req, res) => {
+router.get('/checkout-session/:sessionId', requireAuth, requireAllowedEmail, async (req, res) => {
   try {
     const { sessionId } = req.params;
     
@@ -235,7 +235,7 @@ router.get('/checkout-session/:sessionId', requireAuth, async (req, res) => {
 });
 
 // Create Checkout session for credit purchases
-router.post('/create-credit-checkout', getUser, requireAuth, async (req, res) => {
+router.post('/create-credit-checkout', getUser, requireAuth, requireAllowedEmail, async (req, res) => {
   try {
     const { packageType, successUrl, cancelUrl } = req.body;
     const { user } = req;

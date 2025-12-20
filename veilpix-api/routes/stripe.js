@@ -1,13 +1,13 @@
 const express = require('express');
 const Stripe = require('stripe');
-const { getUser, requireAuth } = require('../middleware/auth');
+const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const { db } = require('../utils/database');
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // Create or get Stripe customer
-router.post('/customer', getUser, requireAuth, async (req, res) => {
+router.post('/customer', getUser, requireAuth, requireAllowedEmail, async (req, res) => {
     try {
         const { user } = req;
 
@@ -54,7 +54,7 @@ router.post('/customer', getUser, requireAuth, async (req, res) => {
 });
 
 // Create payment setup intent
-router.post('/setup-intent', getUser, requireAuth, async (req, res) => {
+router.post('/setup-intent', getUser, requireAuth, requireAllowedEmail, async (req, res) => {
     try {
         const { user } = req;
 
@@ -96,7 +96,7 @@ router.post('/setup-intent', getUser, requireAuth, async (req, res) => {
 });
 
 // Get customer payment methods
-router.get('/payment-methods', getUser, requireAuth, async (req, res) => {
+router.get('/payment-methods', getUser, requireAuth, requireAllowedEmail, async (req, res) => {
     try {
         const { user } = req;
 

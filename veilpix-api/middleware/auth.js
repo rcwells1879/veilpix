@@ -1,5 +1,6 @@
 const { getAuth, clerkClient } = require('@clerk/express');
 const { db } = require('../utils/database');
+const { validateEmailDomain, SUPPORTED_PROVIDERS } = require('../utils/emailValidator');
 
 // Middleware to extract user from Clerk session (optional authentication)
 async function getUser(req, res, next) {
@@ -181,8 +182,44 @@ async function requirePaymentMethod(req, res, next) {
     }
 }
 
+// Middleware to require email from an allowed domain
+function requireAllowedEmail(req, res, next) {
+    const requestId = Math.random().toString(36).substring(7);
+
+    // If no user or no email, let other middleware handle it
+    if (!req.user) {
+        console.log(`EMAIL_CHECK[${requestId}]: No user found, passing to next middleware`);
+        return next();
+    }
+
+    if (!req.user.email) {
+        console.warn(`EMAIL_CHECK[${requestId}]: User ${req.user.userId} has no email, blocking access`);
+        return res.status(403).json({
+            error: 'Email required',
+            message: 'Unable to verify your email address. Please ensure your account has a verified email.',
+            code: 'EMAIL_REQUIRED'
+        });
+    }
+
+    const { allowed, domain, reason } = validateEmailDomain(req.user.email);
+
+    if (!allowed) {
+        console.warn(`EMAIL_BLOCK[${requestId}]: Blocked user ${req.user.userId} with domain "${domain}"`);
+        return res.status(403).json({
+            error: 'Email not allowed',
+            message: reason,
+            code: 'EMAIL_DOMAIN_NOT_ALLOWED',
+            supportedProviders: SUPPORTED_PROVIDERS
+        });
+    }
+
+    console.log(`EMAIL_ALLOW[${requestId}]: Allowed user with domain "${domain}"`);
+    next();
+}
+
 module.exports = {
     getUser,
     requireAuth,
-    requirePaymentMethod
+    requirePaymentMethod,
+    requireAllowedEmail
 };
