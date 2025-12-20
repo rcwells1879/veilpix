@@ -39,3 +39,4 @@ public/3d model.jpeg
 public/blueprint.jpeg
 public/examples/headshot before.png
 .gitignore
+.playwright-mcp/veilpix-enchanted-cafe-result.png
