@@ -5,7 +5,12 @@
  * verification (phone/SMS verification or equivalent barriers).
  *
  * This prevents abuse from burner/disposable email addresses.
+ * Also detects Gmail aliasing tricks (dots, plus signs) used to create
+ * multiple accounts from a single Gmail address.
  */
+
+// Gmail domains that support aliasing (dots and plus signs are ignored)
+const GMAIL_DOMAINS = ['gmail.com', 'googlemail.com'];
 
 // Trusted email domains organized by provider tier
 const ALLOWED_DOMAINS = [
@@ -54,6 +59,41 @@ const SUPPORTED_PROVIDERS = [
 ];
 
 /**
+ * Validate Gmail addresses for aliasing tricks
+ * Gmail ignores dots and plus signs, allowing users to create unlimited aliases
+ * from a single account (e.g., john.doe@gmail.com = johndoe@gmail.com)
+ *
+ * @param {string} localPart - The part before @ in the email
+ * @param {string} domain - The email domain
+ * @returns {{ valid: boolean, reason: string|null }}
+ */
+function validateGmailAliasing(localPart, domain) {
+    // Only check Gmail domains
+    if (!GMAIL_DOMAINS.includes(domain)) {
+        return { valid: true, reason: null };
+    }
+
+    // Check for plus sign (e.g., john+spam@gmail.com)
+    if (localPart.includes('+')) {
+        return {
+            valid: false,
+            reason: 'Gmail addresses with + symbols are not supported. Please use your standard Gmail address without the + portion.'
+        };
+    }
+
+    // Count periods in local part (allow 1, block 2+)
+    const periodCount = (localPart.match(/\./g) || []).length;
+    if (periodCount >= 2) {
+        return {
+            valid: false,
+            reason: 'Gmail addresses with multiple periods are not supported. Please use your standard Gmail address.'
+        };
+    }
+
+    return { valid: true, reason: null };
+}
+
+/**
  * Validate if an email domain is in the allowlist
  *
  * @param {string} email - The email address to validate
@@ -79,9 +119,20 @@ function validateEmailDomain(email) {
         };
     }
 
+    const localPart = emailLower.substring(0, atIndex);
     const domain = emailLower.substring(atIndex + 1);
 
     if (ALLOWED_DOMAINS.includes(domain)) {
+        // Check for Gmail aliasing tricks (dots, plus signs)
+        const gmailCheck = validateGmailAliasing(localPart, domain);
+        if (!gmailCheck.valid) {
+            return {
+                allowed: false,
+                domain,
+                reason: gmailCheck.reason
+            };
+        }
+
         return {
             allowed: true,
             domain,
