@@ -5,12 +5,33 @@
  * verification (phone/SMS verification or equivalent barriers).
  *
  * This prevents abuse from burner/disposable email addresses.
- * Also detects Gmail aliasing tricks (dots, plus signs) used to create
- * multiple accounts from a single Gmail address.
+ * Also detects:
+ * - Plus-sign aliasing tricks (user+alias@domain) on all major providers
+ * - Gmail dot tricks (j.o.h.n@gmail.com = john@gmail.com)
+ * - Gibberish/random string local parts indicating bot-generated emails
  */
 
-// Gmail domains that support aliasing (dots and plus signs are ignored)
+// Gmail domains (for dot-ignoring validation - Gmail treats dots as optional)
 const GMAIL_DOMAINS = ['gmail.com', 'googlemail.com'];
+
+// All domains that support plus-sign aliasing (block + for all of these)
+const PLUS_ALIASING_DOMAINS = [
+    // Gmail
+    'gmail.com', 'googlemail.com',
+    // Microsoft
+    'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+    // Yahoo
+    'yahoo.com', 'ymail.com',
+    // Apple
+    'icloud.com', 'me.com', 'mac.com',
+    // Privacy providers
+    'protonmail.com', 'proton.me', 'pm.me',
+    'fastmail.com', 'fastmail.fm',
+    // Regional/Other
+    'gmx.com', 'gmx.net', 'gmx.de', 'web.de',
+    'zohomail.com',
+    'aol.com'
+];
 
 // Trusted email domains organized by provider tier
 const ALLOWED_DOMAINS = [
@@ -59,38 +80,113 @@ const SUPPORTED_PROVIDERS = [
 ];
 
 /**
- * Validate Gmail addresses for aliasing tricks
- * Gmail ignores dots and plus signs, allowing users to create unlimited aliases
- * from a single account (e.g., john.doe@gmail.com = johndoe@gmail.com)
+ * Validate plus-sign aliasing for all major email providers
+ * Many providers (Gmail, Outlook, Yahoo, etc.) support + aliases,
+ * allowing users to create unlimited addresses from a single account.
  *
  * @param {string} localPart - The part before @ in the email
  * @param {string} domain - The email domain
  * @returns {{ valid: boolean, reason: string|null }}
  */
-function validateGmailAliasing(localPart, domain) {
-    // Only check Gmail domains
-    if (!GMAIL_DOMAINS.includes(domain)) {
+function validatePlusAliasing(localPart, domain) {
+    // Only check domains that support plus aliasing
+    if (!PLUS_ALIASING_DOMAINS.includes(domain)) {
         return { valid: true, reason: null };
     }
 
-    // Check for plus sign (e.g., john+spam@gmail.com)
+    // Check for plus sign (e.g., user+alias@outlook.com)
     if (localPart.includes('+')) {
         return {
             valid: false,
-            reason: 'Gmail addresses with + symbols are not supported. Please use your standard Gmail address without the + portion.'
+            reason: 'Email addresses with + symbols are not supported. Please use your standard email address without the + portion.'
         };
     }
 
+    return { valid: true, reason: null };
+}
+
+/**
+ * Validate email addresses for multiple periods in local part
+ * Multiple periods (2+) in the local part are blocked for ALL providers.
+ * This catches abuse patterns like j.o.h.n@example.com or disposable generators.
+ *
+ * @param {string} localPart - The part before @ in the email
+ * @param {string} domain - The email domain
+ * @returns {{ valid: boolean, reason: string|null }}
+ */
+function validateMultiplePeriods(localPart, domain) {
     // Count periods in local part (allow 1, block 2+)
     const periodCount = (localPart.match(/\./g) || []).length;
     if (periodCount >= 2) {
         return {
             valid: false,
-            reason: 'Gmail addresses with multiple periods are not supported. Please use your standard Gmail address.'
+            reason: 'Email addresses with multiple periods are not supported. Please use your standard email address.'
         };
     }
 
     return { valid: true, reason: null };
+}
+
+/**
+ * Detect if a local part looks like random/gibberish characters
+ * indicating a bot-generated or burner email address.
+ *
+ * Uses multiple heuristics with a scoring system:
+ * - Low vowel ratio (real names typically have 30-40% vowels)
+ * - High number density
+ * - Long consonant runs
+ *
+ * Conservative threshold (3+ points) to minimize false positives.
+ *
+ * @param {string} localPart - The part before @ in the email
+ * @returns {{ suspicious: boolean, reason: string|null }}
+ */
+function detectGibberish(localPart) {
+    // Remove common separators for analysis
+    const cleaned = localPart.replace(/[._-]/g, '').toLowerCase();
+
+    // Skip short local parts (too little data to analyze)
+    if (cleaned.length < 6) {
+        return { suspicious: false, reason: null };
+    }
+
+    const vowels = cleaned.match(/[aeiou]/g) || [];
+    const numbers = cleaned.match(/[0-9]/g) || [];
+    const letters = cleaned.match(/[a-z]/g) || [];
+
+    // Calculate ratios
+    const vowelRatio = letters.length > 0 ? vowels.length / letters.length : 0;
+    const numberRatio = cleaned.length > 0 ? numbers.length / cleaned.length : 0;
+
+    // Flag 1: Very low vowel ratio (real names typically have 30-40% vowels)
+    // "adlqgn" has 0% vowels - highly suspicious
+    const lowVowels = vowelRatio < 0.15 && letters.length >= 5;
+
+    // Flag 2: High number density in longer strings
+    // "27993n" style patterns - more than 50% numbers with 4+ numbers total
+    const highNumbers = numberRatio > 0.5 && numbers.length >= 4;
+
+    // Flag 3: Long strings of consonants (4+ consecutive)
+    // "qwrtplkj" has 8 consecutive consonants
+    const consonantRun = /[bcdfghjklmnpqrstvwxyz]{4,}/i.test(cleaned);
+
+    // Calculate suspicion score
+    let score = 0;
+    if (lowVowels) score += 2;
+    if (highNumbers) score += 2;
+    if (consonantRun) score += 1;
+
+    // Conservative threshold: 3+ points = suspicious
+    // This catches "adlqgn27993n" (lowVowels=2 + highNumbers=2 + consonantRun=1 = 5)
+    // But allows "john123" (none of the flags trigger)
+    if (score >= 3) {
+        return {
+            suspicious: true,
+            reason: 'This email address appears to be auto-generated. Please use a personal email address.'
+        };
+    }
+
+    return { suspicious: false, reason: null };
 }
 
 /**
@@ -123,13 +219,33 @@ function validateEmailDomain(email) {
     const domain = emailLower.substring(atIndex + 1);
 
     if (ALLOWED_DOMAINS.includes(domain)) {
-        // Check for Gmail aliasing tricks (dots, plus signs)
-        const gmailCheck = validateGmailAliasing(localPart, domain);
-        if (!gmailCheck.valid) {
+        // Check 1: Plus-sign aliasing (all major providers)
+        const plusCheck = validatePlusAliasing(localPart, domain);
+        if (!plusCheck.valid) {
             return {
                 allowed: false,
                 domain,
-                reason: gmailCheck.reason
+                reason: plusCheck.reason
+            };
+        }
+
+        // Check 2: Multiple periods in local part (all providers)
+        const periodCheck = validateMultiplePeriods(localPart, domain);
+        if (!periodCheck.valid) {
+            return {
+                allowed: false,
+                domain,
+                reason: periodCheck.reason
+            };
+        }
+
+        // Check 3: Gibberish/random string detection
+        const gibberishCheck = detectGibberish(localPart);
+        if (gibberishCheck.suspicious) {
+            return {
+                allowed: false,
+                domain,
+                reason: gibberishCheck.reason
             };
         }
 
