@@ -1,11 +1,17 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * SignupPromptModal Component
+ *
+ * Prompts users to sign up when they try to use features that require authentication.
+ * Uses custom sign-up form with email normalization to prevent burner email abuse.
 */
 
-import React from 'react';
-import { SignUpButton } from '@clerk/clerk-react';
+import React, { useState } from 'react';
 import { UserPlusIcon, GiftIcon, ShieldCheckIcon } from './icons';
+import { CustomSignUp } from './CustomSignUp';
+import { CustomSignIn } from './CustomSignIn';
 
 interface SignupPromptModalProps {
   isOpen: boolean;
@@ -15,7 +21,42 @@ interface SignupPromptModalProps {
 const SignupPromptModal: React.FC<SignupPromptModalProps> = ({ isOpen, onClose }) => {
   console.log('🎭 SignupPromptModal render:', { isOpen });
 
+  const [showCustomSignUp, setShowCustomSignUp] = useState(false);
+  const [showCustomSignIn, setShowCustomSignIn] = useState(false);
+
   if (!isOpen) return null;
+
+  // If custom sign-up modal is showing, render that instead
+  if (showCustomSignUp) {
+    return (
+      <CustomSignUp
+        onClose={() => {
+          setShowCustomSignUp(false);
+          onClose();
+        }}
+        onSwitchToSignIn={() => {
+          setShowCustomSignUp(false);
+          setShowCustomSignIn(true);
+        }}
+      />
+    );
+  }
+
+  // If custom sign-in modal is showing, render that
+  if (showCustomSignIn) {
+    return (
+      <CustomSignIn
+        onClose={() => {
+          setShowCustomSignIn(false);
+          onClose();
+        }}
+        onSwitchToSignUp={() => {
+          setShowCustomSignIn(false);
+          setShowCustomSignUp(true);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -83,13 +124,25 @@ const SignupPromptModal: React.FC<SignupPromptModalProps> = ({ isOpen, onClose }
             </div>
           </div>
 
-          {/* Sign up button */}
-          <SignUpButton mode="modal">
-            <button className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-br from-[#E04F67] to-[#DC2626] hover:from-[#DC2626] hover:to-[#B91C1C] rounded-xl transition-all duration-300 ease-in-out shadow-lg shadow-[#E04F67]/20 hover:shadow-xl hover:shadow-[#E04F67]/40 hover:-translate-y-px active:scale-95 active:shadow-inner group">
-              <UserPlusIcon className="w-5 h-5 text-white transition-transform group-hover:scale-110" />
-              <span className="text-white font-bold text-lg">Get Started Free</span>
+          {/* Sign up button - Opens custom signup modal */}
+          <button
+            onClick={() => setShowCustomSignUp(true)}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-br from-[#E04F67] to-[#DC2626] hover:from-[#DC2626] hover:to-[#B91C1C] rounded-xl transition-all duration-300 ease-in-out shadow-lg shadow-[#E04F67]/20 hover:shadow-xl hover:shadow-[#E04F67]/40 hover:-translate-y-px active:scale-95 active:shadow-inner group"
+          >
+            <UserPlusIcon className="w-5 h-5 text-white transition-transform group-hover:scale-110" />
+            <span className="text-white font-bold text-lg">Get Started Free</span>
+          </button>
+
+          {/* Already have an account link */}
+          <p className="text-gray-400 text-sm mt-4">
+            Already have an account?{' '}
+            <button
+              onClick={() => setShowCustomSignIn(true)}
+              className="text-[#E04F67] hover:text-[#DC2626] hover:underline transition-colors"
+            >
+              Sign in
             </button>
-          </SignUpButton>
+          </p>
 
           {/* Privacy note */}
           <p className="text-xs text-gray-500 mt-4 leading-relaxed">

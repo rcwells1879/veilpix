@@ -1,15 +1,27 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * AuthButton Component
+ *
+ * Provides authentication UI with custom sign-up/sign-in forms that normalize
+ * email addresses before sending to Clerk. This breaks burner email services
+ * that rely on exact email pattern matching (e.g., j.o.h.n@gmail.com).
 */
 
-import React from 'react';
-import { SignInButton, SignUpButton, SignOutButton, useUser, useClerk } from '@clerk/clerk-react';
+import React, { useState } from 'react';
+import { SignOutButton, useUser, useClerk } from '@clerk/clerk-react';
 import { LogInIcon, UserPlusIcon, LogOutIcon } from './icons';
+import { CustomSignUp } from './CustomSignUp';
+import { CustomSignIn } from './CustomSignIn';
 
 export const AuthButton: React.FC = () => {
   const { isSignedIn, user, isLoaded } = useUser();
   const { openUserProfile } = useClerk();
+
+  // State for custom auth modals
+  const [showSignUp, setShowSignUp] = useState(false);
+  const [showSignIn, setShowSignIn] = useState(false);
 
   if (!isLoaded) {
     return (
@@ -45,23 +57,54 @@ export const AuthButton: React.FC = () => {
     );
   }
 
+  // Helper functions for switching between modals
+  const handleSwitchToSignIn = () => {
+    setShowSignUp(false);
+    setShowSignIn(true);
+  };
+
+  const handleSwitchToSignUp = () => {
+    setShowSignIn(false);
+    setShowSignUp(true);
+  };
+
   return (
-    <div className="flex items-center space-x-2 sm:space-x-3">
-      {/* Sign In Button */}
-      <SignInButton mode="modal">
-        <button className="flex items-center space-x-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-full transition-colors duration-200 border border-gray-600/50 group">
+    <>
+      <div className="flex items-center space-x-2 sm:space-x-3">
+        {/* Sign In Button - Opens custom modal */}
+        <button
+          onClick={() => setShowSignIn(true)}
+          className="flex items-center space-x-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-full transition-colors duration-200 border border-gray-600/50 group"
+        >
           <LogInIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 group-hover:text-blue-400 transition-colors" />
           <span className="text-gray-300 text-xs sm:text-sm font-medium hidden sm:block">Sign In</span>
         </button>
-      </SignInButton>
 
-      {/* Sign Up Button */}
-      <SignUpButton mode="modal">
-        <button className="flex items-center space-x-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-[#E04F67] hover:bg-[#DC2626] rounded-full transition-colors duration-200 group">
+        {/* Sign Up Button - Opens custom modal */}
+        <button
+          onClick={() => setShowSignUp(true)}
+          className="flex items-center space-x-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-[#E04F67] hover:bg-[#DC2626] rounded-full transition-colors duration-200 group"
+        >
           <UserPlusIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white transition-colors" />
           <span className="text-white text-xs sm:text-sm font-medium hidden sm:block">Sign Up</span>
         </button>
-      </SignUpButton>
-    </div>
+      </div>
+
+      {/* Custom Sign Up Modal */}
+      {showSignUp && (
+        <CustomSignUp
+          onClose={() => setShowSignUp(false)}
+          onSwitchToSignIn={handleSwitchToSignIn}
+        />
+      )}
+
+      {/* Custom Sign In Modal */}
+      {showSignIn && (
+        <CustomSignIn
+          onClose={() => setShowSignIn(false)}
+          onSwitchToSignUp={handleSwitchToSignUp}
+        />
+      )}
+    </>
   );
 };

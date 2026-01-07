@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
+const { normalizeEmail } = require('./emailNormalizer');
 
 // Create Supabase client lazily to avoid module loading issues
 let supabase = null;
@@ -58,6 +59,10 @@ const db = {
             const supabase = getSupabaseClient();
             console.log('🔍 DB: Got supabase client');
 
+            // Normalize the email for storage (defense in depth)
+            const normalizedEmail = normalizeEmail(email);
+            console.log('🔍 DB: Normalized email:', normalizedEmail);
+
             // First try to get existing user - use maybeSingle() to handle 0 or 1 rows gracefully
             // Also use limit(1) in case there are duplicate rows (shouldn't happen but defensive)
             console.log('🔍 DB: About to query users table...');
@@ -77,12 +82,14 @@ const db = {
 
             // Create new user if doesn't exist (with 30 initial credits)
             // Use upsert with onConflict to handle race conditions
+            // Store both original email and normalized email for burner detection
             console.log('🔍 DB: Creating new user with 30 initial credits...');
             const { data: newUser, error: createError } = await supabase
                 .from('users')
                 .upsert({
                     clerk_user_id: clerkUserId,
                     email: email,
+                    normalized_email: normalizedEmail,
                     subscription_status: 'free',
                     credits_remaining: 30,
                     total_credits_purchased: 0
