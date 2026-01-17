@@ -138,6 +138,10 @@ function validateMultiplePeriods(localPart, domain) {
  *
  * Conservative threshold (3+ points) to minimize false positives.
  *
+ * Note: 'y' is treated as a semi-vowel since it often functions as a vowel
+ * in names (e.g., "Ryan", "Kyle", "Bryn"). This prevents false positives
+ * for legitimate names containing 'y'.
+ *
  * @param {string} localPart - The part before @ in the email
  * @returns {{ suspicious: boolean, reason: string|null }}
  */
@@ -150,7 +154,8 @@ function detectGibberish(localPart) {
         return { suspicious: false, reason: null };
     }
 
-    const vowels = cleaned.match(/[aeiou]/g) || [];
+    // Include 'y' as a vowel since it often functions as one in names
+    const vowels = cleaned.match(/[aeiouy]/g) || [];
     const numbers = cleaned.match(/[0-9]/g) || [];
     const letters = cleaned.match(/[a-z]/g) || [];
 
@@ -166,9 +171,10 @@ function detectGibberish(localPart) {
     // "27993n" style patterns - more than 50% numbers with 4+ numbers total
     const highNumbers = numberRatio > 0.5 && numbers.length >= 4;
 
-    // Flag 3: Long strings of consonants (4+ consecutive)
+    // Flag 3: Long strings of consonants (5+ consecutive, excluding 'y' as semi-vowel)
     // "qwrtplkj" has 8 consecutive consonants
-    const consonantRun = /[bcdfghjklmnpqrstvwxyz]{4,}/i.test(cleaned);
+    // Increased from 4 to 5 to reduce false positives on legitimate names
+    const consonantRun = /[bcdfghjklmnpqrstvwxz]{5,}/i.test(cleaned);
 
     // Calculate suspicion score
     let score = 0;
