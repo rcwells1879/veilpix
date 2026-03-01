@@ -26,7 +26,13 @@
       "mcp__plugin_playwright_playwright__browser_type",
       "mcp__plugin_playwright_playwright__browser_wait_for",
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(find:*)",
+      "Bash(git push:*)",
+      "Bash(node clerk-investigate.js:*)",
+      "WebSearch",
+      "WebFetch(domain:capacitorjs.com)",
+      "WebFetch(domain:kie.ai)"
     ],
     "deny": [],
     "ask": []

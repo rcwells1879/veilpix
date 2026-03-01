@@ -9,7 +9,7 @@ VeilPix is an AI-powered image editing React web application that supports multi
 - **Frontend**: React 19 with TypeScript using Vite as the build tool
 - **Backend API**: Node.js/Express server with authentication, usage tracking, and billing
 - **AI Services**:
-  - **Nano Banana** (Google Gemini `gemini-2.5-flash-image-preview`) - Default provider, uses in-memory base64 encoding
+  - **Nano Banana 2** (Google Gemini 3.1 Flash `nano-banana-2` via kie.ai) - Default provider, uses Supabase Storage for temporary image URLs
   - **SeeDream 4.5** (ByteDance SeeDream V4 Edit) - Alternative provider, uses Supabase Storage for temporary image URLs
 - **Authentication**: Clerk for user management and session handling
 - **Database**: Supabase for usage tracking, billing records, user data, and temporary image storage
@@ -55,7 +55,8 @@ NODE_ENV=production
 PORT=3001
 
 # AI Service APIs
-GEMINI_API_KEY=your_gemini_api_key_here
+NANOBANANA2_API_KEY=your_kie_ai_api_key_here
+NANOBANANA2_API_BASE_URL=https://api.kie.ai/v1
 SEEDREAM_API_KEY=your_kie_ai_api_key_here
 SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
 
@@ -88,7 +89,7 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 - `components/Header.tsx` - App header with usage counter
 - `components/StartScreen.tsx` - Initial upload and mode selection
 - `components/CompositeScreen.tsx` - Multi-image composition interface
-- `veilpix-api/routes/gemini.js` - AI image generation endpoints
+- `veilpix-api/routes/nanobanana2.js` - Nano Banana 2 AI image generation endpoints
 - `veilpix-api/routes/auth.js` - Authentication endpoints
 - `veilpix-api/routes/usage.js` - Usage tracking endpoints
 - `veilpix-api/middleware/auth.js` - Clerk authentication middleware
@@ -109,38 +110,35 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 - Usage tracking and billing are integrated with Stripe for pay-per-use model
 
 ## API Integration Notes
-- Backend API handles all Gemini AI requests with proper authentication and validation
-- Main endpoints: `/api/gemini/generate-edit`, `/api/gemini/generate-filter`, `/api/gemini/generate-adjust`, `/api/gemini/combine-photos`
+- Backend API handles all Nano Banana 2 AI requests with proper authentication and validation
+- Main endpoints: `/api/nanobanana2/generate-edit`, `/api/nanobanana2/generate-filter`, `/api/nanobanana2/generate-adjust`, `/api/nanobanana2/combine-photos`
 - All requests include safety guidelines to prevent inappropriate content generation
 - Usage limits: 20 free requests for anonymous users, unlimited for authenticated users (billed)
 - Response handling includes proper error messages and usage tracking
 
-## Gemini AI Implementation Details
-- **Model**: Uses `gemini-2.5-flash-image-preview` for all image generation and editing
+## Nano Banana 2 AI Implementation Details
+- **Model**: Uses `nano-banana-2` via kie.ai API (Google Gemini 3.1 Flash)
+- **API Provider**: Kie.ai API platform (same infrastructure as SeeDream and Nano Banana Pro)
+- **Image Handling**: Like SeeDream, Nano Banana 2 requires image URLs, so images are temporarily uploaded to Supabase Storage
 - **Prompt-Based System**: All image adjustments use natural language prompts, NOT sliders or structured parameters
 - **Adjustment Interface**: AdjustmentPanel provides preset prompts (e.g., "Enhance Details", "Warmer Lighting") and custom text input
-- **API Request Format**: Send text prompts directly to the Gemini API along with image data
-- **Response Format**: Returns base64 encoded image data in `{success: true, image: {data: "base64...", mimeType: "image/png"}}` format
+- **API Request Format**: Images are uploaded to Supabase Storage (`temp-images` bucket), public URLs are sent to kie.ai API
+- **Response Format**: Returns image URLs which are fetched and converted to base64 to match unified response structure `{success: true, image: {data: "base64...", mimeType: "image/png"}}`
 - **Image Processing**: Frontend converts base64 responses back to File objects for history management
-
-### Gemini API Response Processing
-- **Consistent Response Structure**: Both single image editing and multi-image combination use the same response format
-- **Response Path**: Image data is located at `response.candidates[0].content.parts[]` where each part may contain `inlineData`
-- **Image Part Detection**: Use `parts.find(part => part.inlineData)` to locate the image data within the response parts array
-- **Data Format**: Image data structure is `{ inlineData: { data: "base64...", mimeType: "image/png" } }`
-- **Critical Note**: All Gemini image generation endpoints (single edit, filter, adjust, combine) return the same response structure with `inlineData` (not `inline_data`)
-- **Processing Function**: The `processGeminiResponse()` function in `routes/gemini.js` handles response parsing for all image generation endpoints uniformly
+- **Credit Cost**: 2 credits per image
+- **Backend Routes**: `/api/nanobanana2/generate-edit`, `/api/nanobanana2/generate-filter`, `/api/nanobanana2/generate-adjust`, `/api/nanobanana2/combine-photos`
+- **Temporary Storage**: Images are automatically deleted from Supabase after processing (2-hour cleanup window)
 
 ## SeeDream 4.5 AI Implementation Details
 - **Model**: ByteDance SeeDream V4 Edit - Alternative AI provider for image generation and editing
 - **API Provider**: Kie.ai API platform
-- **Image Handling**: Unlike Gemini's base64 approach, SeeDream requires image URLs, so images are temporarily uploaded to Supabase Storage
+- **Image Handling**: Like Nano Banana 2, SeeDream requires image URLs, so images are temporarily uploaded to Supabase Storage
 - **Resolution Options**: Supports 1K, 2K, and 4K output resolutions (configurable in Settings menu)
 - **Backend Routes**: `/api/seedream/generate-edit`, `/api/seedream/generate-filter`, `/api/seedream/generate-adjust`, `/api/seedream/combine-photos`
 - **Request Format**: Images are uploaded to Supabase Storage (`temp-images` bucket), public URLs are sent to SeeDream API
-- **Response Format**: SeeDream returns image URLs which are fetched and converted to base64 to match Gemini's response structure
+- **Response Format**: SeeDream returns image URLs which are fetched and converted to base64 to match the unified response structure
 - **Temporary Storage**: Images are automatically deleted from Supabase after SeeDream processing (2-hour cleanup window)
-- **Credit System**: Uses the same unified credit deduction and usage tracking as Gemini
+- **Credit System**: Uses the same unified credit deduction and usage tracking as Nano Banana 2
 
 ### SeeDream Configuration Requirements
 **IMPORTANT**: SeeDream integration requires the following setup before it will work:
@@ -203,21 +201,23 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 ### Settings UI
 - **Location**: Header component settings icon (gear icon next to usage counter)
 - **Persistence**: Settings saved to localStorage (`veilpix-settings` key)
-- **Default Provider**: Nano Banana (Gemini)
+- **Default Provider**: Nano Banana 2
+- **Provider Options**: `'nanobanana2' | 'seedream' | 'nanobananapro'`
 - **Options**:
-  - **API Provider**: Radio selection between "Nano Banana" and "SeeDream 4.5"
+  - **API Provider**: Radio selection between "Nano Banana 2", "SeeDream 4.5", and "Nano Banana Pro"
   - **Resolution**: Dropdown (1K/2K/4K) - only shown when SeeDream is selected
-- **Conditional Hook Usage**: App.tsx dynamically switches between `useGenerateEdit()` and `useGenerateEditSeeDream()` based on settings
+- **Conditional Hook Usage**: App.tsx dynamically switches between `useGenerateEditNanoBanana2()`, `useGenerateEditSeeDream()`, and `useGenerateEditNanoBananaPro()` based on settings
 
-### SeeDream vs Nano Banana Comparison
-| Feature | Nano Banana (Gemini) | SeeDream 4.5 |
-|---------|---------------------|--------------|
-| **Image Input** | Base64 in-memory | URLs from Supabase Storage |
-| **Processing** | Direct base64 response | URL response → fetch → base64 conversion |
-| **Storage** | None (in-memory only) | Temporary Supabase Storage (auto-cleanup) |
+### Nano Banana 2 vs SeeDream 4.5 Comparison
+| Feature | Nano Banana 2 (Gemini 3.1 Flash) | SeeDream 4.5 |
+|---------|----------------------------------|--------------|
+| **Image Input** | URLs from Supabase Storage | URLs from Supabase Storage |
+| **Processing** | URL response → fetch → base64 conversion | URL response → fetch → base64 conversion |
+| **Storage** | Temporary Supabase Storage (auto-cleanup) | Temporary Supabase Storage (auto-cleanup) |
 | **Resolution** | Fixed (model default) | User-selectable (1K/2K/4K) |
 | **Speed** | Very fast (<2s) | Fast (<1.8s per docs) |
-| **Cost** | Included in credit system | Included in credit system |
+| **Cost** | 2 credits per image | Included in credit system |
+| **API Provider** | Kie.ai (same as SeeDream) | Kie.ai |
 
 ## Critical Database Architecture Notes
 - **Supabase Client**: Uses lazy loading pattern with service role key to prevent module loading failures
@@ -321,7 +321,7 @@ STRIPE_WEBHOOK_SECRET=[empty_currently]
 - **API Health Check**: `https://api.veilstudio.io/api/health`
 - **Main Endpoints**:
   - Auth: `https://api.veilstudio.io/api/auth/*`
-  - Gemini: `https://api.veilstudio.io/api/gemini/*`
+  - Nano Banana 2: `https://api.veilstudio.io/api/nanobanana2/*`
   - Usage: `https://api.veilstudio.io/api/usage/*`
 
 ### Monitoring & Maintenance

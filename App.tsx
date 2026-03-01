@@ -10,17 +10,17 @@
  * - History-based undo/redo system with File objects
  * - Optimistic UI updates for perceived performance
  * - Authentication-gated features via Clerk
- * - Backend API for all AI operations (Gemini 2.5 Flash)
+ * - Backend API for all AI operations (Nano Banana 2, SeeDream 4.5, Nano Banana Pro)
  */
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { useUser, useClerk } from '@clerk/clerk-react';
 import {
-  useGenerateEdit,
-  useGenerateFilter,
-  useGenerateAdjust,
-  useGenerateComposite,
+  useGenerateEditNanoBanana2,
+  useGenerateFilterNanoBanana2,
+  useGenerateAdjustNanoBanana2,
+  useGenerateCompositeNanoBanana2,
   useGenerateTextToImage,
   useGenerateEditSeeDream,
   useGenerateFilterSeeDream,
@@ -281,23 +281,23 @@ const App: React.FC = () => {
     ? useGenerateEditNanoBananaPro()
     : settings.apiProvider === 'seedream'
       ? useGenerateEditSeeDream()
-      : useGenerateEdit();
+      : useGenerateEditNanoBanana2();
   const filterMutation = settings.apiProvider === 'nanobananapro'
     ? useGenerateFilterNanoBananaPro()
     : settings.apiProvider === 'seedream'
       ? useGenerateFilterSeeDream()
-      : useGenerateFilter();
+      : useGenerateFilterNanoBanana2();
   const adjustMutation = settings.apiProvider === 'nanobananapro'
     ? useGenerateAdjustNanoBananaPro()
     : settings.apiProvider === 'seedream'
       ? useGenerateAdjustSeeDream()
-      : useGenerateAdjust();
+      : useGenerateAdjustNanoBanana2();
   const compositeMutation = settings.apiProvider === 'nanobananapro'
     ? useGenerateCompositeNanoBananaPro()
     : settings.apiProvider === 'seedream'
       ? useGenerateCompositeSeeDream()
-      : useGenerateComposite();
-  const textToImageMutation = useGenerateTextToImage(); // Only uses Gemini for now
+      : useGenerateCompositeNanoBanana2();
+  const textToImageMutation = useGenerateTextToImage();
 
   // React 19 optimistic state for immediate UI feedback
   const [optimisticHistory, setOptimisticHistory] = useOptimistic(
@@ -575,7 +575,7 @@ const App: React.FC = () => {
         prompt,
         x: editHotspot.x,
         y: editHotspot.y,
-        ...((settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
+        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -615,7 +615,7 @@ const App: React.FC = () => {
             image1: sourceImage1,
             image2: sourceImage2,
             prompt: compositePrompt,
-            ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
+            ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
         });
         console.log('✅ compositeMutation.mutateAsync returned:', response)
 
@@ -658,7 +658,7 @@ const App: React.FC = () => {
       const response = await filterMutation.mutateAsync({
         image: currentImage,
         filterType: filterPrompt,
-        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
+        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -694,7 +694,7 @@ const App: React.FC = () => {
       const response = await adjustMutation.mutateAsync({
         image: currentImage,
         prompt: adjustmentPrompt,
-        ...(settings.apiProvider === 'seedream' && { resolution: settings.resolution })
+        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
       });
 
       if (response.success && response.image) {
@@ -711,7 +711,7 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory]);
 
-  // Handle aspect ratio changes - supports PNG filename (Gemini/SeeDream) or direct ratio string (Nano Banana Pro)
+  // Handle aspect ratio changes - supports PNG filename (SeeDream) or direct ratio string (Nano Banana 2/Pro)
   const handleApplyAspectRatio = useCallback(async (aspectRatioInput: string, customPrompt: string) => {
     if (!currentImage) {
       setError('No image loaded to apply aspect ratio change to.');
@@ -729,12 +729,12 @@ const App: React.FC = () => {
 
       const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
 
-      // Nano Banana Pro: Use native aspect ratio support with direct ratio strings
-      if (settings.apiProvider === 'nanobananapro') {
+      // Nano Banana 2 and Nano Banana Pro: Use native aspect ratio support with direct ratio strings
+      if (settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'nanobananapro') {
         const response = await adjustMutation.mutateAsync({
           image: currentImage,
           prompt: basePrompt,
-          aspectRatio: aspectRatioInput, // Direct ratio string like '1:1', '16:9'
+          aspectRatio: aspectRatioInput, // Direct ratio string like '1:1', '16:9', 'auto'
           resolution: settings.resolution
         });
 
@@ -747,7 +747,7 @@ const App: React.FC = () => {
         }
       }
       // SeeDream: Use native aspect ratio support with PNG filename mapping
-      else if (settings.apiProvider === 'seedream') {
+      else {
         const response = await adjustMutation.mutateAsync({
           image: currentImage,
           prompt: basePrompt,
@@ -763,41 +763,12 @@ const App: React.FC = () => {
           throw new Error(response.message || 'Failed to apply aspect ratio change');
         }
       }
-      // Nano Banana (Gemini): Use transparent template workaround
-      else {
-        // Load the transparent aspect ratio template from the blog folder
-        const templateResponse = await fetch(`/veilpix/blog/nano-banana-aspect-ratio-trick/downloads/${aspectRatioInput}`);
-        if (!templateResponse.ok) {
-          throw new Error(`Failed to load aspect ratio template: ${aspectRatioInput}`);
-        }
-
-        const templateBlob = await templateResponse.blob();
-        const templateFile = new File([templateBlob], aspectRatioInput, { type: 'image/png' });
-
-        // Create the composite prompt with the magic instruction
-        const compositePrompt = `${basePrompt}. Use the uploaded image as the reference for final aspect ratio.`;
-
-        // Use the existing composite functionality with current image + template
-        const response = await compositeMutation.mutateAsync({
-          image1: currentImage,
-          image2: templateFile,
-          prompt: compositePrompt
-        });
-
-        if (response.success && response.image) {
-          const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-          const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
-          addImageToHistory(newImageFile);
-        } else {
-          throw new Error(response.message || 'Failed to apply aspect ratio change');
-        }
-      }
     } catch (err: any) {
       const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
       setError(`Failed to apply the aspect ratio change. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, addImageToHistory, adjustMutation, compositeMutation, setOptimisticHistory, settings.apiProvider, settings.resolution]);
+  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.apiProvider, settings.resolution]);
 
   const handleTextToImageGenerate = useCallback(async (textPrompt: string, onSuccess?: (file: File) => void) => {
     console.log('🎨 Starting text-to-image generation with prompt:', textPrompt);

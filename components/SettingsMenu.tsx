@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
-export type ApiProvider = 'gemini' | 'seedream' | 'nanobananapro';
+export type ApiProvider = 'nanobanana2' | 'seedream' | 'nanobananapro';
 export type Resolution = '1K' | '2K' | '4K';
 
 export interface SettingsState {
@@ -80,26 +80,26 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
           </label>
           <div className="space-y-2">
             <button
-              onClick={() => handleProviderChange('gemini')}
+              onClick={() => handleProviderChange('nanobanana2')}
               className={`w-full text-left px-4 py-3 rounded-lg transition-all duration-200 ${
-                settings.apiProvider === 'gemini'
+                settings.apiProvider === 'nanobanana2'
                   ? 'bg-blue-500/20 border-2 border-blue-500 text-blue-300'
                   : 'bg-gray-700/50 border-2 border-transparent text-gray-300 hover:bg-gray-700'
               }`}
             >
               <div className="flex items-center gap-3">
                 <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                  settings.apiProvider === 'gemini'
+                  settings.apiProvider === 'nanobanana2'
                     ? 'border-blue-500'
                     : 'border-gray-500'
                 }`}>
-                  {settings.apiProvider === 'gemini' && (
+                  {settings.apiProvider === 'nanobanana2' && (
                     <div className="w-2 h-2 rounded-full bg-blue-500" />
                   )}
                 </div>
                 <div>
-                  <div className="font-semibold">Nano Banana</div>
-                  <div className="text-xs text-gray-400">Google Gemini 2.5 Flash</div>
+                  <div className="font-semibold">Nano Banana 2</div>
+                  <div className="text-xs text-gray-400">Google Gemini 3.1 Flash</div>
                 </div>
               </div>
             </button>
@@ -157,7 +157,7 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
         </div>
 
         {/* Resolution Selection (for SeeDream and Nano Banana Pro) */}
-        {(settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && (
+        {(settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && (
           <div className="animate-fade-in">
             <label className="block text-sm font-medium text-gray-300 mb-2">
               Output Resolution
@@ -186,10 +186,7 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
         {/* Info Footer */}
         <div className="mt-4 pt-3 border-t border-gray-700">
           <p className="text-xs text-gray-400">
-            {settings.apiProvider === 'nanobananapro'
-              ? '2 credits per image \u2022 '
-              : '1 credit per image \u2022 '}
-            Changes are saved automatically.
+            2 credits per image &bull; Changes are saved automatically.
           </p>
         </div>
       </div>

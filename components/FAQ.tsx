@@ -12,40 +12,40 @@ interface FAQItem {
 
 const faqData: FAQItem[] = [
   {
-    question: "What is Veilpix - Nano Banana and how does it work?",
-    answer: "Veilpix - Nano Banana is a free AI-powered photo editor that uses Google's advanced Nano Banana AI model to transform your images through simple text descriptions. Just upload a photo, click where you want to edit, and describe your changes in plain English."
+    question: "What is Veilpix - Nano Banana 2 and how does it work?",
+    answer: "Veilpix - Nano Banana 2 is a free AI-powered photo editor that uses the advanced Nano Banana 2 AI model (powered by Google Gemini 3.1 Flash) to transform your images through simple text descriptions. Just upload a photo, click where you want to edit, and describe your changes in plain English."
   },
   {
-    question: "What makes Veilpix - Nano Banana different from other AI photo editors?",
-    answer: "Veilpix - Nano Banana offers precise localized editing - you can click specific areas of your image to make targeted changes. We also prioritize privacy by not storing your photos or prompts, and we don't use trackers or ads. Plus, it's free to try with 30 credits after signing in, and no payment details are required."
+    question: "What makes Veilpix - Nano Banana 2 different from other AI photo editors?",
+    answer: "Veilpix - Nano Banana 2 offers precise localized editing - you can click specific areas of your image to make targeted changes. We also prioritize privacy by not storing your photos or prompts, and we don't use trackers or ads. Plus, it's free to try with 30 credits after signing in, and no payment details are required."
   },
   {
     question: "What types of edits can I make?",
     answer: "You can perform localized retouching (remove objects, change colors, add elements), apply creative filters and artistic styles, make professional adjustments (lighting, contrast, saturation), combine multiple images, and crop your photos. All through simple text descriptions."
   },
   {
-    question: "Can I use Veilpix - Nano Banana for commercial purposes?",
-    answer: "Yes! The images you create with Veilpix - Nano Banana are yours to use for any purpose, including commercial projects. We don't retain any rights to your edited photos."
+    question: "Can I use Veilpix - Nano Banana 2 for commercial purposes?",
+    answer: "Yes! The images you create with Veilpix - Nano Banana 2 are yours to use for any purpose, including commercial projects. We don't retain any rights to your edited photos."
   },
   {
     question: "How do you handle my photos and data?",
     answer: "Privacy is our priority. We don't store your uploaded photos or editing prompts on our servers. Images are processed in real-time and discarded immediately after editing. We also don't use cookies, trackers, or ads."
   },
   {
-    question: "Is Veilpix - Nano Banana really free?",
-    answer: "Yes! Veilpix - Nano Banana is free to try. Simply sign in to receive 30 free credits - no payment details required. Credits never expire and there are no recurring subscriptions. You only pay if you choose to purchase additional credits."
+    question: "Is Veilpix - Nano Banana 2 really free?",
+    answer: "Yes! Veilpix - Nano Banana 2 is free to try. Simply sign in to receive 30 free credits - no payment details required. Credits never expire and there are no recurring subscriptions. You only pay if you choose to purchase additional credits."
   },
   {
     question: "What file formats do you support?",
-    answer: "Veilpix - Nano Banana supports all common image formats including JPEG, PNG, WebP, and even HEIC files from Apple devices. HEIC files are automatically converted to ensure compatibility."
+    answer: "Veilpix - Nano Banana 2 supports all common image formats including JPEG, PNG, WebP, and even HEIC files from Apple devices. HEIC files are automatically converted to ensure compatibility."
   },
   {
     question: "Do I need to create an account?",
-    answer: "Yes, you need to sign in to use Veilpix - Nano Banana, but it's completely free and you'll receive 30 credits immediately upon registration. No payment details are required unless you want to purchase additional credits."
+    answer: "Yes, you need to sign in to use Veilpix - Nano Banana 2, but it's completely free and you'll receive 30 credits immediately upon registration. No payment details are required unless you want to purchase additional credits."
   },
   {
-    question: "Is Veilpix - Nano Banana affiliated with Google?",
-    answer: "No, Veilpix - Nano Banana is an independent application that uses Google's publicly available Nano Banana AI API. We are not affiliated with or endorsed by Google."
+    question: "Is Veilpix - Nano Banana 2 affiliated with Google?",
+    answer: "No, Veilpix - Nano Banana 2 is an independent application that uses the Nano Banana 2 AI model (powered by Google Gemini 3.1 Flash) through a third-party API platform. We are not affiliated with or endorsed by Google."
   }
 ];
 
@@ -69,7 +69,7 @@ const FAQ: React.FC = () => {
           Frequently Asked Questions
         </h2>
         <p className="text-lg text-gray-400">
-          Everything you need to know about Veilpix - Nano Banana
+          Everything you need to know about Veilpix - Nano Banana 2
         </p>
       </div>
 

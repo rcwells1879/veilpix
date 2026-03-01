@@ -51,12 +51,33 @@ const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, on
     { name: '21:9 Ultrawide', value: '21:9', description: 'Cinematic, Banners' },
   ];
 
+  // Nano Banana 2 aspect ratios - all 15 supported including ultra-wide/tall + auto
+  const nanoBanana2AspectRatios = [
+    { name: '1:1 Square', value: '1:1', description: 'Instagram Posts, Profile Pictures' },
+    { name: '4:5 Portrait', value: '4:5', description: 'Instagram Portrait' },
+    { name: '5:4 Landscape', value: '5:4', description: 'Album Format' },
+    { name: '16:9 Widescreen', value: '16:9', description: 'YouTube, Presentations' },
+    { name: '9:16 Vertical', value: '9:16', description: 'Stories, TikTok' },
+    { name: '4:3 Standard', value: '4:3', description: 'Classic Photos' },
+    { name: '3:4 Portrait', value: '3:4', description: 'Vertical Standard' },
+    { name: '2:3 Classic', value: '2:3', description: 'Traditional Portrait' },
+    { name: '3:2 Photography', value: '3:2', description: 'DSLR Format' },
+    { name: '21:9 Ultrawide', value: '21:9', description: 'Cinematic, Banners' },
+    { name: '4:1 Banner', value: '4:1', description: 'Wide Banners, Headers' },
+    { name: '1:4 Tall', value: '1:4', description: 'Tall Vertical, Infographics' },
+    { name: '8:1 Panoramic', value: '8:1', description: 'Panoramic Banners, Ads' },
+    { name: '1:8 Super Tall', value: '1:8', description: 'Vertical Panoramic' },
+    { name: 'Auto', value: 'auto', description: 'AI selects best ratio' },
+  ];
+
   // Select aspect ratios based on provider
-  const aspectRatios = apiProvider === 'nanobananapro'
-    ? nanoBananaProAspectRatios
-    : apiProvider === 'seedream'
-      ? pngAspectRatios.filter(ratio => seedreamSupportedValues.includes(ratio.value))
-      : pngAspectRatios;
+  const aspectRatios = apiProvider === 'nanobanana2'
+    ? nanoBanana2AspectRatios
+    : apiProvider === 'nanobananapro'
+      ? nanoBananaProAspectRatios
+      : apiProvider === 'seedream'
+        ? pngAspectRatios.filter(ratio => seedreamSupportedValues.includes(ratio.value))
+        : pngAspectRatios;
 
   const handleAspectRatioSelect = (aspectRatio: string) => {
     setSelectedAspectRatio(aspectRatio);
