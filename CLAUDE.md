@@ -54,9 +54,7 @@ VITE_NODE_ENV=development
 NODE_ENV=production
 PORT=3001
 
-# AI Service APIs
-NANOBANANA2_API_KEY=your_kie_ai_api_key_here
-NANOBANANA2_API_BASE_URL=https://api.kie.ai/v1
+# AI Service APIs (all providers share the same kie.ai API key)
 SEEDREAM_API_KEY=your_kie_ai_api_key_here
 SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
 
@@ -303,7 +301,8 @@ Production environment file location: `/home/veilpix/veilpix-api/.env`
 ```env
 NODE_ENV=production
 PORT=3001
-GEMINI_API_KEY=[your_actual_key]
+SEEDREAM_API_KEY=[your_kie_ai_key]
+SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
 CLERK_PUBLISHABLE_KEY=[test_key_currently]
 CLERK_SECRET_KEY=[test_key_currently]
 SUPABASE_URL=https://hjmkvroztbzmivrzjod.supabase.co
