@@ -41,8 +41,13 @@ import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon, DownloadIcon } from './compon
 import StartScreen from './components/StartScreen';
 import BeforeAfterSlider from './components/BeforeAfterSlider';
 import SignupPromptModal from './components/SignupPromptModal';
+import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import { SettingsState } from './components/SettingsMenu';
 import { debouncedSaveWorkflow, saveToGallery } from './src/utils/workflowStorage';
+
+// Lazy-loaded components for video and composite-from-editor modes
+const VideoControlsPanel = lazy(() => import('./components/VideoControlsPanel'));
+const CompositeEditorOverlay = lazy(() => import('./components/CompositeEditorOverlay'));
 
 /**
  * Lazy-loaded components for better initial bundle size
@@ -505,18 +510,27 @@ const App: React.FC = () => {
   }, []);
 
   const [isWebcamForComposite, setIsWebcamForComposite] = useState(false);
-  const [startScreenTab, setStartScreenTab] = useState<'single' | 'composite'>('single');
+  const [isWebcamForCompositeSecond, setIsWebcamForCompositeSecond] = useState(false);
+  const [creativeMode, setCreativeMode] = useState<CreativeMode>('single');
   const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
 
   const handleWebcamCapture = useCallback((file: File) => {
-    if (isWebcamForComposite) {
+    if (isWebcamForCompositeSecond) {
+      // Webcam capture for composite second image from editor overlay
+      setIsWebcamForCompositeSecond(false);
+      if (currentImage) {
+        setSourceImage1(currentImage);
+        setSourceImage2(file);
+        setView('composite');
+      }
+    } else if (isWebcamForComposite) {
       setSourceImage1(file);
       setIsWebcamForComposite(false);
       setView('start'); // This will show the start screen but with composite tab active and sourceImage1 set
     } else {
       handleImageUpload(file);
     }
-  }, [isWebcamForComposite, handleImageUpload]);
+  }, [isWebcamForComposite, isWebcamForCompositeSecond, currentImage, handleImageUpload]);
 
   const handleUseWebcamClick = useCallback(() => {
     // Debug authentication state
@@ -539,7 +553,7 @@ const App: React.FC = () => {
       return;
     }
     setIsWebcamForComposite(true);
-    setStartScreenTab('composite');
+    setCreativeMode('composite');
     setView('webcam');
   }, [isLoaded, isSignedIn]);
 
@@ -627,6 +641,7 @@ const App: React.FC = () => {
             // The new composite image becomes the start of our editing history
             setHistory([newImageFile]);
             setHistoryIndex(0);
+            setCreativeMode('single'); // Return to single edit mode
             setView('editor'); // Transition to the editor
             setSourceImage1(null); // Clear the source images
             setSourceImage2(null);
@@ -896,6 +911,7 @@ const App: React.FC = () => {
       setDisplayHotspot(null);
       setSourceImage1(null);
       setSourceImage2(null);
+      setCreativeMode('single');
       setView('start');
   }, []);
 
@@ -910,6 +926,39 @@ const App: React.FC = () => {
           URL.revokeObjectURL(link.href);
       }
   }, [currentImage]);
+
+  // Handle creative mode switching (single/composite/video)
+  const handleModeChange = useCallback((newMode: CreativeMode) => {
+    setCreativeMode(newMode);
+
+    if (view === 'editor' && currentImage) {
+      if (newMode === 'composite') {
+        // Current image becomes base image for composite
+        setSourceImage1(currentImage);
+        setSourceImage2(null);
+      }
+      // For 'single' and 'video' — just switch the panel, no state changes
+    }
+  }, [view, currentImage]);
+
+  // Handle combining from the editor overlay
+  const handleCompositeFromEditor = useCallback((file2: File) => {
+    if (currentImage) {
+      setSourceImage1(currentImage);
+      setSourceImage2(file2);
+      setView('composite');
+    }
+  }, [currentImage]);
+
+  // Handle webcam for composite second image (from editor overlay)
+  const handleWebcamForCompositeSecond = useCallback(() => {
+    if (isLoaded && !isSignedIn) {
+      setShowSignupPrompt(true);
+      return;
+    }
+    setIsWebcamForCompositeSecond(true);
+    setView('webcam');
+  }, [isLoaded, isSignedIn]);
   
   const handleFileSelect = async (files: FileList | null) => {
     if (files && files[0]) {
@@ -1004,7 +1053,8 @@ const App: React.FC = () => {
         onUseWebcamClick={handleUseWebcamClick}
         onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
         onTextToImageGenerate={handleTextToImageGenerate}
-        initialTab={startScreenTab}
+        activeMode={creativeMode}
+        onModeChange={handleModeChange}
         compositeFile1={sourceImage1}
         isAuthenticated={isLoaded && isSignedIn}
         onShowSignupPrompt={() => setShowSignupPrompt(true)}
@@ -1085,6 +1135,12 @@ const App: React.FC = () => {
 
       return (
         <div className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 animate-fade-in">
+          {/* Persistent Mode Selector */}
+          <div className="w-full bg-gray-800/50 border border-gray-700/80 rounded-xl p-2 backdrop-blur-sm">
+            <ModeSelector activeMode={creativeMode} onModeChange={handleModeChange} />
+          </div>
+
+          {/* Image display area */}
           <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
               {isLoading && (
                   <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
@@ -1094,8 +1150,8 @@ const App: React.FC = () => {
                       </p>
                   </div>
               )}
-              
-              {activeTab === 'crop' ? (
+
+              {activeTab === 'crop' && creativeMode === 'single' ? (
                 <div className="flex justify-center items-center w-full">
                   <ReactCrop
                     crop={crop}
@@ -1109,13 +1165,20 @@ const App: React.FC = () => {
                 </div>
               ) : imageDisplay }
 
-              {displayHotspot && !isLoading && activeTab === 'retouch' && (
+              {displayHotspot && !isLoading && activeTab === 'retouch' && creativeMode === 'single' && (
                   <div
                       className="absolute rounded-full w-6 h-6 bg-blue-500/50 border-2 border-white pointer-events-none -translate-x-1/2 -translate-y-1/2 z-10"
                       style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
                   >
                       <div className="absolute inset-0 rounded-full w-6 h-6 animate-ping bg-blue-400"></div>
                   </div>
+              )}
+
+              {/* Reference Image label for video mode */}
+              {creativeMode === 'video' && !isLoading && (
+                <div className="absolute top-3 left-3 px-3 py-1 bg-black/60 rounded-md text-sm text-gray-300 backdrop-blur-sm z-20">
+                  Reference Image
+                </div>
               )}
 
               {/* Download icon overlay - bottom right corner */}
@@ -1130,7 +1193,9 @@ const App: React.FC = () => {
               )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-3">
+          {/* Toolbar - show for single and video modes */}
+          {creativeMode !== 'composite' && (
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                   onClick={handleUndo}
                   disabled={!canUndo}
@@ -1207,53 +1272,80 @@ const App: React.FC = () => {
               >
                   Upload New
               </button>
-          </div>
+            </div>
+          )}
 
-          <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-2 flex items-center justify-center gap-1 sm:gap-2 backdrop-blur-sm">
-              {(['adjust', 'crop', 'retouch', 'filters'] as Tab[]).map(tab => (
-                   <button
-                      key={tab}
-                      onClick={() => setActiveTab(tab)}
-                      className={`flex-1 capitalize font-semibold py-3 px-2 sm:px-5 rounded-md transition-all duration-200 text-sm sm:text-base ${
-                          activeTab === tab
-                          ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40'
-                          : 'text-gray-300 hover:text-white hover:bg-white/10'
-                      }`}
-                  >
-                      {tab}
-                  </button>
-              ))}
-          </div>
-          
-          <div className="w-full">
-              {activeTab === 'retouch' && (
-                  <div className="flex flex-col items-center gap-4">
-                      <p className="text-md text-gray-400">
-                          {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
-                      </p>
-                      <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex items-center gap-2">
-                          <input
-                              type="text"
-                              value={prompt}
-                              onChange={(e) => setPrompt(e.target.value)}
-                              placeholder={editHotspot ? "e.g., 'change my shirt color to blue'" : "First click a point on the image"}
-                              className="flex-grow bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={isLoading || !editHotspot}
-                          />
-                          <button 
-                              type="submit"
-                              className="bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
-                              disabled={isLoading || !prompt.trim() || !editHotspot}
-                          >
-                              Generate
-                          </button>
-                      </form>
-                  </div>
-              )}
-              {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-              {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} apiProvider={settings.apiProvider} />}
-              {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
-          </div>
+          {/* Mode-specific panels */}
+          {creativeMode === 'single' && (
+            <>
+              <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-2 flex items-center justify-center gap-1 sm:gap-2 backdrop-blur-sm">
+                  {(['adjust', 'crop', 'retouch', 'filters'] as Tab[]).map(tab => (
+                       <button
+                          key={tab}
+                          onClick={() => setActiveTab(tab)}
+                          className={`flex-1 capitalize font-semibold py-3 px-2 sm:px-5 rounded-md transition-all duration-200 text-sm sm:text-base ${
+                              activeTab === tab
+                              ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40'
+                              : 'text-gray-300 hover:text-white hover:bg-white/10'
+                          }`}
+                      >
+                          {tab}
+                      </button>
+                  ))}
+              </div>
+
+              <div className="w-full">
+                  {activeTab === 'retouch' && (
+                      <div className="flex flex-col items-center gap-4">
+                          <p className="text-md text-gray-400">
+                              {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
+                          </p>
+                          <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex items-center gap-2">
+                              <input
+                                  type="text"
+                                  value={prompt}
+                                  onChange={(e) => setPrompt(e.target.value)}
+                                  placeholder={editHotspot ? "e.g., 'change my shirt color to blue'" : "First click a point on the image"}
+                                  className="flex-grow bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
+                                  disabled={isLoading || !editHotspot}
+                              />
+                              <button
+                                  type="submit"
+                                  className="bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+                                  disabled={isLoading || !prompt.trim() || !editHotspot}
+                              >
+                                  Generate
+                              </button>
+                          </form>
+                      </div>
+                  )}
+                  {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
+                  {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} apiProvider={settings.apiProvider} />}
+                  {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
+              </div>
+            </>
+          )}
+
+          {creativeMode === 'composite' && currentImageUrl && (
+            <Suspense fallback={<div className="flex items-center justify-center py-8"><Spinner /></div>}>
+              <CompositeEditorOverlay
+                baseImageUrl={currentImageUrl}
+                onCombine={handleCompositeFromEditor}
+                onCancel={() => setCreativeMode('single')}
+                onWebcamClick={handleWebcamForCompositeSecond}
+                onTextToImageGenerate={handleTextToImageGenerate}
+                isAuthenticated={!!(isLoaded && isSignedIn)}
+                onShowSignupPrompt={() => setShowSignupPrompt(true)}
+                isGeneratingImage={isLoading}
+              />
+            </Suspense>
+          )}
+
+          {creativeMode === 'video' && (
+            <Suspense fallback={<div className="flex items-center justify-center py-8"><Spinner /></div>}>
+              <VideoControlsPanel isLoading={isLoading} />
+            </Suspense>
+          )}
         </div>
       );
     }
@@ -1265,6 +1357,8 @@ const App: React.FC = () => {
       onUseWebcamClick={handleUseWebcamClick}
       onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
       onTextToImageGenerate={handleTextToImageGenerate}
+      activeMode={creativeMode}
+      onModeChange={handleModeChange}
       isAuthenticated={isLoaded && isSignedIn}
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
       isGeneratingImage={isLoading}
