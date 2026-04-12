@@ -20,7 +20,8 @@ function buildImageToVideoRequest(firstFrameUrl, prompt, options = {}) {
     const {
         duration = 5,
         resolution = '1080p',
-        negativePrompt = null
+        negativePrompt = null,
+        nsfwFilterEnabled = true
     } = options;
 
     const request = {
@@ -29,7 +30,8 @@ function buildImageToVideoRequest(firstFrameUrl, prompt, options = {}) {
         resolution,
         duration: Math.min(15, Math.max(2, parseInt(duration))),
         prompt_extend: true,
-        watermark: false
+        watermark: false,
+        nsfw_checker: nsfwFilterEnabled
     };
 
     if (negativePrompt) {

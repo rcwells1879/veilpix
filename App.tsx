@@ -30,7 +30,8 @@ import {
   useGenerateFilterNanoBananaPro,
   useGenerateAdjustNanoBananaPro,
   useGenerateCompositeNanoBananaPro,
-  useGenerateVideo
+  useGenerateVideo,
+  useUsageStats
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -158,12 +159,15 @@ const SETTINGS_STORAGE_KEY = 'veilpix-settings';
 // Default settings
 const DEFAULT_SETTINGS: SettingsState = {
   apiProvider: 'seedream',
-  resolution: '2K'
+  resolution: '2K',
+  nsfwFilterEnabled: true
 };
 
 const App: React.FC = () => {
   const { isSignedIn, isLoaded } = useUser();
   const clerk = useClerk();
+  const { data: usageStats } = useUsageStats();
+  const hasPurchasedCredits = (usageStats?.totalCreditsPurchased ?? 0) > 0;
   const [view, setView] = useState<View>('start');
   const [history, setHistory] = useState<File[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
@@ -1005,7 +1009,8 @@ const App: React.FC = () => {
         image: currentImage,
         prompt,
         duration,
-        resolution
+        resolution,
+        nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
       if (response.success && response.videoUrl) {
@@ -1442,6 +1447,7 @@ const App: React.FC = () => {
         onShowPricing={() => setShowPricingModal(true)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
+        hasPurchasedCredits={hasPurchasedCredits}
       />
       <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${view === 'editor' ? 'items-start' : 'items-center'}`}>
         {renderContent()}

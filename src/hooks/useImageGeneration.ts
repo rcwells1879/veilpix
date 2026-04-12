@@ -561,6 +561,7 @@ export interface GenerateVideoRequest {
   prompt: string
   duration?: number   // 2-15 seconds (default 5)
   resolution?: string // '720p' | '1080p' (default '1080p')
+  nsfwFilterEnabled?: boolean // NSFW content filter (default true)
 }
 
 export interface VideoGenerationResponse {
@@ -587,6 +588,7 @@ export function useGenerateVideo() {
       if (data.resolution) {
         formData.append('resolution', data.resolution)
       }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<VideoGenerationResponse>('/api/wan/generate-video', {
         method: 'POST',

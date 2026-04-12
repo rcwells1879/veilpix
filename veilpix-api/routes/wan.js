@@ -230,7 +230,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
     let uploadedFilename = null;
 
     try {
-        const { prompt, duration = '5', resolution = '1080p' } = req.body;
+        const { prompt, duration = '5', resolution = '1080p', nsfwFilterEnabled = 'true' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No reference image provided' });
@@ -262,7 +262,8 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
             prompt.trim(),
             {
                 duration: parseInt(duration),
-                resolution
+                resolution,
+                nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true
             }
         );
 

@@ -11,6 +11,7 @@ interface HeaderProps {
   onShowPricing?: () => void;
   settings: SettingsState;
   onSettingsChange: (settings: SettingsState) => void;
+  hasPurchasedCredits: boolean;
 }
 
 export const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -26,7 +27,7 @@ const SettingsIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const Header: React.FC<HeaderProps> = ({ onShowPricing, settings, onSettingsChange }) => {
+const Header: React.FC<HeaderProps> = ({ onShowPricing, settings, onSettingsChange, hasPurchasedCredits }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   return (
     <header className="w-full py-2 sm:py-4 px-4 sm:px-8 border-b border-gray-700 bg-gray-800/30 backdrop-blur-sm sticky top-0 z-50">
@@ -61,6 +62,8 @@ const Header: React.FC<HeaderProps> = ({ onShowPricing, settings, onSettingsChan
               onClose={() => setIsSettingsOpen(false)}
               settings={settings}
               onSettingsChange={onSettingsChange}
+              hasPurchasedCredits={hasPurchasedCredits}
+              onShowPricing={onShowPricing}
             />
           </div>
 
