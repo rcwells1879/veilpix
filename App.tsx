@@ -115,6 +115,7 @@ const isSafetyFilterError = (errorMessage: string): boolean => {
         'terms of service',
         'content policy',
         'not allowed',
+        'internal error', // kie.ai NSFW filter returns generic "Internal Error" on content blocks
         '500', // Google sometimes returns 500 for safety violations
         'internal server error'
     ];
