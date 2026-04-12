@@ -1087,34 +1087,44 @@ const App: React.FC = () => {
             {isSafetyIssue ? (
               <div className="flex flex-col gap-3 text-md text-yellow-200">
                 <p>
-                  Your image or prompt couldn't be processed because it may contain content that doesn't meet Google's safety guidelines.
+                  Your request was flagged by our content filter. Please note that VeilStudio strictly prohibits the creation of child sexual abuse material (CSAM) and non-consensual imagery of real individuals under all circumstances.
                 </p>
                 <p className="text-sm text-yellow-300/80">
-                  VeilPix does not log your prompts or photos, but Google's AI service filters content it deems harmful, including NSFW material, violence, or other policy violations.
-                </p>
-                <p className="text-sm text-yellow-300/80">
-                  Please try again with a different image or prompt that complies with content policies.
+                  Outside of those restrictions, VeilStudio does not prohibit the creation of adult content. Once you verify your age by purchasing credits, the content filter can be toggled on or off in the Settings menu.
                 </p>
               </div>
             ) : (
               <p className="text-md text-red-400">{error}</p>
             )}
 
-            <button
-                onClick={() => {
-                  setError(null);
-                  if (!currentImage) {
-                    handleUploadNew();
-                  }
-                }}
-                className={`font-bold py-2 px-6 rounded-lg text-md transition-colors ${
-                  isSafetyIssue
-                    ? 'bg-yellow-500 hover:bg-yellow-600 text-gray-900'
-                    : 'bg-red-500 hover:bg-red-600 text-white'
-                }`}
-              >
-                Try Again
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                  onClick={() => {
+                    setError(null);
+                    if (!currentImage) {
+                      handleUploadNew();
+                    }
+                  }}
+                  className={`font-bold py-2 px-6 rounded-lg text-md transition-colors ${
+                    isSafetyIssue
+                      ? 'bg-yellow-500 hover:bg-yellow-600 text-gray-900'
+                      : 'bg-red-500 hover:bg-red-600 text-white'
+                  }`}
+                >
+                  Try Again
+              </button>
+              {isSafetyIssue && !hasPurchasedCredits && (
+                <button
+                  onClick={() => {
+                    setError(null);
+                    setShowPricingModal(true);
+                  }}
+                  className="font-bold py-2 px-6 rounded-lg text-md transition-all bg-gradient-to-br from-purple-600 to-pink-600 text-white hover:shadow-lg hover:-translate-y-px active:scale-95"
+                >
+                  Purchase Credits
+                </button>
+              )}
+            </div>
           </div>
         );
     }
