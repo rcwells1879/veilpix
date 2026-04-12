@@ -36,7 +36,7 @@ export function CustomSignUp({ onClose, onSwitchToSignIn }: CustomSignUpProps) {
         redirectUrlComplete: '/veilpix/',
       });
     } catch (err: any) {
-      setError(err.errors?.[0]?.message || 'OAuth signup failed');
+      setError(err.errors?.[0]?.longMessage || err.errors?.[0]?.message || 'OAuth signup failed');
     }
   };
 
@@ -50,19 +50,63 @@ export function CustomSignUp({ onClose, onSwitchToSignIn }: CustomSignUpProps) {
     const normalizedEmail = normalizeEmail(email);
 
     try {
-      await signUp!.create({
+      const result = await signUp!.create({
         emailAddress: normalizedEmail,
         password,
       });
 
-      // Send verification email
-      await signUp!.prepareEmailAddressVerification({
-        strategy: 'email_code',
-      });
+      if (result.status === 'complete') {
+        // No verification needed — activate session directly
+        await setActive!({ session: result.createdSessionId });
+        window.location.href = '/veilpix/';
+      } else if (result.status === 'missing_requirements') {
+        // Check if email verification is among the missing requirements
+        const needsEmailVerification = result.unverifiedFields?.includes('email_address');
 
-      setPendingVerification(true);
+        if (needsEmailVerification) {
+          // Try email_code first, fall back to email_link
+          try {
+            await signUp!.prepareEmailAddressVerification({
+              strategy: 'email_code',
+            });
+            setPendingVerification(true);
+          } catch (verifyErr: any) {
+            // email_code strategy might not be enabled, try email_link
+            try {
+              await signUp!.prepareEmailAddressVerification({
+                strategy: 'email_link',
+                redirectUrl: window.location.origin + '/veilpix/',
+              });
+              setError('A verification link has been sent to your email. Please check your inbox.');
+            } catch (linkErr: any) {
+              const clerkErrors = linkErr.errors || verifyErr.errors;
+              if (clerkErrors?.length) {
+                const messages = clerkErrors.map(
+                  (e: any) => e.longMessage || e.message
+                );
+                setError(messages.join(' '));
+              } else {
+                setError('Could not send verification email. Please check your Clerk dashboard email verification settings.');
+              }
+            }
+          }
+        } else {
+          // Other requirements missing (not email)
+          setError('Additional information is required to complete signup. Please try using Google or GitHub instead.');
+        }
+      } else {
+        setError('Signup could not be completed. Please try again.');
+      }
     } catch (err: any) {
-      setError(err.errors?.[0]?.message || 'Signup failed');
+      const clerkErrors = err.errors;
+      if (clerkErrors?.length) {
+        const messages = clerkErrors.map(
+          (e: any) => e.longMessage || e.message
+        );
+        setError(messages.join(' '));
+      } else {
+        setError('Signup failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -81,7 +125,7 @@ export function CustomSignUp({ onClose, onSwitchToSignIn }: CustomSignUpProps) {
         window.location.href = '/veilpix/';
       }
     } catch (err: any) {
-      setError(err.errors?.[0]?.message || 'Verification failed');
+      setError(err.errors?.[0]?.longMessage || err.errors?.[0]?.message || 'Verification failed');
     } finally {
       setLoading(false);
     }

@@ -34,7 +34,7 @@ export function CustomSignIn({ onClose, onSwitchToSignUp }: CustomSignInProps) {
         redirectUrlComplete: '/veilpix/',
       });
     } catch (err: any) {
-      setError(err.errors?.[0]?.message || 'OAuth sign-in failed');
+      setError(err.errors?.[0]?.longMessage || err.errors?.[0]?.message || 'OAuth sign-in failed');
     }
   };
 
@@ -58,7 +58,15 @@ export function CustomSignIn({ onClose, onSwitchToSignUp }: CustomSignInProps) {
         window.location.href = '/veilpix/';
       }
     } catch (err: any) {
-      setError(err.errors?.[0]?.message || 'Sign in failed');
+      const clerkErrors = err.errors;
+      if (clerkErrors?.length) {
+        const messages = clerkErrors.map(
+          (e: any) => e.longMessage || e.message
+        );
+        setError(messages.join(' '));
+      } else {
+        setError('Sign in failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
