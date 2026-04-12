@@ -44,7 +44,7 @@ import BeforeAfterSlider from './components/BeforeAfterSlider';
 import SignupPromptModal from './components/SignupPromptModal';
 import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import { SettingsState } from './components/SettingsMenu';
-import { debouncedSaveWorkflow, saveToGallery } from './src/utils/workflowStorage';
+import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery } from './src/utils/workflowStorage';
 
 // Lazy-loaded components for video and composite-from-editor modes
 const VideoControlsPanel = lazy(() => import('./components/VideoControlsPanel'));
@@ -471,6 +471,18 @@ const App: React.FC = () => {
     setView('editor');
   }, []);
 
+  // Handle selecting a video from the gallery
+  const handleSelectGalleryVideo = useCallback((videoUrlFromGallery: string, referenceImage: File) => {
+    setHistory([referenceImage]);
+    setHistoryIndex(0);
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    setCreativeMode('video');
+    setVideoUrl(videoUrlFromGallery);
+    setVideoError(null);
+    setView('editor');
+  }, []);
+
   const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
     // Check if user is authenticated, if not show signup prompt
     if (isLoaded && !isSignedIn) {
@@ -651,6 +663,8 @@ const App: React.FC = () => {
             setView('editor'); // Transition to the editor
             setSourceImage1(null); // Clear the source images
             setSourceImage2(null);
+            // Save composite result to gallery
+            saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
         } else {
             throw new Error(response.message || 'Failed to generate composite image');
         }
@@ -823,6 +837,8 @@ const App: React.FC = () => {
           setHistoryIndex(0);
           setActiveTab('adjust');
           setView('editor');
+          // Save text-to-image result to gallery
+          saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
           console.log('✅ Text-to-image generation successful, image added to history');
         }
       } else {
@@ -994,6 +1010,8 @@ const App: React.FC = () => {
 
       if (response.success && response.videoUrl) {
         setVideoUrl(response.videoUrl);
+        // Save video to gallery with reference image as thumbnail source
+        saveVideoToGallery(currentImage, response.videoUrl).then(() => setGalleryRefreshTrigger(n => n + 1));
       } else {
         throw new Error(response.message || 'Failed to generate video');
       }
@@ -1104,6 +1122,7 @@ const App: React.FC = () => {
         onShowSignupPrompt={() => setShowSignupPrompt(true)}
         isGeneratingImage={isLoading}
         onSelectGalleryImage={handleSelectGalleryImage}
+        onSelectGalleryVideo={handleSelectGalleryVideo}
         galleryRefreshTrigger={galleryRefreshTrigger}
       />;
     }

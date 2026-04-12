@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getGalleryImages,
   getGalleryImage,
+  getGalleryVideoUrl,
   deleteGalleryImage,
   clearGallery,
   GalleryThumbnail,
@@ -14,6 +15,7 @@ import {
 
 interface GalleryProps {
   onSelectImage: (file: File) => void;
+  onSelectVideo?: (videoUrl: string, referenceImage: File) => void;
   refreshTrigger?: number;
 }
 
@@ -31,7 +33,7 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
+const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, refreshTrigger }) => {
   const [images, setImages] = useState<GalleryThumbnail[]>([]);
   const [loading, setLoading] = useState(true);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
@@ -62,12 +64,24 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
     };
   }, [images]);
 
-  const handleImageClick = async (id: number) => {
+  const handleImageClick = async (id: number, entryType: 'image' | 'video') => {
     setLoadingImageId(id);
-    const file = await getGalleryImage(id);
-    setLoadingImageId(null);
-    if (file) {
-      onSelectImage(file);
+
+    if (entryType === 'video' && onSelectVideo) {
+      const [file, videoUrl] = await Promise.all([
+        getGalleryImage(id),
+        getGalleryVideoUrl(id),
+      ]);
+      setLoadingImageId(null);
+      if (file && videoUrl) {
+        onSelectVideo(videoUrl, file);
+      }
+    } else {
+      const file = await getGalleryImage(id);
+      setLoadingImageId(null);
+      if (file) {
+        onSelectImage(file);
+      }
     }
   };
 
@@ -141,7 +155,7 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
           >
             {/* Thumbnail Image */}
             <button
-              onClick={() => handleImageClick(image.id)}
+              onClick={() => handleImageClick(image.id, image.type)}
               disabled={loadingImageId === image.id}
               className="w-full h-full"
             >
@@ -152,6 +166,16 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
                   className="w-full h-full object-cover"
                 />
               )}
+              {/* Video play icon overlay */}
+              {image.type === 'video' && loadingImageId !== image.id && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-10 h-10 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/20">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </div>
+                </div>
+              )}
               {loadingImageId === image.id && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
@@ -161,9 +185,16 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, refreshTrigger }) => {
 
             {/* Date overlay */}
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
-              <span className="text-xs text-gray-300">
-                {formatRelativeTime(image.createdAt)}
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-300">
+                  {formatRelativeTime(image.createdAt)}
+                </span>
+                {image.type === 'video' && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-300 bg-cyan-500/20 px-1.5 py-0.5 rounded">
+                    Video
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Delete button - deletes immediately without confirmation */}

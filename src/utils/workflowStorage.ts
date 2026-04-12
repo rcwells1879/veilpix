@@ -29,6 +29,8 @@ export interface GalleryImage {
   thumbnail: Blob;
   createdAt: number;
   name: string;
+  type?: 'image' | 'video'; // undefined treated as 'image' for backward compat
+  videoUrl?: string;         // External URL for video entries
 }
 
 export interface GalleryThumbnail {
@@ -36,6 +38,8 @@ export interface GalleryThumbnail {
   thumbnail: Blob;
   createdAt: number;
   name: string;
+  type: 'image' | 'video';
+  videoUrl?: string;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -391,8 +395,8 @@ export async function getGalleryImages(): Promise<GalleryThumbnail[]> {
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
         if (cursor) {
-          const { id, thumbnail, createdAt, name } = cursor.value as GalleryImage;
-          thumbnails.push({ id: id!, thumbnail, createdAt, name });
+          const { id, thumbnail, createdAt, name, type, videoUrl } = cursor.value as GalleryImage;
+          thumbnails.push({ id: id!, thumbnail, createdAt, name, type: type || 'image', videoUrl });
           cursor.continue();
         } else {
           resolve(thumbnails);
@@ -407,6 +411,7 @@ export async function getGalleryImages(): Promise<GalleryThumbnail[]> {
 
 /**
  * Get a full-size gallery image by ID for re-editing
+ * Returns File for images, or { videoUrl, referenceImage } for videos
  */
 export async function getGalleryImage(id: number): Promise<File | null> {
   try {
@@ -435,6 +440,88 @@ export async function getGalleryImage(id: number): Promise<File | null> {
   } catch (error) {
     console.error('Failed to get gallery image:', error);
     return null;
+  }
+}
+
+/**
+ * Get the video URL for a video gallery entry
+ */
+export async function getGalleryVideoUrl(id: number): Promise<string | null> {
+  try {
+    const db = await openDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const store = transaction.objectStore(GALLERY_STORE_NAME);
+      const request = store.get(id);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const entry = request.result as GalleryImage | undefined;
+        resolve(entry?.videoUrl || null);
+      };
+    });
+  } catch (error) {
+    console.error('Failed to get gallery video URL:', error);
+    return null;
+  }
+}
+
+/**
+ * Save a video to the gallery
+ * Stores the video URL and a thumbnail generated from the reference image
+ */
+export async function saveVideoToGallery(referenceImage: File, videoUrl: string): Promise<void> {
+  try {
+    const db = await openDB();
+    const thumbnail = await createThumbnail(referenceImage);
+
+    const galleryEntry: GalleryImage = {
+      blob: referenceImage,
+      thumbnail,
+      createdAt: Date.now(),
+      name: `video-${Date.now()}.mp4`,
+      type: 'video',
+      videoUrl,
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(GALLERY_STORE_NAME);
+
+      const addRequest = store.add(galleryEntry);
+
+      addRequest.onerror = () => {
+        console.error('Failed to save video to gallery:', addRequest.error);
+        reject(addRequest.error);
+      };
+
+      addRequest.onsuccess = () => {
+        // Enforce max gallery size
+        const countRequest = store.count();
+        countRequest.onsuccess = () => {
+          const count = countRequest.result;
+          if (count > MAX_GALLERY_IMAGES) {
+            const deleteCount = count - MAX_GALLERY_IMAGES;
+            const index = store.index('createdAt');
+            const cursorRequest = index.openCursor();
+            let deleted = 0;
+
+            cursorRequest.onsuccess = (event) => {
+              const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+              if (cursor && deleted < deleteCount) {
+                store.delete(cursor.primaryKey);
+                deleted++;
+                cursor.continue();
+              }
+            };
+          }
+        };
+        resolve();
+      };
+    });
+  } catch (error) {
+    console.error('Failed to save video to gallery:', error);
   }
 }
 
