@@ -285,7 +285,8 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
     let uploadedFilename = null;
 
     try {
-        const { prompt, x, y, resolution = '2K' } = req.body;
+        const { prompt, x, y, resolution = '2K', nsfwFilterEnabled = 'true' } = req.body;
+        const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -314,7 +315,9 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             prompt,
             resolution,
             x ? parseInt(x) : null,
-            y ? parseInt(y) : null
+            y ? parseInt(y) : null,
+            '1:1',
+            nsfwFilter
         );
 
         // Call SeeDream API
@@ -384,7 +387,8 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { filterType, resolution = '2K' } = req.body;
+        const { filterType, resolution = '2K', nsfwFilterEnabled = 'true' } = req.body;
+        const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -407,7 +411,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
         uploadedFilename = uploadResult.filename;
 
         // Build and call SeeDream API
-        const seedreamRequest = buildFilterRequest([uploadResult.url], filterType, resolution);
+        const seedreamRequest = buildFilterRequest([uploadResult.url], filterType, resolution, '1:1', nsfwFilter);
         const seedreamResponse = await callSeedreamAPI(seedreamRequest);
 
         // Normalize response
@@ -471,7 +475,8 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { adjustment, resolution = '2K', aspectRatioFile } = req.body;
+        const { adjustment, resolution = '2K', aspectRatioFile, nsfwFilterEnabled = 'true' } = req.body;
+        const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -501,7 +506,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
         }
 
         // Build and call SeeDream API
-        const seedreamRequest = buildAdjustRequest([uploadResult.url], adjustment, resolution, imageSize);
+        const seedreamRequest = buildAdjustRequest([uploadResult.url], adjustment, resolution, imageSize, nsfwFilter);
         const seedreamResponse = await callSeedreamAPI(seedreamRequest);
 
         // Normalize response
@@ -567,6 +572,8 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
     try {
         const prompt = req.body?.prompt;
         const resolution = req.body?.resolution || '2K';
+        const nsfwFilterRaw = req.body?.nsfwFilterEnabled ?? 'true';
+        const nsfwFilter = nsfwFilterRaw === 'true' || nsfwFilterRaw === true;
         const imageFiles = req.files?.images || [];
 
         if (!imageFiles || imageFiles.length < 2) {
@@ -594,7 +601,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         uploadedFilenames = uploadResult.filenames;
 
         // Build and call SeeDream API
-        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution);
+        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, '1:1', nsfwFilter);
         const seedreamResponse = await callSeedreamAPI(seedreamRequest);
 
         // Normalize response

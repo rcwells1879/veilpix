@@ -33,12 +33,14 @@ export interface GenerateEditRequest {
   x: number
   y: number
   resolution?: string  // For SeeDream API
+  nsfwFilterEnabled?: boolean
 }
 
 export interface GenerateFilterRequest {
   image: File
   filterType: string
   resolution?: string  // For SeeDream API
+  nsfwFilterEnabled?: boolean
 }
 
 export interface GenerateAdjustRequest {
@@ -47,6 +49,7 @@ export interface GenerateAdjustRequest {
   resolution?: string  // For SeeDream and Nano Banana Pro APIs
   aspectRatioFile?: string  // For SeeDream aspect ratio changes (PNG filename)
   aspectRatio?: string  // For Nano Banana Pro aspect ratio (direct string like '1:1', '16:9')
+  nsfwFilterEnabled?: boolean
 }
 
 export interface GenerateCompositeRequest {
@@ -55,6 +58,7 @@ export interface GenerateCompositeRequest {
   prompt: string
   style?: string
   resolution?: string  // For SeeDream API
+  nsfwFilterEnabled?: boolean
 }
 
 export interface GenerateTextToImageRequest {
@@ -277,6 +281,7 @@ export function useGenerateEditSeeDream() {
       if (data.resolution) {
         formData.append('resolution', data.resolution)
       }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-edit', {
         method: 'POST',
@@ -306,6 +311,7 @@ export function useGenerateFilterSeeDream() {
       if (data.resolution) {
         formData.append('resolution', data.resolution)
       }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-filter', {
         method: 'POST',
@@ -338,6 +344,7 @@ export function useGenerateAdjustSeeDream() {
       if (data.aspectRatioFile) {
         formData.append('aspectRatioFile', data.aspectRatioFile)
       }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-adjust', {
         method: 'POST',
@@ -374,6 +381,7 @@ export function useGenerateCompositeSeeDream() {
       if (data.resolution) {
         formData.append('resolution', data.resolution)
       }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/combine-photos', {
         method: 'POST',

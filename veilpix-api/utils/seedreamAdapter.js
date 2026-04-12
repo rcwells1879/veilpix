@@ -74,7 +74,7 @@ function mapAspectRatioFileToSeedreamSize(aspectRatioFile) {
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = '1:1') {
+function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = '1:1', nsfwFilterEnabled = true) {
     const enhancedPrompt = x !== null && y !== null
         ? `${prompt}. Focus the edit on the area around coordinates (${x}, ${y}).`
         : prompt;
@@ -83,7 +83,8 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
         prompt: enhancedPrompt,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution)
+        quality: mapQuality(resolution),
+        nsfw_checker: nsfwFilterEnabled
     };
 }
 
@@ -96,12 +97,13 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1') {
+function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true) {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution)
+        quality: mapQuality(resolution),
+        nsfw_checker: nsfwFilterEnabled
     };
 }
 
@@ -114,12 +116,13 @@ function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1') {
+function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true) {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution)
+        quality: mapQuality(resolution),
+        nsfw_checker: nsfwFilterEnabled
     };
 }
 
@@ -132,12 +135,13 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1') {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true) {
     return {
         prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution)
+        quality: mapQuality(resolution),
+        nsfw_checker: nsfwFilterEnabled
     };
 }
 

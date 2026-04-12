@@ -611,7 +611,8 @@ const App: React.FC = () => {
         prompt,
         x: editHotspot.x,
         y: editHotspot.y,
-        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
+        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+        nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
       if (response.success && response.image) {
@@ -651,7 +652,8 @@ const App: React.FC = () => {
             image1: sourceImage1,
             image2: sourceImage2,
             prompt: compositePrompt,
-            ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
+            ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+            nsfwFilterEnabled: settings.nsfwFilterEnabled
         });
         console.log('✅ compositeMutation.mutateAsync returned:', response)
 
@@ -697,7 +699,8 @@ const App: React.FC = () => {
       const response = await filterMutation.mutateAsync({
         image: currentImage,
         filterType: filterPrompt,
-        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
+        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+        nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
       if (response.success && response.image) {
@@ -733,7 +736,8 @@ const App: React.FC = () => {
       const response = await adjustMutation.mutateAsync({
         image: currentImage,
         prompt: adjustmentPrompt,
-        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution })
+        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+        nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
       if (response.success && response.image) {
@@ -774,7 +778,8 @@ const App: React.FC = () => {
           image: currentImage,
           prompt: basePrompt,
           aspectRatio: aspectRatioInput, // Direct ratio string like '1:1', '16:9', 'auto'
-          resolution: settings.resolution
+          resolution: settings.resolution,
+          nsfwFilterEnabled: settings.nsfwFilterEnabled
         });
 
         if (response.success && response.image) {
@@ -791,7 +796,8 @@ const App: React.FC = () => {
           image: currentImage,
           prompt: basePrompt,
           aspectRatioFile: aspectRatioInput, // Backend will map PNG filename to SeeDream format
-          resolution: settings.resolution
+          resolution: settings.resolution,
+          nsfwFilterEnabled: settings.nsfwFilterEnabled
         });
 
         if (response.success && response.image) {
