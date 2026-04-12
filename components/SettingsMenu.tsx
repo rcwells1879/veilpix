@@ -80,8 +80,8 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
   };
 
   const handleNsfwToggle = () => {
-    if (settings.nsfwFilterEnabled && !hasPurchasedCredits) {
-      // Trying to disable filter without having purchased credits
+    if (!hasPurchasedCredits) {
+      // Non-purchasers cannot change the filter at all — show age verification modal
       setShowAgeModal(true);
       return;
     }
@@ -90,6 +90,9 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
       nsfwFilterEnabled: !settings.nsfwFilterEnabled
     });
   };
+
+  // Non-purchasers always see the filter as ON (After Dark OFF), regardless of stored state
+  const effectiveNsfwFilterEnabled = hasPurchasedCredits ? settings.nsfwFilterEnabled : true;
 
   return (
     <>
@@ -233,12 +236,12 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
               </div>
               {/* Toggle switch */}
               <div className={`relative w-8 h-[18px] rounded-full transition-colors duration-200 ${
-                !settings.nsfwFilterEnabled
+                !effectiveNsfwFilterEnabled
                   ? 'bg-purple-500/60'
                   : 'bg-gray-600'
               }`}>
                 <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow transition-transform duration-200 ${
-                  !settings.nsfwFilterEnabled
+                  !effectiveNsfwFilterEnabled
                     ? 'translate-x-[16px]'
                     : 'translate-x-[2px]'
                 }`} />

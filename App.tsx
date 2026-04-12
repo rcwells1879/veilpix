@@ -214,6 +214,14 @@ const App: React.FC = () => {
     }
   }, [settings]);
 
+  // Enforce NSFW filter for non-purchasers: if user hasn't bought credits,
+  // force the filter ON regardless of what's stored in localStorage
+  useEffect(() => {
+    if (!hasPurchasedCredits && !settings.nsfwFilterEnabled) {
+      setSettings(prev => ({ ...prev, nsfwFilterEnabled: true }));
+    }
+  }, [hasPurchasedCredits, settings.nsfwFilterEnabled]);
+
   // Workflow restoration disabled - app always starts at landing page
   // Users requested fresh start on every visit instead of session persistence
   // useEffect(() => {
