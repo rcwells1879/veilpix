@@ -19,10 +19,23 @@ type Duration = typeof durations[number];
 const resolutions = ['720p', '1080p'] as const;
 type Resolution = typeof resolutions[number];
 
+// Credit pricing table (mirrored from backend)
+const VIDEO_CREDIT_TABLE: Record<number, Record<string, number>> = {
+  5:  { '720p': 7,  '1080p': 10 },
+  10: { '720p': 13, '1080p': 19 },
+  15: { '720p': 19, '1080p': 29 },
+};
+
+function getCreditCost(duration: number, resolution: string): number {
+  return VIDEO_CREDIT_TABLE[duration]?.[resolution] ?? Math.ceil(duration * (resolution === '1080p' ? 2.0 : 1.4));
+}
+
 const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGenerate, videoUrl, videoError }) => {
   const [videoPrompt, setVideoPrompt] = useState('');
   const [selectedDuration, setSelectedDuration] = useState<Duration>(5);
   const [selectedResolution, setSelectedResolution] = useState<Resolution>('1080p');
+
+  const creditCost = getCreditCost(selectedDuration, selectedResolution);
 
   const handleGenerate = () => {
     if (videoPrompt.trim()) {
@@ -126,13 +139,13 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
         </div>
       </div>
 
-      {/* Generate button */}
+      {/* Generate button with credit cost */}
       <button
         onClick={handleGenerate}
         disabled={isLoading || !videoPrompt.trim()}
         className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
       >
-        {isLoading ? 'Generating Video...' : 'Generate Video'}
+        {isLoading ? 'Generating Video...' : `Generate Video · ${creditCost} credits`}
       </button>
 
       {/* Info box */}

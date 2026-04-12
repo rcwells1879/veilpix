@@ -30,7 +30,26 @@ const upload = multer({
 // Wan API configuration (same kie.ai key as other models)
 const WAN_API_KEY = process.env.SEEDREAM_API_KEY;
 const WAN_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
-const CREDITS_PER_VIDEO = 2;
+
+// Video credit pricing table: { duration: { resolution: credits } }
+// Targeting ~12% profit margin at mid-tier credit pricing ($0.0699/credit)
+const VIDEO_CREDIT_TABLE = {
+    5:  { '720p': 7,  '1080p': 10 },
+    10: { '720p': 13, '1080p': 19 },
+    15: { '720p': 19, '1080p': 29 },
+};
+
+function getVideoCreditCost(duration, resolution) {
+    const d = parseInt(duration);
+    const r = resolution || '1080p';
+    // Exact match from table
+    if (VIDEO_CREDIT_TABLE[d] && VIDEO_CREDIT_TABLE[d][r]) {
+        return VIDEO_CREDIT_TABLE[d][r];
+    }
+    // Interpolate for non-standard durations using per-second rates
+    const perSecRate = r === '1080p' ? 2.0 : 1.4;
+    return Math.ceil(d * perSecRate);
+}
 
 // Helper: create Wan task
 async function createWanTask(requestBody) {
@@ -126,7 +145,7 @@ async function callWanAPI(requestBody) {
 }
 
 // Helper: deduct credit and track usage
-async function deductCreditAndTrack(req, startTime, requestType, success = true, errorMessage = null) {
+async function deductCreditAndTrack(req, startTime, requestType, creditsToDeduct, success = true, errorMessage = null) {
     const { user } = req;
 
     try {
@@ -142,8 +161,7 @@ async function deductCreditAndTrack(req, startTime, requestType, success = true,
         });
 
         if (success) {
-            // Deduct credits (2 per video)
-            for (let i = 0; i < CREDITS_PER_VIDEO; i++) {
+            for (let i = 0; i < creditsToDeduct; i++) {
                 const deductResult = await db.deductUserCredit(user.userId);
                 if (!deductResult.success) {
                     console.error('🚨 Failed to deduct credit:', deductResult.error);
@@ -152,7 +170,7 @@ async function deductCreditAndTrack(req, startTime, requestType, success = true,
             }
 
             if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - CREDITS_PER_VIDEO);
+                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
             }
         }
 
@@ -163,10 +181,14 @@ async function deductCreditAndTrack(req, startTime, requestType, success = true,
     }
 }
 
-// Check user credits
+// Check user credits (uses body params to calculate required credits)
 async function checkUserCredits(req, res, next) {
     try {
         const { user } = req;
+        const duration = parseInt(req.body?.duration || '5');
+        const resolution = req.body?.resolution || '1080p';
+        const requiredCredits = getVideoCreditCost(duration, resolution);
+
         const { credits, error } = await db.getUserCredits(user.userId);
 
         if (error) {
@@ -176,16 +198,18 @@ async function checkUserCredits(req, res, next) {
             });
         }
 
-        if (credits < CREDITS_PER_VIDEO) {
+        if (credits < requiredCredits) {
             return res.status(402).json({
                 error: 'Insufficient credits',
-                message: `Video generation requires ${CREDITS_PER_VIDEO} credits. You have ${credits}.`,
+                message: `This video requires ${requiredCredits} credits. You have ${credits}.`,
                 creditsRemaining: credits,
+                creditsRequired: requiredCredits,
                 requiresPayment: true
             });
         }
 
         req.creditsInfo = { remaining: credits };
+        req.videoCreditCost = requiredCredits;
         next();
     } catch (error) {
         console.error('🚨 Credits check error:', error);
@@ -257,12 +281,14 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
             await deleteTemporaryImage(uploadedFilename);
         }
 
-        usageLogged = await deductCreditAndTrack(req, startTime, 'video');
+        const creditCost = req.videoCreditCost;
+        usageLogged = await deductCreditAndTrack(req, startTime, 'video', creditCost);
 
         res.json({
             success: true,
             videoUrl: normalizedResponse.videoUrl,
             processingTime: Date.now() - startTime,
+            creditsUsed: creditCost,
             creditsRemaining: req.creditsInfo?.remaining || 0
         });
 
@@ -274,7 +300,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         }
 
         if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'video', false, error.message);
+            await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message);
         }
 
         res.status(500).json({
@@ -283,6 +309,14 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
+});
+
+// Get video credit pricing table (no auth required)
+router.get('/pricing', (req, res) => {
+    res.json({
+        success: true,
+        pricing: VIDEO_CREDIT_TABLE
+    });
 });
 
 module.exports = router;
