@@ -103,7 +103,7 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
  * Note: Includes '500' and 'internal server error' as safety keywords because
  * Google's API sometimes returns 500 errors for safety violations without clear messaging
  */
-const isSafetyFilterError = (errorMessage: string): boolean => {
+const isSafetyFilterError = (errorMessage: string, nsfwFilterEnabled: boolean): boolean => {
     const safetyKeywords = [
         'safety',
         'blocked',
@@ -114,14 +114,24 @@ const isSafetyFilterError = (errorMessage: string): boolean => {
         'harmful',
         'terms of service',
         'content policy',
-        'not allowed',
-        'internal error', // kie.ai NSFW filter returns generic "Internal Error" on content blocks
-        '500', // Google sometimes returns 500 for safety violations
-        'internal server error'
+        'not allowed'
     ];
 
     const lowerError = errorMessage.toLowerCase();
-    return safetyKeywords.some(keyword => lowerError.includes(keyword));
+
+    // Direct safety keyword match
+    if (safetyKeywords.some(keyword => lowerError.includes(keyword))) {
+        return true;
+    }
+
+    // When the NSFW filter is ON, kie.ai returns generic "Internal Error" for blocked content.
+    // Only treat these as safety errors when the filter is actually enabled —
+    // otherwise they're genuine server errors.
+    if (nsfwFilterEnabled && (lowerError.includes('internal error') || lowerError.includes('500'))) {
+        return true;
+    }
+
+    return false;
 }
 
 /**
@@ -1073,7 +1083,7 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     if (error) {
-       const isSafetyIssue = isSafetyFilterError(error);
+       const isSafetyIssue = isSafetyFilterError(error, settings.nsfwFilterEnabled);
 
        return (
            <div className={`text-center animate-fade-in p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4 ${
