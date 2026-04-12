@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 export type ApiProvider = 'nanobanana2' | 'seedream' | 'nanobananapro';
 export type Resolution = '1K' | '2K' | '4K';
@@ -251,8 +252,8 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
         </div>
       </div>
 
-      {/* Age Verification Modal */}
-      {showAgeModal && (
+      {/* Age Verification Modal - rendered via portal to escape header's backdrop-filter containing block */}
+      {showAgeModal && createPortal(
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowAgeModal(false)}>
           <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl max-w-sm w-full p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3">
@@ -285,7 +286,8 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
