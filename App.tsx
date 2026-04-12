@@ -29,7 +29,8 @@ import {
   useGenerateEditNanoBananaPro,
   useGenerateFilterNanoBananaPro,
   useGenerateAdjustNanoBananaPro,
-  useGenerateCompositeNanoBananaPro
+  useGenerateCompositeNanoBananaPro,
+  useGenerateVideo
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -303,6 +304,11 @@ const App: React.FC = () => {
       ? useGenerateCompositeSeeDream()
       : useGenerateCompositeNanoBanana2();
   const textToImageMutation = useGenerateTextToImage();
+  const videoMutation = useGenerateVideo();
+
+  // Video generation state
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   // React 19 optimistic state for immediate UI feedback
   const [optimisticHistory, setOptimisticHistory] = useOptimistic(
@@ -311,7 +317,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || videoMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -912,6 +918,8 @@ const App: React.FC = () => {
       setSourceImage1(null);
       setSourceImage2(null);
       setCreativeMode('single');
+      setVideoUrl(null);
+      setVideoError(null);
       setView('start');
   }, []);
 
@@ -930,6 +938,12 @@ const App: React.FC = () => {
   // Handle creative mode switching (single/composite/video)
   const handleModeChange = useCallback((newMode: CreativeMode) => {
     setCreativeMode(newMode);
+
+    // Clear video state when leaving video mode
+    if (newMode !== 'video') {
+      setVideoUrl(null);
+      setVideoError(null);
+    }
 
     if (view === 'editor' && currentImage) {
       if (newMode === 'composite') {
@@ -959,7 +973,37 @@ const App: React.FC = () => {
     setIsWebcamForCompositeSecond(true);
     setView('webcam');
   }, [isLoaded, isSignedIn]);
-  
+
+  // Handle video generation
+  const handleGenerateVideo = useCallback(async (prompt: string, duration: number, resolution: string) => {
+    if (!currentImage) {
+      setVideoError('No reference image loaded.');
+      return;
+    }
+
+    setVideoError(null);
+    setVideoUrl(null);
+
+    try {
+      const response = await videoMutation.mutateAsync({
+        image: currentImage,
+        prompt,
+        duration,
+        resolution
+      });
+
+      if (response.success && response.videoUrl) {
+        setVideoUrl(response.videoUrl);
+      } else {
+        throw new Error(response.message || 'Failed to generate video');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
+      setVideoError(`Failed to generate video. ${errorMessage}`);
+      console.error('Video generation error:', err);
+    }
+  }, [currentImage, videoMutation]);
+
   const handleFileSelect = async (files: FileList | null) => {
     if (files && files[0]) {
       // Debug authentication state
@@ -1343,7 +1387,12 @@ const App: React.FC = () => {
 
           {creativeMode === 'video' && (
             <Suspense fallback={<div className="flex items-center justify-center py-8"><Spinner /></div>}>
-              <VideoControlsPanel isLoading={isLoading} />
+              <VideoControlsPanel
+                isLoading={isLoading}
+                onGenerate={handleGenerateVideo}
+                videoUrl={videoUrl}
+                videoError={videoError}
+              />
             </Suspense>
           )}
         </div>

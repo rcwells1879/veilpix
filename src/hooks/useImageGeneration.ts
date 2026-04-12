@@ -549,3 +549,54 @@ export function useOptimisticImageGeneration() {
     clearOptimisticUpdate
   }
 }
+
+// ============================================================================
+// Wan 2.7 Image-to-Video API Hook
+// Uses Wan 2.7 via Kie.ai for image-to-video generation
+// Costs 2 credits per generation
+// ============================================================================
+
+export interface GenerateVideoRequest {
+  image: File
+  prompt: string
+  duration?: number   // 2-15 seconds (default 5)
+  resolution?: string // '720p' | '1080p' (default '1080p')
+}
+
+export interface VideoGenerationResponse {
+  videoUrl?: string
+  success: boolean
+  message?: string
+  creditsRemaining?: number
+  processingTime?: number
+}
+
+export function useGenerateVideo() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateVideoRequest): Promise<VideoGenerationResponse> => {
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
+      const formData = new FormData()
+      formData.append('image', compressedImage)
+      formData.append('prompt', data.prompt)
+      if (data.duration) {
+        formData.append('duration', data.duration.toString())
+      }
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+
+      return await apiRequest<VideoGenerationResponse>('/api/wan/generate-video', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}

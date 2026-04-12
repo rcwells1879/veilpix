@@ -88,11 +88,12 @@ app.use('/api/auth', createRateLimiter(15 * 60 * 1000, 20, 'Too many authenticat
 app.use('/api/nanobanana2', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/seedream', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/nanobananapro', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
+app.use('/api/wan', createRateLimiter(15 * 60 * 1000, 20, 'Too many video generation requests'));
 app.use('/api/', createRateLimiter(15 * 60 * 1000, 100, 'Too many requests from this IP'));
 
 // Body parsing middleware with enhanced security (exclude image generation routes for file uploads)
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro')) {
+    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path.startsWith('/api/wan')) {
         return next(); // Skip JSON parsing for image generation routes (they handle multipart data)
     }
     express.json({
@@ -103,7 +104,7 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro')) {
+    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path.startsWith('/api/wan')) {
         return next(); // Skip URL encoding for image generation routes
     }
     express.urlencoded({
@@ -138,6 +139,7 @@ const authRoutes = require('./routes/auth');
 const nanoBanana2Routes = require('./routes/nanobanana2');
 const seedreamRoutes = require('./routes/seedream');
 const nanoBananaProRoutes = require('./routes/nanobananapro');
+const wanRoutes = require('./routes/wan');
 const usageRoutes = require('./routes/usage');
 const stripeRoutes = require('./routes/stripe');
 const checkoutRoutes = require('./routes/checkout');
@@ -147,6 +149,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/nanobanana2', nanoBanana2Routes);
 app.use('/api/seedream', seedreamRoutes);
 app.use('/api/nanobananapro', nanoBananaProRoutes);
+app.use('/api/wan', wanRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/checkout', checkoutRoutes);
