@@ -31,6 +31,7 @@ import {
   useGenerateAdjustNanoBananaPro,
   useGenerateCompositeNanoBananaPro,
   useGenerateVideo,
+  useGenerateTextToVideo,
   useUsageStats
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
@@ -328,6 +329,7 @@ const App: React.FC = () => {
       : useGenerateCompositeNanoBanana2();
   const textToImageMutation = useGenerateTextToImage();
   const videoMutation = useGenerateVideo();
+  const textToVideoMutation = useGenerateTextToVideo();
 
   // Video generation state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -340,7 +342,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || videoMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || videoMutation.isPending || textToVideoMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -1052,6 +1054,34 @@ const App: React.FC = () => {
     }
   }, [currentImage, videoMutation]);
 
+  // Handle text-to-video generation (no reference image needed)
+  const handleTextToVideoGenerate = useCallback(async (prompt: string, duration: number, resolution: string, ratio: string) => {
+    setVideoError(null);
+    setVideoUrl(null);
+    setCreativeMode('video');
+    setView('editor');
+
+    try {
+      const response = await textToVideoMutation.mutateAsync({
+        prompt,
+        duration,
+        resolution,
+        ratio,
+        nsfwFilterEnabled: settings.nsfwFilterEnabled
+      });
+
+      if (response.success && response.videoUrl) {
+        setVideoUrl(response.videoUrl);
+      } else {
+        throw new Error(response.message || 'Failed to generate video');
+      }
+    } catch (err: any) {
+      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
+      setVideoError(`Failed to generate video. ${errorMessage}`);
+      console.error('Text-to-video generation error:', err);
+    }
+  }, [textToVideoMutation, settings.nsfwFilterEnabled]);
+
   const handleFileSelect = async (files: FileList | null) => {
     if (files && files[0]) {
       // Debug authentication state
@@ -1155,6 +1185,7 @@ const App: React.FC = () => {
         onUseWebcamClick={handleUseWebcamClick}
         onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
         onTextToImageGenerate={handleTextToImageGenerate}
+        onTextToVideoGenerate={handleTextToVideoGenerate}
         activeMode={creativeMode}
         onModeChange={handleModeChange}
         compositeFile1={sourceImage1}
@@ -1189,7 +1220,7 @@ const App: React.FC = () => {
       );
     }
 
-    if (view === 'editor' && currentImageUrl) {
+    if (view === 'editor' && (currentImageUrl || creativeMode === 'video')) {
       // Determine which "before" image to show in slider based on compare mode
       const sliderBeforeImage = sliderCompareMode === 'original' ? originalImageUrl : previousImageUrl;
       const sliderBeforeLabel = sliderCompareMode === 'original' ? 'Original' : 'Previous';
@@ -1243,7 +1274,8 @@ const App: React.FC = () => {
             <ModeSelector activeMode={creativeMode} onModeChange={handleModeChange} />
           </div>
 
-          {/* Image display area */}
+          {/* Image display area (hidden for text-to-video with no reference image) */}
+          {currentImageUrl ? (
           <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
               {isLoading && (
                   <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
@@ -1295,6 +1327,15 @@ const App: React.FC = () => {
                 </button>
               )}
           </div>
+          ) : creativeMode === 'video' && isLoading ? (
+            /* Loading state for text-to-video (no reference image) */
+            <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20 min-h-[200px] flex items-center justify-center">
+              <div className="flex flex-col items-center gap-4 animate-fade-in">
+                <Spinner />
+                <p className="text-gray-300">AI is generating your video...</p>
+              </div>
+            </div>
+          ) : null}
 
           {/* Toolbar - show for single and video modes */}
           {creativeMode !== 'composite' && (
@@ -1465,6 +1506,7 @@ const App: React.FC = () => {
       onUseWebcamClick={handleUseWebcamClick}
       onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
       onTextToImageGenerate={handleTextToImageGenerate}
+      onTextToVideoGenerate={handleTextToVideoGenerate}
       activeMode={creativeMode}
       onModeChange={handleModeChange}
       isAuthenticated={isLoaded && isSignedIn}

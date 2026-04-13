@@ -610,3 +610,40 @@ export function useGenerateVideo() {
     },
   })
 }
+
+// ============================================================================
+// Wan 2.7 Text-to-Video API Hook
+// Generates video from text prompt only (no reference image)
+// ============================================================================
+
+export interface GenerateTextToVideoRequest {
+  prompt: string
+  duration?: number   // 2-15 seconds (default 5)
+  resolution?: string // '720p' | '1080p' (default '1080p')
+  ratio?: string      // '16:9' | '9:16' | '1:1' | '4:3' | '3:4' (default '16:9')
+  nsfwFilterEnabled?: boolean
+}
+
+export function useGenerateTextToVideo() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateTextToVideoRequest): Promise<VideoGenerationResponse> => {
+      return await apiRequest<VideoGenerationResponse>('/api/wan/generate-text-to-video', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: data.prompt,
+          duration: data.duration?.toString() || '5',
+          resolution: data.resolution || '1080p',
+          ratio: data.ratio || '16:9',
+          nsfwFilterEnabled: (data.nsfwFilterEnabled !== false).toString()
+        }),
+        headers: { 'Content-Type': 'application/json' },
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}

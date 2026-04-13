@@ -8,6 +8,7 @@ const {
 } = require('../utils/imageUpload');
 const {
     buildImageToVideoRequest,
+    buildTextToVideoRequest,
     normalizeVideoResponse
 } = require('../utils/wanAdapter');
 
@@ -52,11 +53,11 @@ function getVideoCreditCost(duration, resolution) {
 }
 
 // Helper: create Wan task
-async function createWanTask(requestBody) {
-    console.log('🎬 Creating Wan 2.7 image-to-video task');
+async function createWanTask(requestBody, model = 'wan/2-7-image-to-video') {
+    console.log(`🎬 Creating Wan 2.7 task (${model})`);
 
     const payload = {
-        model: 'wan/2-7-image-to-video',
+        model,
         input: requestBody
     };
 
@@ -302,6 +303,75 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
 
         if (!usageLogged) {
             await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message);
+        }
+
+        res.status(500).json({
+            error: 'Failed to generate video',
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Generate video from text prompt (no image required)
+router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUserCredits, async (req, res) => {
+    const startTime = Date.now();
+    let usageLogged = false;
+
+    try {
+        const { prompt, duration = '5', resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = 'true' } = req.body;
+
+        if (!prompt || !prompt.trim()) {
+            return res.status(400).json({ error: 'No video description provided' });
+        }
+        if (prompt.length > 5000) {
+            return res.status(400).json({ error: 'Prompt must be 5000 characters or less' });
+        }
+
+        const validRatios = ['16:9', '9:16', '1:1', '4:3', '3:4'];
+        const selectedRatio = validRatios.includes(ratio) ? ratio : '16:9';
+
+        // Build Wan text-to-video API request
+        const wanRequest = buildTextToVideoRequest(
+            prompt.trim(),
+            {
+                duration: parseInt(duration),
+                resolution,
+                ratio: selectedRatio,
+                nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true
+            }
+        );
+
+        // Call Wan API (text-to-video uses a different model name)
+        const taskResponse = await createWanTask(wanRequest, 'wan/2-7-text-to-video');
+        const taskId = taskResponse.data.taskId;
+        console.log(`📋 Text-to-video task created with ID: ${taskId}`);
+
+        const completedJob = await pollWanJob(taskId);
+
+        // Normalize response
+        const normalizedResponse = normalizeVideoResponse(completedJob);
+
+        if (!normalizedResponse.success) {
+            throw new Error(normalizedResponse.error || 'Failed to process video response');
+        }
+
+        const creditCost = req.videoCreditCost;
+        usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-video', creditCost);
+
+        res.json({
+            success: true,
+            videoUrl: normalizedResponse.videoUrl,
+            processingTime: Date.now() - startTime,
+            creditsUsed: creditCost,
+            creditsRemaining: req.creditsInfo?.remaining || 0
+        });
+
+    } catch (error) {
+        console.error('Error generating text-to-video with Wan:', error);
+
+        if (!usageLogged) {
+            await deductCreditAndTrack(req, startTime, 'text-to-video', 0, false, error.message);
         }
 
         res.status(500).json({
