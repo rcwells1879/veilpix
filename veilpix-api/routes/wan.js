@@ -78,10 +78,10 @@ async function createWanTask(requestBody, model = 'wan/2-7-image-to-video') {
     }
 
     const result = await response.json();
-    console.log('✅ Wan task created:', result);
+    console.log('✅ Wan task response:', JSON.stringify(result, null, 2));
 
     if (result.code !== 200 || !result.data || !result.data.taskId) {
-        throw new Error(`Task creation failed: ${result.message || 'Unknown error'}`);
+        throw new Error(`Task creation failed: ${result.message || result.msg || JSON.stringify(result)}`);
     }
 
     return result;
@@ -319,7 +319,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
     let usageLogged = false;
 
     try {
-        const { prompt, duration = '5', resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = 'true' } = req.body;
+        const { prompt, duration = 5, resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = true } = req.body;
 
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ error: 'No video description provided' });
@@ -335,10 +335,10 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
         const wanRequest = buildTextToVideoRequest(
             prompt.trim(),
             {
-                duration: parseInt(duration),
+                duration: typeof duration === 'number' ? duration : parseInt(duration),
                 resolution,
                 ratio: selectedRatio,
-                nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true
+                nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true || nsfwFilterEnabled === undefined
             }
         );
 

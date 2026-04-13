@@ -633,10 +633,10 @@ export function useGenerateTextToVideo() {
         method: 'POST',
         body: JSON.stringify({
           prompt: data.prompt,
-          duration: data.duration?.toString() || '5',
+          duration: data.duration || 5,
           resolution: data.resolution || '1080p',
           ratio: data.ratio || '16:9',
-          nsfwFilterEnabled: (data.nsfwFilterEnabled !== false).toString()
+          nsfwFilterEnabled: data.nsfwFilterEnabled !== false
         }),
         headers: { 'Content-Type': 'application/json' },
         requiresAuth: true
