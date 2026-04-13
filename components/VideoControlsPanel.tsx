@@ -57,8 +57,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
           <video
             src={videoUrl}
             controls
-            autoPlay
-            loop
+            ref={(el) => { if (el) el.volume = 0.2; }}
             className="w-full max-h-[50vh] object-contain"
           />
           <div className="flex items-center justify-between px-4 py-2 bg-black/40">
