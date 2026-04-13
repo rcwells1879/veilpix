@@ -584,6 +584,7 @@ export function useGenerateVideo() {
   const { apiRequest } = useApiClient()
 
   return useMutation({
+    retry: false, // Never retry video mutations — they're expensive and the backend may still be processing
     mutationFn: async (data: GenerateVideoRequest): Promise<VideoGenerationResponse> => {
       const compressedImage = await compressImageIfNeeded(data.image, 20)
 
@@ -628,6 +629,7 @@ export function useGenerateTextToVideo() {
   const { apiRequest } = useApiClient()
 
   return useMutation({
+    retry: false, // Never retry video mutations — they're expensive and the backend may still be processing
     mutationFn: async (data: GenerateTextToVideoRequest): Promise<VideoGenerationResponse> => {
       return await apiRequest<VideoGenerationResponse>('/api/wan/generate-text-to-video', {
         method: 'POST',
