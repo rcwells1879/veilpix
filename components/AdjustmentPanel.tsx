@@ -70,14 +70,28 @@ const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, on
     { name: 'Auto', value: 'auto', description: 'AI selects best ratio' },
   ];
 
+  // Wan 2.7 Image aspect ratios — uses direct ratio strings
+  const wanImageAspectRatios = [
+    { name: '1:1 Square', value: '1:1', description: 'Instagram Posts, Profile Pictures' },
+    { name: '16:9 Widescreen', value: '16:9', description: 'YouTube, Presentations' },
+    { name: '9:16 Vertical', value: '9:16', description: 'Stories, TikTok' },
+    { name: '4:3 Standard', value: '4:3', description: 'Classic Photos' },
+    { name: '3:4 Portrait', value: '3:4', description: 'Vertical Standard' },
+    { name: '21:9 Ultrawide', value: '21:9', description: 'Cinematic, Banners' },
+    { name: '8:1 Panoramic', value: '8:1', description: 'Panoramic Banners, Ads' },
+    { name: '1:8 Super Tall', value: '1:8', description: 'Vertical Panoramic' },
+  ];
+
   // Select aspect ratios based on provider
   const aspectRatios = apiProvider === 'nanobanana2'
     ? nanoBanana2AspectRatios
     : apiProvider === 'nanobananapro'
       ? nanoBananaProAspectRatios
-      : apiProvider === 'seedream'
-        ? pngAspectRatios.filter(ratio => seedreamSupportedValues.includes(ratio.value))
-        : pngAspectRatios;
+      : apiProvider === 'wanimage'
+        ? wanImageAspectRatios
+        : apiProvider === 'seedream'
+          ? pngAspectRatios.filter(ratio => seedreamSupportedValues.includes(ratio.value))
+          : pngAspectRatios;
 
   const handleAspectRatioSelect = (aspectRatio: string) => {
     setSelectedAspectRatio(aspectRatio);

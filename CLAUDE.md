@@ -88,6 +88,7 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 - `components/StartScreen.tsx` - Initial upload and mode selection
 - `components/CompositeScreen.tsx` - Multi-image composition interface
 - `veilpix-api/routes/nanobanana2.js` - Nano Banana 2 AI image generation endpoints
+- `veilpix-api/routes/wanimage.js` - Wan 2.7 Image generation endpoints
 - `veilpix-api/routes/auth.js` - Authentication endpoints
 - `veilpix-api/routes/usage.js` - Usage tracking endpoints
 - `veilpix-api/middleware/auth.js` - Clerk authentication middleware
@@ -200,11 +201,11 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 - **Location**: Header component settings icon (gear icon next to usage counter)
 - **Persistence**: Settings saved to localStorage (`veilpix-settings` key)
 - **Default Provider**: Nano Banana 2
-- **Provider Options**: `'nanobanana2' | 'seedream' | 'nanobananapro'`
+- **Provider Options**: `'nanobanana2' | 'seedream' | 'nanobananapro' | 'wanimage'`
 - **Options**:
   - **API Provider**: Radio selection between "Nano Banana 2", "SeeDream 4.5", and "Nano Banana Pro"
   - **Resolution**: Dropdown (1K/2K/4K) - only shown when SeeDream is selected
-- **Conditional Hook Usage**: App.tsx dynamically switches between `useGenerateEditNanoBanana2()`, `useGenerateEditSeeDream()`, and `useGenerateEditNanoBananaPro()` based on settings
+- **Hook Selection**: App.tsx calls ALL provider hooks unconditionally (Rules of Hooks compliant) and selects the active one via object lookup based on `settings.apiProvider`. For text-to-image, Wan Image is auto-selected when After Dark mode is enabled.
 
 ### Nano Banana 2 vs SeeDream 4.5 Comparison
 | Feature | Nano Banana 2 (Gemini 3.1 Flash) | SeeDream 4.5 |
@@ -216,6 +217,22 @@ STRIPE_WEBHOOK_SECRET=your_webhook_secret
 | **Speed** | Very fast (<2s) | Fast (<1.8s per docs) |
 | **Cost** | 2 credits per image | Included in credit system |
 | **API Provider** | Kie.ai (same as SeeDream) | Kie.ai |
+
+## Wan 2.7 Image AI Implementation Details
+- **Model**: `wan/2-7-image` via Kie.ai API
+- **API Provider**: Kie.ai API platform (same infrastructure as SeeDream and Nano Banana)
+- **Image Handling**: Like other providers, images are temporarily uploaded to Supabase Storage
+- **Image Input Field**: `input_urls` (NOT `image_urls` like SeeDream)
+- **Resolution Options**: Supports 1K, 2K, and 4K output resolutions (direct strings, no quality mapping)
+- **Aspect Ratios**: `1:1`, `16:9`, `4:3`, `21:9`, `3:4`, `9:16`, `8:1`, `1:8`
+- **Text-to-Image**: Supports text-to-image with `thinking_mode: true` for improved quality
+- **NSFW Filter**: Defaults to `false` (more permissive) — becomes default text-to-image provider when After Dark is enabled
+- **Credit Cost**: 1 credit per generation (cheaper than NB2/SeeDream at 2 credits)
+- **Backend Routes**: `/api/wanimage/generate-edit`, `/api/wanimage/generate-filter`, `/api/wanimage/generate-adjust`, `/api/wanimage/combine-photos`, `/api/wanimage/generate-text-to-image`
+- **Request Parameters**: All requests include `n: 1`, `watermark: false`
+- **Async Job Pattern**: Same as SeeDream — createTask → poll recordInfo → get resultUrls
+- **Polling**: 2-second interval, max 150 attempts (5 minutes timeout)
+- **Provider ID**: `wanimage` in Settings UI
 
 ## Critical Database Architecture Notes
 - **Supabase Client**: Uses lazy loading pattern with service role key to prevent module loading failures

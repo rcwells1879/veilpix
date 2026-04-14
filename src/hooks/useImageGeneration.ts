@@ -63,8 +63,9 @@ export interface GenerateCompositeRequest {
 
 export interface GenerateTextToImageRequest {
   prompt: string
-  resolution?: string  // For Nano Banana 2 text-to-image
-  aspectRatio?: string  // For Nano Banana 2 text-to-image
+  resolution?: string  // For Nano Banana 2 / Wan Image text-to-image
+  aspectRatio?: string  // For Nano Banana 2 / Wan Image text-to-image
+  nsfwFilterEnabled?: boolean  // For Wan Image text-to-image
 }
 
 // Custom hook for usage statistics (authenticated only)
@@ -534,6 +535,172 @@ export function useGenerateCompositeNanoBananaPro() {
         method: 'POST',
         body: formData,
         headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
+// ============================================================================
+// Wan 2.7 Image API Hooks
+// These hooks use the Wan 2.7 Image API (via Kie.ai) for image generation
+// Costs 1 credit per generation
+// ============================================================================
+
+// Custom hook for localized editing with Wan Image
+export function useGenerateEditWanImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateEditRequest): Promise<ImageGenerationResponse> => {
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
+      const formData = new FormData()
+      formData.append('image', compressedImage)
+      formData.append('prompt', data.prompt)
+      formData.append('x', data.x.toString())
+      formData.append('y', data.y.toString())
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled === true).toString())
+
+      return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-edit', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
+// Custom hook for style filters with Wan Image
+export function useGenerateFilterWanImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateFilterRequest): Promise<ImageGenerationResponse> => {
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
+      const formData = new FormData()
+      formData.append('image', compressedImage)
+      formData.append('filterType', data.filterType)
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled === true).toString())
+
+      return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-filter', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
+// Custom hook for photo adjustments with Wan Image
+export function useGenerateAdjustWanImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateAdjustRequest): Promise<ImageGenerationResponse> => {
+      const compressedImage = await compressImageIfNeeded(data.image, 20)
+
+      const formData = new FormData()
+      formData.append('image', compressedImage)
+      formData.append('adjustment', data.prompt)
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+      // Wan Image uses direct aspect ratio strings (e.g., '1:1', '16:9')
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
+      }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled === true).toString())
+
+      return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-adjust', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
+// Custom hook for image composition with Wan Image
+export function useGenerateCompositeWanImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
+      const [compressedImage1, compressedImage2] = await compressMultipleImages(
+        [data.image1, data.image2],
+        20
+      )
+
+      const formData = new FormData()
+      formData.append('images', compressedImage1)
+      formData.append('images', compressedImage2)
+      formData.append('prompt', data.prompt)
+      if (data.style) {
+        formData.append('style', data.style)
+      }
+      if (data.resolution) {
+        formData.append('resolution', data.resolution)
+      }
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled === true).toString())
+
+      return await apiRequest<ImageGenerationResponse>('/api/wanimage/combine-photos', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
+// Custom hook for text-to-image generation with Wan Image
+export function useGenerateTextToImageWanImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateTextToImageRequest): Promise<ImageGenerationResponse> => {
+      return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-text-to-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: data.prompt,
+          resolution: data.resolution,
+          aspectRatio: data.aspectRatio,
+          nsfwFilterEnabled: data.nsfwFilterEnabled === true
+        }),
         requiresAuth: true
       })
     },

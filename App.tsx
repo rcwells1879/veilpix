@@ -10,7 +10,7 @@
  * - History-based undo/redo system with File objects
  * - Optimistic UI updates for perceived performance
  * - Authentication-gated features via Clerk
- * - Backend API for all AI operations (Nano Banana 2, SeeDream 4.5, Nano Banana Pro)
+ * - Backend API for all AI operations (Nano Banana 2, SeeDream 4.5, Nano Banana Pro, Wan 2.7 Image)
  */
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
@@ -30,6 +30,11 @@ import {
   useGenerateFilterNanoBananaPro,
   useGenerateAdjustNanoBananaPro,
   useGenerateCompositeNanoBananaPro,
+  useGenerateEditWanImage,
+  useGenerateFilterWanImage,
+  useGenerateAdjustWanImage,
+  useGenerateCompositeWanImage,
+  useGenerateTextToImageWanImage,
   useGenerateVideo,
   useGenerateTextToVideo,
   useUsageStats
@@ -308,28 +313,40 @@ const App: React.FC = () => {
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
 
-  // TanStack Query mutations - conditionally use Gemini, SeeDream, or Nano Banana Pro based on settings
-  const editMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateEditNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateEditSeeDream()
-      : useGenerateEditNanoBanana2();
-  const filterMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateFilterNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateFilterSeeDream()
-      : useGenerateFilterNanoBanana2();
-  const adjustMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateAdjustNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateAdjustSeeDream()
-      : useGenerateAdjustNanoBanana2();
-  const compositeMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateCompositeNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateCompositeSeeDream()
-      : useGenerateCompositeNanoBanana2();
-  const textToImageMutation = useGenerateTextToImage();
+  // TanStack Query mutations — call ALL hooks unconditionally (Rules of Hooks compliant),
+  // then select the active one based on the chosen provider
+  const editNB2 = useGenerateEditNanoBanana2();
+  const editSeeDream = useGenerateEditSeeDream();
+  const editPro = useGenerateEditNanoBananaPro();
+  const editWan = useGenerateEditWanImage();
+
+  const filterNB2 = useGenerateFilterNanoBanana2();
+  const filterSeeDream = useGenerateFilterSeeDream();
+  const filterPro = useGenerateFilterNanoBananaPro();
+  const filterWan = useGenerateFilterWanImage();
+
+  const adjustNB2 = useGenerateAdjustNanoBanana2();
+  const adjustSeeDream = useGenerateAdjustSeeDream();
+  const adjustPro = useGenerateAdjustNanoBananaPro();
+  const adjustWan = useGenerateAdjustWanImage();
+
+  const compositeNB2 = useGenerateCompositeNanoBanana2();
+  const compositeSeeDream = useGenerateCompositeSeeDream();
+  const compositePro = useGenerateCompositeNanoBananaPro();
+  const compositeWan = useGenerateCompositeWanImage();
+
+  const textToImageNB2 = useGenerateTextToImage();
+  const textToImageWan = useGenerateTextToImageWanImage();
+
+  // Select active mutation based on provider
+  const editMutation = { nanobanana2: editNB2, seedream: editSeeDream, nanobananapro: editPro, wanimage: editWan }[settings.apiProvider] ?? editNB2;
+  const filterMutation = { nanobanana2: filterNB2, seedream: filterSeeDream, nanobananapro: filterPro, wanimage: filterWan }[settings.apiProvider] ?? filterNB2;
+  const adjustMutation = { nanobanana2: adjustNB2, seedream: adjustSeeDream, nanobananapro: adjustPro, wanimage: adjustWan }[settings.apiProvider] ?? adjustNB2;
+  const compositeMutation = { nanobanana2: compositeNB2, seedream: compositeSeeDream, nanobananapro: compositePro, wanimage: compositeWan }[settings.apiProvider] ?? compositeNB2;
+
+  // When After Dark is ON (nsfw filter disabled), default to Wan for text-to-image
+  const textToImageMutation = !settings.nsfwFilterEnabled ? textToImageWan : textToImageNB2;
+
   const videoMutation = useGenerateVideo();
   const textToVideoMutation = useGenerateTextToVideo();
 
@@ -344,7 +361,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || videoMutation.isPending || textToVideoMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageWan.isPending || textToImageNB2.isPending || videoMutation.isPending || textToVideoMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -795,8 +812,8 @@ const App: React.FC = () => {
 
       const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
 
-      // Nano Banana 2 and Nano Banana Pro: Use native aspect ratio support with direct ratio strings
-      if (settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'nanobananapro') {
+      // Nano Banana 2, Nano Banana Pro, and Wan Image: Use native aspect ratio support with direct ratio strings
+      if (settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'nanobananapro' || settings.apiProvider === 'wanimage') {
         const response = await adjustMutation.mutateAsync({
           image: currentImage,
           prompt: basePrompt,
@@ -853,7 +870,9 @@ const App: React.FC = () => {
 
     try {
       const response = await textToImageMutation.mutateAsync({
-        prompt: textPrompt
+        prompt: textPrompt,
+        resolution: settings.resolution,
+        nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
       if (response.success && response.image) {
