@@ -306,30 +306,38 @@ const App: React.FC = () => {
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
 
-  // TanStack Query mutations - conditionally use Gemini, SeeDream, or Nano Banana Pro based on settings
-  const editMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateEditNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateEditSeeDream()
-      : useGenerateEditNanoBanana2();
-  const filterMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateFilterNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateFilterSeeDream()
-      : useGenerateFilterNanoBanana2();
-  const adjustMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateAdjustNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateAdjustSeeDream()
-      : useGenerateAdjustNanoBanana2();
-  const compositeMutation = settings.apiProvider === 'nanobananapro'
-    ? useGenerateCompositeNanoBananaPro()
-    : settings.apiProvider === 'seedream'
-      ? useGenerateCompositeSeeDream()
-      : useGenerateCompositeNanoBanana2();
+  // TanStack Query mutations - call ALL hooks unconditionally to satisfy React's
+  // Rules of Hooks, then select the active one based on provider settings.
+  // Hooks must be called in the same order on every render.
+  const editMutationNB2 = useGenerateEditNanoBanana2();
+  const editMutationSeeDream = useGenerateEditSeeDream();
+  const editMutationPro = useGenerateEditNanoBananaPro();
+  const filterMutationNB2 = useGenerateFilterNanoBanana2();
+  const filterMutationSeeDream = useGenerateFilterSeeDream();
+  const filterMutationPro = useGenerateFilterNanoBananaPro();
+  const adjustMutationNB2 = useGenerateAdjustNanoBanana2();
+  const adjustMutationSeeDream = useGenerateAdjustSeeDream();
+  const adjustMutationPro = useGenerateAdjustNanoBananaPro();
+  const compositeMutationNB2 = useGenerateCompositeNanoBanana2();
+  const compositeMutationSeeDream = useGenerateCompositeSeeDream();
+  const compositeMutationPro = useGenerateCompositeNanoBananaPro();
   const textToImageMutation = useGenerateTextToImage();
   const videoMutation = useGenerateVideo();
   const textToVideoMutation = useGenerateTextToVideo();
+
+  // Select the active mutation based on provider setting (plain JS, not hook calls)
+  const editMutation = settings.apiProvider === 'nanobananapro' ? editMutationPro
+    : settings.apiProvider === 'seedream' ? editMutationSeeDream
+    : editMutationNB2;
+  const filterMutation = settings.apiProvider === 'nanobananapro' ? filterMutationPro
+    : settings.apiProvider === 'seedream' ? filterMutationSeeDream
+    : filterMutationNB2;
+  const adjustMutation = settings.apiProvider === 'nanobananapro' ? adjustMutationPro
+    : settings.apiProvider === 'seedream' ? adjustMutationSeeDream
+    : adjustMutationNB2;
+  const compositeMutation = settings.apiProvider === 'nanobananapro' ? compositeMutationPro
+    : settings.apiProvider === 'seedream' ? compositeMutationSeeDream
+    : compositeMutationNB2;
 
   // Video generation state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
