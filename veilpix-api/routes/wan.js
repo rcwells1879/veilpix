@@ -53,8 +53,8 @@ function getVideoCreditCost(duration, resolution) {
 }
 
 // Helper: create Wan task
-async function createWanTask(requestBody, model = 'wan/2-7-image-to-video') {
-    console.log(`🎬 Creating Wan 2.7 task (${model})`);
+async function createWanTask(requestBody, model = 'wan/2-6-image-to-video') {
+    console.log(`🎬 Creating Wan 2.6 task (${model})`);
 
     const payload = {
         model,
@@ -343,7 +343,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
         );
 
         // Call Wan API (text-to-video uses a different model name)
-        const taskResponse = await createWanTask(wanRequest, 'wan/2-7-text-to-video');
+        const taskResponse = await createWanTask(wanRequest, 'wan/2-6-text-to-video');
         const taskId = taskResponse.data.taskId;
         console.log(`📋 Text-to-video task created with ID: ${taskId}`);
 
