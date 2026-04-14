@@ -128,6 +128,7 @@ export function useGenerateEditNanoBanana2() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -157,6 +158,7 @@ export function useGenerateFilterNanoBanana2() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -190,6 +192,7 @@ export function useGenerateAdjustNanoBanana2() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -226,6 +229,7 @@ export function useGenerateCompositeNanoBanana2() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -256,6 +260,7 @@ export function useGenerateTextToImage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -293,6 +298,7 @@ export function useGenerateEditSeeDream() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -323,6 +329,7 @@ export function useGenerateFilterSeeDream() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -356,6 +363,7 @@ export function useGenerateAdjustSeeDream() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -393,6 +401,7 @@ export function useGenerateCompositeSeeDream() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -430,6 +439,7 @@ export function useGenerateEditNanoBananaPro() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -459,6 +469,7 @@ export function useGenerateFilterNanoBananaPro() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -492,6 +503,7 @@ export function useGenerateAdjustNanoBananaPro() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 
@@ -528,6 +540,7 @@ export function useGenerateCompositeNanoBananaPro() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
+    retry: false,
   })
 }
 

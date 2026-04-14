@@ -125,10 +125,12 @@ const isSafetyFilterError = (errorMessage: string, nsfwFilterEnabled: boolean): 
         return true;
     }
 
-    // When the NSFW filter is ON, kie.ai returns generic "Internal Error" for blocked content.
-    // Only treat these as safety errors when the filter is actually enabled —
-    // otherwise they're genuine server errors.
-    if (nsfwFilterEnabled && (lowerError.includes('internal error') || lowerError.includes('500'))) {
+    // Kie.ai returns generic "Internal Error" for content-filtered requests.
+    // When the NSFW filter is ON: "Internal Error" likely means content was blocked by kie.ai's filter.
+    // When the NSFW filter is OFF (After Dark): "Internal Error" likely means the underlying model
+    // (e.g., SeeDream/ByteDance) has its own content filter that can't be disabled via nsfw_checker.
+    // In both cases, treat as a safety error since normal prompts work fine with the same settings.
+    if (lowerError.includes('internal error') || lowerError.includes('500')) {
         return true;
     }
 
@@ -1135,12 +1137,25 @@ const App: React.FC = () => {
 
             {isSafetyIssue ? (
               <div className="flex flex-col gap-3 text-md text-yellow-200">
-                <p>
-                  Your request was flagged by our content filter. Please note that VeilStudio strictly prohibits the creation of child sexual abuse material (CSAM) and non-consensual imagery of real individuals under all circumstances.
-                </p>
-                <p className="text-sm text-yellow-300/80">
-                  Outside of those restrictions, VeilStudio does not prohibit the creation of adult content. Once you verify your age by purchasing credits, the content filter can be toggled on or off in the Settings menu.
-                </p>
+                {hasPurchasedCredits && !settings.nsfwFilterEnabled ? (
+                  <>
+                    <p>
+                      Your request was blocked by the AI provider's built-in content filter. Although VeilStudio's content filter is disabled, the underlying model may enforce its own restrictions that cannot be overridden.
+                    </p>
+                    <p className="text-sm text-yellow-300/80">
+                      Try rephrasing your prompt, or switch to a different AI provider in the Settings menu. Different models have different content policies.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      Your request was flagged by our content filter. Please note that VeilStudio strictly prohibits the creation of child sexual abuse material (CSAM) and non-consensual imagery of real individuals under all circumstances.
+                    </p>
+                    <p className="text-sm text-yellow-300/80">
+                      Outside of those restrictions, VeilStudio does not prohibit the creation of adult content. Once you verify your age by purchasing credits, the content filter can be toggled on or off in the Settings menu.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <p className="text-md text-red-400">{error}</p>
