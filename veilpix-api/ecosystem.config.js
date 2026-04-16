@@ -3,6 +3,7 @@ module.exports = {
     {
       name: 'veilpix-api',
       script: 'server.js',
+      exec_mode: 'fork',
       instances: 1,
       autorestart: true,
       watch: false,
