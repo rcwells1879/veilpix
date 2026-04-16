@@ -8,7 +8,7 @@ import { VideoIcon } from './icons';
 
 interface VideoControlsPanelProps {
   isLoading: boolean;
-  onGenerate: (prompt: string, duration: number, resolution: string) => void;
+  onGenerate: (prompt: string, duration: number, resolution: string, audio: boolean, multiShots: boolean) => void;
   videoUrl?: string | null;
   videoError?: string | null;
 }
@@ -34,12 +34,14 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
   const [videoPrompt, setVideoPrompt] = useState('');
   const [selectedDuration, setSelectedDuration] = useState<Duration>(5);
   const [selectedResolution, setSelectedResolution] = useState<Resolution>('1080p');
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [multiShotsEnabled, setMultiShotsEnabled] = useState(false);
 
   const creditCost = getCreditCost(selectedDuration, selectedResolution);
 
   const handleGenerate = () => {
     if (videoPrompt.trim()) {
-      onGenerate(videoPrompt.trim(), selectedDuration, selectedResolution);
+      onGenerate(videoPrompt.trim(), selectedDuration, selectedResolution, audioEnabled, multiShotsEnabled);
     }
   };
 
@@ -92,7 +94,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
           className="w-full bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-4 text-base focus:ring-2 focus:ring-blue-500 focus:outline-none transition resize-none"
           rows={3}
           disabled={isLoading}
-          maxLength={5000}
+          maxLength={1500}
         />
       </div>
 
@@ -133,6 +135,48 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
               disabled={isLoading}
             >
               {r}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Audio toggle */}
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-semibold text-gray-300">Audio</label>
+        <div className="flex gap-2">
+          {([true, false] as const).map((val) => (
+            <button
+              key={String(val)}
+              onClick={() => setAudioEnabled(val)}
+              className={`flex-1 py-2.5 px-4 rounded-md font-semibold text-sm transition-all duration-200 ${
+                audioEnabled === val
+                  ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
+                  : 'bg-white/10 border border-white/20 text-gray-300 hover:bg-white/20 hover:text-white'
+              }`}
+              disabled={isLoading}
+            >
+              {val ? 'On' : 'Off'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Multi-shots toggle */}
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-semibold text-gray-300">Multi-shots</label>
+        <div className="flex gap-2">
+          {([false, true] as const).map((val) => (
+            <button
+              key={String(val)}
+              onClick={() => setMultiShotsEnabled(val)}
+              className={`flex-1 py-2.5 px-4 rounded-md font-semibold text-sm transition-all duration-200 ${
+                multiShotsEnabled === val
+                  ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
+                  : 'bg-white/10 border border-white/20 text-gray-300 hover:bg-white/20 hover:text-white'
+              }`}
+              disabled={isLoading}
+            >
+              {val ? 'On' : 'Off'}
             </button>
           ))}
         </div>

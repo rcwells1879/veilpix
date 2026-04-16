@@ -739,9 +739,8 @@ export function useOptimisticImageGeneration() {
 }
 
 // ============================================================================
-// Wan 2.7 Image-to-Video API Hook
-// Uses Wan 2.7 via Kie.ai for image-to-video generation
-// Costs 2 credits per generation
+// Wan 2.6 Flash Image-to-Video API Hook
+// Uses Wan 2.6 Flash via Kie.ai for image-to-video generation
 // ============================================================================
 
 export interface GenerateVideoRequest {
@@ -750,6 +749,8 @@ export interface GenerateVideoRequest {
   duration?: number   // 2-15 seconds (default 5)
   resolution?: string // '720p' | '1080p' (default '1080p')
   nsfwFilterEnabled?: boolean // NSFW content filter (default true)
+  audio?: boolean     // Enable audio generation (default true)
+  multiShots?: boolean // Enable multi-shot mode (default false)
 }
 
 export interface VideoGenerationResponse {
@@ -778,6 +779,8 @@ export function useGenerateVideo() {
         formData.append('resolution', data.resolution)
       }
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
+      formData.append('audio', (data.audio !== false).toString())
+      formData.append('multiShots', (data.multiShots === true).toString())
 
       return await apiRequest<VideoGenerationResponse>('/api/wan/generate-video', {
         method: 'POST',
@@ -794,7 +797,7 @@ export function useGenerateVideo() {
 
 // ============================================================================
 // Wan 2.7 Text-to-Video API Hook
-// Generates video from text prompt only (no reference image)
+// Uses Wan 2.7 via Kie.ai for text-to-video generation (no reference image)
 // ============================================================================
 
 export interface GenerateTextToVideoRequest {

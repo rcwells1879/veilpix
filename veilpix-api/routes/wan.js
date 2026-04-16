@@ -53,8 +53,8 @@ function getVideoCreditCost(duration, resolution) {
 }
 
 // Helper: create Wan task
-async function createWanTask(requestBody, model = 'wan/2-6-image-to-video') {
-    console.log(`🎬 Creating Wan 2.6 task (${model})`);
+async function createWanTask(requestBody, model = 'wan/2-6-flash-image-to-video') {
+    console.log(`🎬 Creating Wan task (${model})`);
 
     const payload = {
         model,
@@ -125,7 +125,12 @@ async function pollWanJob(taskId, maxAttempts = 300, intervalMs = 2000) {
         }
 
         if (state === 'fail') {
-            throw new Error(`Video generation failed: ${taskData.failMsg || taskData.failCode || 'Unknown error'}`);
+            const failMsg = taskData.failMsg || taskData.failCode || 'Unknown error';
+            // Detect NSFW / content review failures
+            if (failMsg.toLowerCase().includes('review') || failMsg.toLowerCase().includes('nsfw') || failMsg.toLowerCase().includes('content') || failMsg.toLowerCase().includes('safety')) {
+                throw new Error(`NSFW content detected: ${failMsg}`);
+            }
+            throw new Error(`Video generation failed: ${failMsg}`);
         }
 
         // States: waiting, queuing, generating - continue polling
@@ -231,7 +236,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
     let uploadedFilename = null;
 
     try {
-        const { prompt, duration = '5', resolution = '1080p', nsfwFilterEnabled = 'true' } = req.body;
+        const { prompt, duration = '5', resolution = '1080p', nsfwFilterEnabled = 'true', audio = 'true', multiShots = 'false' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No reference image provided' });
@@ -239,8 +244,8 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ error: 'No video description provided' });
         }
-        if (prompt.length > 5000) {
-            return res.status(400).json({ error: 'Prompt must be 5000 characters or less' });
+        if (prompt.length > 1500) {
+            return res.status(400).json({ error: 'Prompt must be 1500 characters or less' });
         }
 
         // Upload reference image to Supabase for public URL
@@ -257,18 +262,20 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         uploadedFilename = uploadResult.filename;
         console.log(`✅ Reference image uploaded for Wan: ${uploadResult.url}`);
 
-        // Build Wan API request
+        // Build Wan 2.6 Flash API request
         const wanRequest = buildImageToVideoRequest(
             uploadResult.url,
             prompt.trim(),
             {
                 duration: parseInt(duration),
                 resolution,
-                nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true
+                nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true,
+                audio: audio === 'true' || audio === true,
+                multiShots: multiShots === 'true' || multiShots === true
             }
         );
 
-        // Call Wan API (this may take several minutes)
+        // Call Wan 2.6 Flash API (this may take several minutes)
         const wanResponse = await callWanAPI(wanRequest);
 
         // Normalize response
@@ -305,8 +312,10 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
             await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message);
         }
 
-        res.status(500).json({
-            error: 'Failed to generate video',
+        const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
+
+        res.status(isNsfwError ? 400 : 500).json({
+            error: isNsfwError ? 'Content policy violation' : 'Failed to generate video',
             message: error.message,
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
@@ -331,7 +340,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
         const validRatios = ['16:9', '9:16', '1:1', '4:3', '3:4'];
         const selectedRatio = validRatios.includes(ratio) ? ratio : '16:9';
 
-        // Build Wan text-to-video API request
+        // Build Wan 2.7 text-to-video API request
         const wanRequest = buildTextToVideoRequest(
             prompt.trim(),
             {
@@ -342,8 +351,8 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
             }
         );
 
-        // Call Wan API (text-to-video uses a different model name)
-        const taskResponse = await createWanTask(wanRequest, 'wan/2-6-text-to-video');
+        // Call Wan 2.7 API for text-to-video
+        const taskResponse = await createWanTask(wanRequest, 'wan/2-7-text-to-video');
         const taskId = taskResponse.data.taskId;
         console.log(`📋 Text-to-video task created with ID: ${taskId}`);
 
@@ -374,8 +383,10 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
             await deductCreditAndTrack(req, startTime, 'text-to-video', 0, false, error.message);
         }
 
-        res.status(500).json({
-            error: 'Failed to generate video',
+        const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
+
+        res.status(isNsfwError ? 400 : 500).json({
+            error: isNsfwError ? 'Content policy violation' : 'Failed to generate video',
             message: error.message,
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });

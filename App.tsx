@@ -120,7 +120,8 @@ const isSafetyFilterError = (errorMessage: string, nsfwFilterEnabled: boolean): 
         'harmful',
         'terms of service',
         'content policy',
-        'not allowed'
+        'not allowed',
+        'failed the review'
     ];
 
     const lowerError = errorMessage.toLowerCase();
@@ -1043,7 +1044,7 @@ const App: React.FC = () => {
   }, [isLoaded, isSignedIn]);
 
   // Handle video generation
-  const handleGenerateVideo = useCallback(async (prompt: string, duration: number, resolution: string) => {
+  const handleGenerateVideo = useCallback(async (prompt: string, duration: number, resolution: string, audio: boolean, multiShots: boolean) => {
     if (!currentImage) {
       setVideoError('No reference image loaded.');
       return;
@@ -1058,6 +1059,8 @@ const App: React.FC = () => {
         prompt,
         duration,
         resolution,
+        audio,
+        multiShots,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1070,10 +1073,14 @@ const App: React.FC = () => {
       }
     } catch (err: any) {
       const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      setVideoError(`Failed to generate video. ${errorMessage}`);
+      if (isSafetyFilterError(errorMessage, settings.nsfwFilterEnabled)) {
+        setError(errorMessage);
+      } else {
+        setVideoError(`Failed to generate video. ${errorMessage}`);
+      }
       console.error('Video generation error:', err);
     }
-  }, [currentImage, videoMutation]);
+  }, [currentImage, videoMutation, settings.nsfwFilterEnabled]);
 
   // Handle text-to-video generation (no reference image needed)
   const handleTextToVideoGenerate = useCallback(async (prompt: string, duration: number, resolution: string, ratio: string) => {
@@ -1098,7 +1105,11 @@ const App: React.FC = () => {
       }
     } catch (err: any) {
       const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      setVideoError(`Failed to generate video. ${errorMessage}`);
+      if (isSafetyFilterError(errorMessage, settings.nsfwFilterEnabled)) {
+        setError(errorMessage);
+      } else {
+        setVideoError(`Failed to generate video. ${errorMessage}`);
+      }
       console.error('Text-to-video generation error:', err);
     }
   }, [textToVideoMutation, settings.nsfwFilterEnabled]);
