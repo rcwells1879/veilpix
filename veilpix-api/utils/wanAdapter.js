@@ -41,21 +41,15 @@ function buildImageToVideoRequest(imageUrl, prompt, options = {}) {
         multiShots = false
     } = options;
 
-    const request = {
+    return {
         prompt,
         image_urls: [imageUrl],
         resolution,
         duration: snapDuration(duration),
         audio,
+        multi_shots: multiShots,
         nsfw_checker: nsfwFilterEnabled
     };
-
-    // multi_shots is optional — only include when enabled
-    if (multiShots) {
-        request.multi_shots = true;
-    }
-
-    return request;
 }
 
 /**
