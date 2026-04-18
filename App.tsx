@@ -1459,7 +1459,7 @@ const App: React.FC = () => {
                   onClick={handleUploadNew}
                   className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
               >
-                  Upload New
+                  Home/Gallery
               </button>
             </div>
           )}
