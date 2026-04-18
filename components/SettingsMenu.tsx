@@ -255,7 +255,9 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
               className="w-full flex items-center justify-between group"
             >
               <div className="flex items-center gap-2.5">
-                <MasqueradeIcon className="w-4 h-4 text-gray-500 group-hover:text-gray-400 transition-colors" />
+                <span className="inline-flex items-center justify-center h-4 px-1 rounded-sm border border-gray-500 text-[11px] font-bold leading-none text-gray-500 group-hover:text-gray-400 group-hover:border-gray-400 transition-colors">
+                  <span className="relative top-px">18+</span>
+                </span>
                 <span className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors">
                   VeilPix After Dark
                 </span>

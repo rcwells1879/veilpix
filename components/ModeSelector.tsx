@@ -13,16 +13,16 @@ interface ModeSelectorProps {
   onModeChange: (mode: CreativeMode) => void;
 }
 
-const modes: { key: CreativeMode; label: string; Icon: React.FC<{ className?: string }> }[] = [
-  { key: 'single', label: 'Single Photo', Icon: PhotoIcon },
-  { key: 'composite', label: 'Combine Photos', Icon: CombineIcon },
-  { key: 'video', label: 'Generate Video', Icon: VideoIcon },
+const modes: { key: CreativeMode; line1: string; line2: string; Icon: React.FC<{ className?: string }> }[] = [
+  { key: 'single', line1: 'Single', line2: 'Photo', Icon: PhotoIcon },
+  { key: 'composite', line1: 'Combine', line2: 'Photos', Icon: CombineIcon },
+  { key: 'video', line1: 'Generate', line2: 'Video', Icon: VideoIcon },
 ];
 
 const ModeSelector: React.FC<ModeSelectorProps> = ({ activeMode, onModeChange }) => {
   return (
     <div className="flex items-center justify-center p-1 bg-black/20 rounded-lg">
-      {modes.map(({ key, label, Icon }) => (
+      {modes.map(({ key, line1, line2, Icon }) => (
         <button
           key={key}
           onClick={() => onModeChange(key)}
@@ -32,7 +32,11 @@ const ModeSelector: React.FC<ModeSelectorProps> = ({ activeMode, onModeChange })
               : 'text-gray-300 hover:text-white hover:bg-white/10'
           }`}
         >
-          <Icon className="hidden sm:block w-5 h-5" /> {label}
+          <Icon className="hidden sm:block w-5 h-5" />
+          <span className="flex flex-col sm:flex-row sm:gap-1 leading-tight">
+            <span>{line1}</span>
+            <span>{line2}</span>
+          </span>
         </button>
       ))}
     </div>
