@@ -203,7 +203,7 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, refresh
                 e.stopPropagation();
                 handleDelete(image.id);
               }}
-              className="absolute top-1 right-1 w-6 h-6 bg-black/50 hover:bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+              className="absolute top-1 right-1 w-6 h-6 bg-black/50 hover:bg-red-600 text-white rounded-full opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center"
               aria-label="Delete image"
             >
               <svg
