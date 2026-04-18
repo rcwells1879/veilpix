@@ -288,9 +288,13 @@ pm2 status
 
 # View API logs
 pm2 logs veilpix-api
+# Or read log files directly via SSH:
+# ssh root@140.82.7.169 "tail -100 /home/veilpix/veilpix-api/logs/out-0.log"
 
-# Restart API
-pm2 restart veilpix-api
+# Restart API (SAFE method - never use `pm2 restart`)
+pm2 delete veilpix-api || true
+sleep 2
+cd /home/veilpix/veilpix-api && pm2 start ecosystem.config.js
 
 # Check Nginx status
 service nginx status
@@ -329,9 +333,21 @@ STRIPE_WEBHOOK_SECRET=[empty_currently]
 ```
 
 ### Deployment Pipeline
-- **Frontend**: GitHub Actions → FTP deployment (existing)
-- **API**: GitHub Actions → SSH deployment to VPS
-- **Triggers**: Path-based (frontend vs veilpix-api changes)
+- **Frontend**: GitHub Actions (`deploy.yml`) → FTP deployment to shared hosting
+- **API**: GitHub Actions (`deploy-api.yml`) → SCP + SSH deployment to VPS
+- **Triggers**: Path-based (frontend changes trigger `deploy.yml`, `veilpix-api/` changes trigger `deploy-api.yml`)
+- **No git repo on server**: The VPS does NOT have a git repository. Code is deployed by SCP'ing the built `veilpix-api/` directory to `/home/veilpix/veilpix-api-new`, then the SSH step swaps it into place, restores `.env` from backup, runs `npm ci`, and does a clean PM2 restart.
+- **Do NOT use `git pull` on the server** — there is no repo to pull from. Always deploy through CI/CD or manual SCP.
+
+### Critical PM2 Server Rules
+- **PM2 runs under the `veilpix` user**, NOT root. The CI/CD SSH action runs as a user with PM2 in its PATH.
+- **NEVER run `pm2 restart veilpix-api`** — this causes an `EADDRINUSE` crash-loop because the old process hasn't released port 3001 before the new one starts. The restart counter inflates to hundreds and logs get flooded.
+- **Correct way to restart**: `pm2 delete veilpix-api || true; sleep 2; pm2 start ecosystem.config.js` — this fully stops the process, waits for the port to be released, then starts fresh. This is exactly what the CI/CD deploy script does.
+- **Preferred approach**: Let CI/CD handle deployments by pushing to `main` with changes in `veilpix-api/`. Only manually restart as a last resort.
+- **If manually deploying a single file**: SCP the file, then use `pm2 delete + sleep + pm2 start` (never `pm2 restart`).
+- **PM2 exec_mode**: Must be `fork` (set in `ecosystem.config.js`). Cluster mode on this single-CPU VPS causes port binding races.
+- **Logs location**: `/home/veilpix/veilpix-api/logs/out-0.log` and `combined-0.log` (configured in ecosystem.config.js)
+- **To read logs via SSH**: `ssh root@140.82.7.169 "tail -100 /home/veilpix/veilpix-api/logs/out-0.log"`
 
 ### Production URLs
 - **API Health Check**: `https://api.veilstudio.io/api/health`

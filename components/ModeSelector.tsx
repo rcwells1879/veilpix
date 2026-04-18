@@ -26,13 +26,13 @@ const ModeSelector: React.FC<ModeSelectorProps> = ({ activeMode, onModeChange })
         <button
           key={key}
           onClick={() => onModeChange(key)}
-          className={`w-full flex items-center justify-center gap-2 font-semibold py-3 px-5 rounded-md transition-all duration-200 text-base ${
+          className={`w-full flex items-center justify-center gap-2 font-semibold py-3 px-2 sm:px-5 rounded-md transition-all duration-200 text-sm sm:text-base whitespace-nowrap ${
             activeMode === key
               ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
               : 'text-gray-300 hover:text-white hover:bg-white/10'
           }`}
         >
-          <Icon className="w-5 h-5" /> {label}
+          <Icon className="hidden sm:block w-5 h-5" /> {label}
         </button>
       ))}
     </div>
