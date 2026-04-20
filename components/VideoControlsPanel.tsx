@@ -36,12 +36,36 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
   const [selectedResolution, setSelectedResolution] = useState<Resolution>('1080p');
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [multiShotsEnabled, setMultiShotsEnabled] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const creditCost = getCreditCost(selectedDuration, selectedResolution);
 
   const handleGenerate = () => {
     if (videoPrompt.trim()) {
       onGenerate(videoPrompt.trim(), selectedDuration, selectedResolution, audioEnabled, multiShotsEnabled);
+    }
+  };
+
+  const handleDownload = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!videoUrl) return;
+    e.preventDefault();
+    setIsDownloading(true);
+    try {
+      const response = await fetch(videoUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `veilpix-video-${Date.now()}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch {
+      window.open(videoUrl, '_blank', 'noopener,noreferrer');
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -66,12 +90,10 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
             <span className="text-sm text-gray-400">Generated Video</span>
             <a
               href={videoUrl}
-              download={`veilpix-video-${Date.now()}.mp4`}
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={handleDownload}
               className="text-sm text-blue-400 hover:text-blue-300 transition-colors font-semibold"
             >
-              Download
+              {isDownloading ? 'Downloading…' : 'Download'}
             </a>
           </div>
         </div>
