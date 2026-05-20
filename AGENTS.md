@@ -1,397 +1,211 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+Guidance for future Codex agents working in this repository.
 
-## Project Overview
-VeilPix is an AI-powered image editing React web application that supports multiple AI providers for generative image editing. The app provides localized photo editing, global filters, adjustments, and cropping capabilities through an intuitive web interface.
+## Project Snapshot
 
-## Architecture
-- **Frontend**: React 19 with TypeScript using Vite as the build tool
-- **Backend API**: Node.js/Express server with authentication, usage tracking, and billing
-- **AI Services**:
-  - **Nano Banana 2** (Google Gemini 3.1 Flash `nano-banana-2` via kie.ai) - Default provider, uses Supabase Storage for temporary image URLs
-  - **SeeDream 4.5** (ByteDance SeeDream V4 Edit) - Alternative provider, uses Supabase Storage for temporary image URLs
-- **Authentication**: Clerk for user management and session handling
-- **Database**: Supabase for usage tracking, billing records, user data, and temporary image storage
-- **Payment Processing**: Stripe for billing and usage metering
-- **State Management**: React hooks with local state (no external state library) + localStorage for settings persistence
-- **Image Processing**: Canvas API for cropping, react-image-crop for crop selection
-- **Styling**: Tailwind CSS with custom animations and gradients
+VeilPix is a React 19 + TypeScript + Vite image editing app with a Node/Express API in `veilpix-api/`. The frontend talks only to the backend API; AI provider keys, Supabase service role access, usage tracking, and Stripe flows stay server-side.
 
-## Development Commands
+Core stack:
+- Frontend: React 19, Vite, Tailwind CSS v4, Clerk, TanStack Query.
+- Backend: Express, Clerk middleware, Supabase service-role client, Stripe, Kie.ai provider routes.
+- Storage/database: Supabase tables for users, usage, credit purchases, billing records, and temporary image storage.
+- Billing/credits: new users get 30 credits; authenticated generation requests deduct credits. Credit purchases are handled through Stripe checkout/webhooks.
+
+## Commands
+
+Frontend, from repo root:
+
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
-
-# Build for production
 npm run build
-
-# Preview production build
 npm run preview
+npm audit
 ```
 
-## Environment Setup
+Backend, from `veilpix-api/`:
 
-### Frontend (.env.local)
+```bash
+npm install
+npm run dev
+npm start
+npm audit
+node --check server.js
 ```
-# Clerk Configuration (Required)
-VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 
-# API Configuration (Required)
-# Development: Use 127.0.0.1 in WSL environments
-# Production: Use production API endpoint
-VITE_API_BASE_URL=https://api.veilstudio.io
+There is no real backend test suite currently: `npm test` is a placeholder that exits nonzero.
 
-# Optional: Environment
+## Local Environment
+
+Frontend `.env.local`:
+
+```env
+VITE_CLERK_PUBLISHABLE_KEY=...
+VITE_API_BASE_URL=http://127.0.0.1:3001
 VITE_NODE_ENV=development
 ```
 
-### Backend (veilpix-api/.env)
-```
-NODE_ENV=production
+Backend `veilpix-api/.env`:
+
+```env
+NODE_ENV=development
 PORT=3001
-
-# AI Service APIs (all providers share the same kie.ai API key)
-SEEDREAM_API_KEY=your_kie_ai_api_key_here
-SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
-
-# Authentication (Clerk)
-CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
-CLERK_SECRET_KEY=your_clerk_secret_key
-
-# Database (Supabase)
-SUPABASE_URL=https://your_project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-
-# Payment Processing (Stripe)
-STRIPE_SECRET_KEY=your_stripe_secret_key
-STRIPE_WEBHOOK_SECRET=your_webhook_secret
+SEEDREAM_API_KEY=...
+SEEDREAM_API_BASE_URL=https://api.kie.ai
+CLERK_PUBLISHABLE_KEY=...
+CLERK_SECRET_KEY=...
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+STRIPE_SECRET_KEY=...
+STRIPE_WEBHOOK_SECRET=...
+FRONTEND_URL=http://127.0.0.1:5173
 ```
 
-### WSL Development Environment Notes
-- **Critical**: When developing in WSL (Windows Subsystem for Linux), you MUST use `127.0.0.1` instead of `localhost` for API connections
-- **Frontend Access**: Access the frontend at `http://127.0.0.1:5173/` instead of `http://localhost:5173/`
-- **Backend API**: Backend must be configured to listen on `0.0.0.0:3001` and allow CORS from both localhost and 127.0.0.1 origins
-- **Networking Issue**: JavaScript fetch requests from `localhost:5173` to `localhost:3001` may fail in WSL, but `127.0.0.1:5173` to `127.0.0.1:3001` works reliably
+In WSL or mixed Windows networking, prefer `127.0.0.1` over `localhost` for frontend-to-backend calls. The API listens on `0.0.0.0:3001` and CORS includes both localhost and 127.0.0.1 dev origins.
 
-## Key Components Structure
-- `App.tsx` - Main application with image editing state management and history
-- `src/services/apiClient.ts` - HTTP client for backend API communication
-- `src/hooks/useImageGeneration.ts` - React hooks for AI image generation via API
-- `components/FilterPanel.tsx` - Filter selection with presets and custom input
-- `components/AdjustmentPanel.tsx` - Global image adjustment controls
-- `components/CropPanel.tsx` - Crop functionality with aspect ratio controls
-- `components/Header.tsx` - App header with usage counter
-- `components/StartScreen.tsx` - Initial upload and mode selection
-- `components/CompositeScreen.tsx` - Multi-image composition interface
-- `veilpix-api/routes/nanobanana2.js` - Nano Banana 2 AI image generation endpoints
-- `veilpix-api/routes/wanimage.js` - Wan 2.7 Image generation endpoints
-- `veilpix-api/routes/auth.js` - Authentication endpoints
-- `veilpix-api/routes/usage.js` - Usage tracking endpoints
-- `veilpix-api/middleware/auth.js` - Clerk authentication middleware
-- `veilpix-api/middleware/validation.js` - Input validation for API requests
+## Important Files
 
-## Core Features Implementation
-1. **Localized Editing**: Click-to-edit system where users click image hotspots for precise edits
-2. **History Management**: Undo/redo system with image file versioning
-3. **Multi-modal Interface**: Four editing modes - Retouch, Crop, Adjust, Filters
-4. **Real-time Preview**: Before/after comparison with mouse press/hold
+- `App.tsx`: main app state, editing modes, image history, provider selection, text-to-image/video entry points.
+- `components/SettingsMenu.tsx`: provider, resolution, and After Dark settings. Settings persist in localStorage key `veilpix-settings`.
+- `src/services/apiClient.ts`: fetch wrapper; injects Clerk bearer token for authenticated requests and `X-Session-ID`.
+- `src/hooks/useImageGeneration.ts`: TanStack Query hooks for all image/video providers.
+- `veilpix-api/server.js`: middleware, CORS, rate limits, route registration, health endpoint.
+- `veilpix-api/utils/database.js`: lazy Supabase service-role client and DB helpers.
+- `veilpix-api/utils/imageUpload.js`: temporary Supabase Storage uploads for Kie.ai URL-based providers.
+- `veilpix-api/routes/*.js`: API routes for auth, usage, checkout, Stripe/webhooks, image providers, and video.
+- `vite.config.ts`: base path `/veilpix/`, static HTML dev serving, Tailwind plugin, build chunks.
+- `public/sitemap.xml`: update when public pages/routes/blog entries change.
 
-## Important Technical Details
-- Images are stored as File objects in browser memory with automatic URL cleanup via useEffect
-- All AI requests are processed through the backend API for security and usage tracking
-- The app uses manual cropping via Canvas API rather than server-side processing
-- Error handling includes specific messaging for different types of API failures
-- Authentication is handled via Clerk with automatic session management
-- Usage tracking and billing are integrated with Stripe for pay-per-use model
+## Providers And Routes
 
-## API Integration Notes
-- Backend API handles all Nano Banana 2 AI requests with proper authentication and validation
-- Main endpoints: `/api/nanobanana2/generate-edit`, `/api/nanobanana2/generate-filter`, `/api/nanobanana2/generate-adjust`, `/api/nanobanana2/combine-photos`
-- All requests include safety guidelines to prevent inappropriate content generation
-- Usage limits: 20 free requests for anonymous users, unlimited for authenticated users (billed)
-- Response handling includes proper error messages and usage tracking
+All AI providers use Kie.ai through the backend and temporary Supabase Storage URLs where image input is required.
 
-## Nano Banana 2 AI Implementation Details
-- **Model**: Uses `nano-banana-2` via kie.ai API (Google Gemini 3.1 Flash)
-- **API Provider**: Kie.ai API platform (same infrastructure as SeeDream and Nano Banana Pro)
-- **Image Handling**: Like SeeDream, Nano Banana 2 requires image URLs, so images are temporarily uploaded to Supabase Storage
-- **Prompt-Based System**: All image adjustments use natural language prompts, NOT sliders or structured parameters
-- **Adjustment Interface**: AdjustmentPanel provides preset prompts (e.g., "Enhance Details", "Warmer Lighting") and custom text input
-- **API Request Format**: Images are uploaded to Supabase Storage (`temp-images` bucket), public URLs are sent to kie.ai API
-- **Response Format**: Returns image URLs which are fetched and converted to base64 to match unified response structure `{success: true, image: {data: "base64...", mimeType: "image/png"}}`
-- **Image Processing**: Frontend converts base64 responses back to File objects for history management
-- **Credit Cost**: 2 credits per image
-- **Backend Routes**: `/api/nanobanana2/generate-edit`, `/api/nanobanana2/generate-filter`, `/api/nanobanana2/generate-adjust`, `/api/nanobanana2/combine-photos`
-- **Temporary Storage**: Images are automatically deleted from Supabase after processing (2-hour cleanup window)
+Image providers:
+- `nanobanana2`: Nano Banana 2 / Gemini 3.1 Flash, 2 credits, routes under `/api/nanobanana2`.
+- `seedream`: SeeDream 4.5, 2 credits, routes under `/api/seedream`.
+- `nanobananapro`: Nano Banana Pro / Gemini 3 Pro, 2 credits, routes under `/api/nanobananapro`.
+- `wanimage`: Wan 2.7 Image, 1 credit, routes under `/api/wanimage`.
 
-## SeeDream 4.5 AI Implementation Details
-- **Model**: ByteDance SeeDream V4 Edit - Alternative AI provider for image generation and editing
-- **API Provider**: Kie.ai API platform
-- **Image Handling**: Like Nano Banana 2, SeeDream requires image URLs, so images are temporarily uploaded to Supabase Storage
-- **Resolution Options**: Supports 1K, 2K, and 4K output resolutions (configurable in Settings menu)
-- **Backend Routes**: `/api/seedream/generate-edit`, `/api/seedream/generate-filter`, `/api/seedream/generate-adjust`, `/api/seedream/combine-photos`
-- **Request Format**: Images are uploaded to Supabase Storage (`temp-images` bucket), public URLs are sent to SeeDream API
-- **Response Format**: SeeDream returns image URLs which are fetched and converted to base64 to match the unified response structure
-- **Temporary Storage**: Images are automatically deleted from Supabase after SeeDream processing (2-hour cleanup window)
-- **Credit System**: Uses the same unified credit deduction and usage tracking as Nano Banana 2
+Video provider:
+- `wan`: Wan video routes under `/api/wan`; credit cost varies by duration/resolution in `routes/wan.js`.
 
-### SeeDream Configuration Requirements
-**IMPORTANT**: SeeDream integration requires the following setup before it will work:
+Common image endpoints:
+- `POST /generate-edit`
+- `POST /generate-filter`
+- `POST /generate-adjust`
+- `POST /combine-photos`
 
-1. **Environment Variables** (add to `veilpix-api/.env`):
-   ```env
-   SEEDREAM_API_KEY=your_kie_ai_api_key_here
-   SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
-   ```
-   - Get API key from: https://kie.ai/ (requires account signup)
-   - Whitelist server IP (`140.82.7.169`) in Kie.ai dashboard for API access
+Extra endpoints:
+- `POST /api/wanimage/generate-text-to-image`
+- `POST /api/wan/generate-video`
+- `POST /api/wan/generate-text-to-video`
+- `GET /api/wan/pricing`
 
-2. **Supabase Storage Bucket** (create in Supabase dashboard):
-   - Bucket name: `temp-images`
-   - Public access: Enabled (images need public URLs for SeeDream API)
-   - File size limit: 10MB
-   - RLS policies: Disabled (service role key bypasses RLS)
+Provider implementation notes:
+- SeeDream uses `image_urls`; Wan Image uses `input_urls`.
+- Kie.ai jobs use create-task then poll record-info.
+- Frontend calls all provider hooks unconditionally, then chooses the active mutation by `settings.apiProvider` to obey React hook rules.
+- After Dark/content filter behavior is enforced in UI and provider payloads. Non-purchasers cannot disable the filter; purchasing credits acts as age verification in the UI.
 
-3. **API Endpoints** (Async Job Pattern):
-   - Create Task: `POST https://api.kie.ai/api/v1/jobs/createTask`
-   - Query Status: `GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId={taskId}`
-   - **Flow**: Submit task → get taskId → poll recordInfo until `state === "success"` → extract resultUrls
+## Supabase And Database
 
-### SeeDream 4.5 Edit API Format (Kie.ai)
+- Backend uses `SUPABASE_SERVICE_ROLE_KEY`; service role bypasses RLS.
+- `utils/database.js` exports `{ db, supabase }`, where `supabase` is a function. When importing it, call `supabase()` before `.from(...)`.
+- `routes/webhooks.js` currently creates its own service-role Supabase client for Stripe webhook updates.
+- Credit purchase writes happen server-side in `db.logCreditPurchase()` and Stripe webhook handlers.
+- Keep RLS enabled on exposed public tables such as `credit_purchases`; backend service-role operations should continue to work.
+- Supabase CLI is installed through Scoop. The repo is linked to project ref `hjmkvroztbzmivrjzjod`.
+- `supabase/.temp/` is local CLI state and must stay ignored.
 
-**Request** (createTask):
-```json
-{
-  "model": "seedream/4.5-edit",
-  "input": {
-    "prompt": "editing instruction",
-    "image_urls": ["https://public-url.jpg"],
-    "aspect_ratio": "1:1",
-    "quality": "basic"
-  }
-}
+Useful commands:
+
+```powershell
+supabase projects list
+supabase link --project-ref hjmkvroztbzmivrjzjod
+supabase db pull
+supabase gen types typescript --linked
 ```
 
-**Valid `aspect_ratio`**: `1:1`, `4:3`, `3:4`, `16:9`, `9:16`, `2:3`, `3:2`, `21:9`
-**Valid `quality`**: `basic` (2K output), `high` (4K output)
+Do not run destructive DB commands such as `supabase db reset`, `db push`, or migrations against production without explicit confirmation.
 
-**Response** (recordInfo when complete):
-```json
-{
-  "code": 200,
-  "data": {
-    "state": "success",
-    "resultJson": "{\"resultUrls\":[\"https://output.png\"]}"
-  }
-}
+## Production Deployment
+
+GitHub Actions deploy from `main`:
+- Frontend: `.github/workflows/deploy.yml`, triggered by frontend paths and root `package*.json`; builds with `VITE_API_BASE_URL=https://api.veilstudio.io` and FTPs `dist/` to shared hosting.
+- API: `.github/workflows/deploy-api.yml`, triggered by `veilpix-api/**`; SCPs `veilpix-api/` to the VPS, restores `.env`, runs `npm ci --production`, and restarts PM2.
+
+Production URLs:
+- Frontend: `https://veilstudio.io/veilpix/`
+- API health: `https://api.veilstudio.io/api/health`
+- API server: `140.82.7.169`, domain `api.veilstudio.io`
+
+After website/public-route changes, check whether `public/sitemap.xml` and `.github/workflows/deploy.yml` path filters need updates.
+
+## VPS Access And Operations
+
+Codex/local SSH access is configured for root:
+
+```powershell
+ssh -i "$env:USERPROFILE\.ssh\codex_veilpix_ed25519" root@140.82.7.169
 ```
 
-**VeilPix Mapping** (UI identifier → API value):
-- `transparent-1-1.png` → `1:1`
-- `transparent-16-9.png` → `16:9`
-- `transparent-9-16.png` → `9:16`
-- `transparent-4-3.png` → `4:3`
-- `transparent-3-4.png` → `3:4`
+Private key path:
 
-### Settings UI
-- **Location**: Header component settings icon (gear icon next to usage counter)
-- **Persistence**: Settings saved to localStorage (`veilpix-settings` key)
-- **Default Provider**: Nano Banana 2
-- **Provider Options**: `'nanobanana2' | 'seedream' | 'nanobananapro' | 'wanimage'`
-- **Options**:
-  - **API Provider**: Radio selection between "Nano Banana 2", "SeeDream 4.5", and "Nano Banana Pro"
-  - **Resolution**: Dropdown (1K/2K/4K) - only shown when SeeDream is selected
-- **Hook Selection**: App.tsx calls ALL provider hooks unconditionally (Rules of Hooks compliant) and selects the active one via object lookup based on `settings.apiProvider`. For text-to-image, Wan Image is auto-selected when After Dark mode is enabled.
+```text
+C:\Users\rwells\.ssh\codex_veilpix_ed25519
+```
 
-### Nano Banana 2 vs SeeDream 4.5 Comparison
-| Feature | Nano Banana 2 (Gemini 3.1 Flash) | SeeDream 4.5 |
-|---------|----------------------------------|--------------|
-| **Image Input** | URLs from Supabase Storage | URLs from Supabase Storage |
-| **Processing** | URL response → fetch → base64 conversion | URL response → fetch → base64 conversion |
-| **Storage** | Temporary Supabase Storage (auto-cleanup) | Temporary Supabase Storage (auto-cleanup) |
-| **Resolution** | Fixed (model default) | User-selectable (1K/2K/4K) |
-| **Speed** | Very fast (<2s) | Fast (<1.8s per docs) |
-| **Cost** | 2 credits per image | Included in credit system |
-| **API Provider** | Kie.ai (same as SeeDream) | Kie.ai |
+Verified from Codex on 2026-05-20: `whoami`, `hostname`, `pwd` returned `root`, `veilpix-api`, `/root`.
 
-## Wan 2.7 Image AI Implementation Details
-- **Model**: `wan/2-7-image` via Kie.ai API
-- **API Provider**: Kie.ai API platform (same infrastructure as SeeDream and Nano Banana)
-- **Image Handling**: Like other providers, images are temporarily uploaded to Supabase Storage
-- **Image Input Field**: `input_urls` (NOT `image_urls` like SeeDream)
-- **Resolution Options**: Supports 1K, 2K, and 4K output resolutions (direct strings, no quality mapping)
-- **Aspect Ratios**: `1:1`, `16:9`, `4:3`, `21:9`, `3:4`, `9:16`, `8:1`, `1:8`
-- **Text-to-Image**: Supports text-to-image with `thinking_mode: true` for improved quality
-- **NSFW Filter**: Defaults to `false` (more permissive) — becomes default text-to-image provider when After Dark is enabled
-- **Credit Cost**: 1 credit per generation (cheaper than NB2/SeeDream at 2 credits)
-- **Backend Routes**: `/api/wanimage/generate-edit`, `/api/wanimage/generate-filter`, `/api/wanimage/generate-adjust`, `/api/wanimage/combine-photos`, `/api/wanimage/generate-text-to-image`
-- **Request Parameters**: All requests include `n: 1`, `watermark: false`
-- **Async Job Pattern**: Same as SeeDream — createTask → poll recordInfo → get resultUrls
-- **Polling**: 2-second interval, max 150 attempts (5 minutes timeout)
-- **Provider ID**: `wanimage` in Settings UI
+App location:
 
-## Critical Database Architecture Notes
-- **Supabase Client**: Uses lazy loading pattern with service role key to prevent module loading failures
-- **Service Role Configuration**: Backend uses `SUPABASE_SERVICE_ROLE_KEY` which automatically bypasses RLS (Row Level Security) policies
-- **Database Utils**: All database functions in `utils/database.js` use `getSupabaseClient()` function instead of direct client creation
-- **Route Dependencies**: Any route file that imports database utilities MUST use `const { db, supabase } = require('../utils/database')` and call `supabase()` as a function
-- **API Response Format**: Usage endpoints return `{totalUsage, remainingFreeUsage, isAuthenticated}` format for frontend compatibility
-- **Authentication Flow**: Frontend tries authenticated endpoint first, falls back to anonymous endpoint gracefully
-- **Connection Testing**: Database connection test is available via `testConnection()` function but not run on startup to prevent delays
-
-## Troubleshooting Notes
-- **WSL Networking**: Always use `127.0.0.1` instead of `localhost` in WSL environments
-- **CORS Issues**: Ensure backend allows both localhost and 127.0.0.1 origins in development
-- **Database Hanging**: If queries hang, check RLS policies and service role configuration
-- **Usage Counter Loading**: "Loading usage..." indicates network connectivity issues, not database problems
-- I will start the servers on my own whenever we need to test the GUI.
-
-## Production Deployment (Vultr VPS)
-
-### Server Configuration
-- **Provider**: Vultr VPS
-- **Plan**: Regular Performance ($6/month VPS + $3/month IPv4 = $9/month total)
-- **OS**: Alpine Linux 3.22 x86_64
-- **Resources**: 1 vCPU, 1GB RAM, 25GB SSD, 1TB bandwidth
-- **Location**: [Your selected region]
-
-### Network Configuration
-- **IPv4 Address**: `140.82.7.169`
-- **IPv6 Address**: `2001:19f0:1000:1781:5400:5ff:fea1:e84f`
-- **Domain**: `api.veilstudio.io` (A record pointing to IPv4)
-- **SSL**: Let's Encrypt certificate (auto-renewal configured)
-
-### Server Access
 ```bash
-# SSH connection (from Windows/WSL)
-ssh root@140.82.7.169
-# or
-ssh veilpix@140.82.7.169
-
-# SSH key location (Windows): C:\Users\Ryan Wells\.ssh\id_ed25519
+/home/veilpix/veilpix-api/
 ```
 
-### Codex SSH Access
-- Codex/local workspace SSH key pair is installed and authorized for root access on the VPS.
-- Private key path (Windows user): `C:\Users\rwells\.ssh\codex_veilpix_ed25519`
-- Public key comment: `codex-veilpix`
-- Verified command:
-  ```powershell
-  ssh -i "$env:USERPROFILE\.ssh\codex_veilpix_ed25519" root@140.82.7.169
-  ```
-- Verified from Codex on 2026-05-20 with `whoami`, `hostname`, and `pwd` returning `root`, `veilpix-api`, and `/root`.
+Useful server commands:
 
-### Application Setup
-- **Application Path**: `/home/veilpix/veilpix-api/`
-- **Process Manager**: PM2 (auto-restart configured)
-- **Web Server**: Nginx reverse proxy
-- **User Account**: `veilpix` (non-root for security)
-
-### Service Management
 ```bash
-# Check API status
 pm2 status
+tail -100 /home/veilpix/veilpix-api/logs/out.log
+tail -100 /home/veilpix/veilpix-api/logs/combined.log
+curl http://127.0.0.1:3001/api/health
+service nginx status
+df -h
+free -h
+```
 
-# View API logs
-pm2 logs veilpix-api
-# Or read log files directly via SSH:
-# ssh root@140.82.7.169 "tail -100 /home/veilpix/veilpix-api/logs/out-0.log"
+The VPS does not contain a git repo for the app. Do not use `git pull` on the server. Deploy through CI/CD or manual SCP.
 
-# Restart API (SAFE method - never use `pm2 restart`)
+Critical PM2 rule: avoid `pm2 restart veilpix-api`; it has caused port binding races. Use the clean restart pattern:
+
+```bash
+cd /home/veilpix/veilpix-api
 pm2 delete veilpix-api || true
 sleep 2
-cd /home/veilpix/veilpix-api && pm2 start ecosystem.config.js
-
-# Check Nginx status
-service nginx status
-
-# Restart Nginx
-service nginx restart
-
-# Check server resources
-htop
+pm2 start ecosystem.config.js
 ```
 
-### Firewall Configuration
-- **UFW Status**: Active
-- **Allowed Ports**: 22 (SSH), 80 (HTTP), 443 (HTTPS)
-- **SSH Access**: Key-based authentication only
+## Production Environment Notes
 
-### SSL Certificate
-- **Certificate Path**: `/etc/letsencrypt/live/api.veilstudio.io/`
-- **Auto-renewal**: Configured via crontab (daily check at 12:00)
-- **Expires**: Check with `certbot certificates`
-- **Manual renewal**: `certbot renew`
+Production env file:
 
-### Environment Configuration
-Production environment file location: `/home/veilpix/veilpix-api/.env`
-```env
-NODE_ENV=production
-PORT=3001
-SEEDREAM_API_KEY=[your_kie_ai_key]
-SEEDREAM_API_BASE_URL=https://api.kie.ai/v1
-CLERK_PUBLISHABLE_KEY=[test_key_currently]
-CLERK_SECRET_KEY=[test_key_currently]
-SUPABASE_URL=https://hjmkvroztbzmivrzjod.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=[actual_service_role_key]
-STRIPE_SECRET_KEY=[empty_currently]
-STRIPE_WEBHOOK_SECRET=[empty_currently]
+```text
+/home/veilpix/veilpix-api/.env
 ```
 
-### Deployment Pipeline
-- **Frontend**: GitHub Actions (`deploy.yml`) → FTP deployment to shared hosting
-- **API**: GitHub Actions (`deploy-api.yml`) → SCP + SSH deployment to VPS
-- **Triggers**: Path-based (frontend changes trigger `deploy.yml`, `veilpix-api/` changes trigger `deploy-api.yml`)
-- **No git repo on server**: The VPS does NOT have a git repository. Code is deployed by SCP'ing the built `veilpix-api/` directory to `/home/veilpix/veilpix-api-new`, then the SSH step swaps it into place, restores `.env` from backup, runs `npm ci`, and does a clean PM2 restart.
-- **Do NOT use `git pull` on the server** — there is no repo to pull from. Always deploy through CI/CD or manual SCP.
+The deploy workflow restores it from:
 
-### Critical PM2 Server Rules
-- **PM2 runs under the `veilpix` user**, NOT root. The CI/CD SSH action runs as a user with PM2 in its PATH.
-- **NEVER run `pm2 restart veilpix-api`** — this causes an `EADDRINUSE` crash-loop because the old process hasn't released port 3001 before the new one starts. The restart counter inflates to hundreds and logs get flooded.
-- **Correct way to restart**: `pm2 delete veilpix-api || true; sleep 2; pm2 start ecosystem.config.js` — this fully stops the process, waits for the port to be released, then starts fresh. This is exactly what the CI/CD deploy script does.
-- **Preferred approach**: Let CI/CD handle deployments by pushing to `main` with changes in `veilpix-api/`. Only manually restart as a last resort.
-- **If manually deploying a single file**: SCP the file, then use `pm2 delete + sleep + pm2 start` (never `pm2 restart`).
-- **PM2 exec_mode**: Must be `fork` (set in `ecosystem.config.js`). Cluster mode on this single-CPU VPS causes port binding races.
-- **Logs location**: `/home/veilpix/veilpix-api/logs/out-0.log` and `combined-0.log` (configured in ecosystem.config.js)
-- **To read logs via SSH**: `ssh root@140.82.7.169 "tail -100 /home/veilpix/veilpix-api/logs/out-0.log"`
-
-### Production URLs
-- **API Health Check**: `https://api.veilstudio.io/api/health`
-- **Main Endpoints**:
-  - Auth: `https://api.veilstudio.io/api/auth/*`
-  - Nano Banana 2: `https://api.veilstudio.io/api/nanobanana2/*`
-  - Usage: `https://api.veilstudio.io/api/usage/*`
-
-### Monitoring & Maintenance
-```bash
-# Check disk usage
-df -h
-
-# Check memory usage
-free -h
-
-# Check API process
-pm2 monit
-
-# View system logs
-tail -f /var/log/messages
-
-# Check SSL certificate expiry
-certbot certificates
+```text
+/home/veilpix/.env.backup
 ```
 
-### Backup & Recovery
-- **Configuration Backup**: PM2 ecosystem.config.js, Nginx configs in `/etc/nginx/http.d/`
-- **Environment Backup**: Securely store .env values
-- **Database**: Handled by Supabase (managed service)
-- **Code Backup**: GitHub repository
+Do not commit secrets. Current production still needs periodic verification of Clerk/Stripe key status before billing or auth changes.
 
-### Pending Production Setup
-- **Clerk Production Keys**: Switch from test to production keys when ready
-- **Stripe Configuration**: Add production keys and webhook endpoints
-- **Gallery Feature**: Ready for Supabase Storage integration
-- after making changes to the website, always check to see if we need to update sitemap.xml and deploy.yml to account for the new changes.
+## Current Cautions
+
+- Some older docs in `README.md`, `CLAUDE.md`, `GEMINI.md`, and `veilpix-api/README.md` are stale; trust code and workflows first.
+- `veilpix-api/.env.example` contains older Gemini/Supabase anon references and should not be treated as authoritative.
+- The codebase has mojibake in some copied log strings/comments. Avoid broad formatting churn unless you are intentionally cleaning that up.
+- Anonymous free generation language is stale in some UI/docs; current backend generation routes require auth and credits.
