@@ -41,3 +41,4 @@ public/examples/headshot before.png
 .gitignore
 .playwright-mcp/veilpix-enchanted-cafe-result.png
 .claude/settings.local.json
+supabase/.temp/
