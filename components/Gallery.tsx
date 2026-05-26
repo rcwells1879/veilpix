@@ -16,6 +16,7 @@ import {
 interface GalleryProps {
   onSelectImage: (file: File) => void;
   onSelectVideo?: (videoUrl: string, referenceImage: File) => void;
+  onMakeVideoReference?: (videoUrl: string) => void;
   refreshTrigger?: number;
 }
 
@@ -33,7 +34,7 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, refreshTrigger }) => {
+const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeVideoReference, refreshTrigger }) => {
   const [images, setImages] = useState<GalleryThumbnail[]>([]);
   const [loading, setLoading] = useState(true);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
@@ -82,6 +83,16 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, refresh
       if (file) {
         onSelectImage(file);
       }
+    }
+  };
+
+  const handleMakeReference = async (id: number) => {
+    if (!onMakeVideoReference) return;
+    setLoadingImageId(id);
+    const videoUrl = await getGalleryVideoUrl(id);
+    setLoadingImageId(null);
+    if (videoUrl) {
+      onMakeVideoReference(videoUrl);
     }
   };
 
@@ -182,6 +193,20 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, refresh
                 </div>
               )}
             </button>
+
+            {/* Video reference action */}
+            {image.type === 'video' && onMakeVideoReference && loadingImageId !== image.id && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMakeReference(image.id);
+                }}
+                className="absolute top-2 left-2 bg-cyan-600/90 hover:bg-cyan-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg"
+              >
+                Make Reference
+              </button>
+            )}
 
             {/* Date overlay */}
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">

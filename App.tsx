@@ -520,14 +520,30 @@ const App: React.FC = () => {
     setView('editor');
   }, []);
 
-  // Handle selecting a video from the gallery
+  // Handle selecting a video from the gallery for viewing/reuse with its saved thumbnail image
   const handleSelectGalleryVideo = useCallback((videoUrlFromGallery: string, referenceImage: File) => {
     setHistory([referenceImage]);
     setHistoryIndex(0);
     setEditHotspot(null);
     setDisplayHotspot(null);
     setCreativeMode('video');
+    setReferenceVideoFile(null);
+    setReferenceVideoUrl(null);
     setVideoUrl(videoUrlFromGallery);
+    setVideoError(null);
+    setView('editor');
+  }, []);
+
+  // Start a new reference-to-video flow from an existing gallery video
+  const handleMakeGalleryVideoReference = useCallback((videoUrlFromGallery: string) => {
+    setHistory([]);
+    setHistoryIndex(0);
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    setCreativeMode('video');
+    setReferenceVideoFile(null);
+    setReferenceVideoUrl(videoUrlFromGallery);
+    setVideoUrl(null);
     setVideoError(null);
     setView('editor');
   }, []);
@@ -1100,6 +1116,20 @@ const App: React.FC = () => {
     }
   }, [currentImage, referenceVideoFile, referenceVideoUrl, videoMutation, referenceVideoMutation, settings.nsfwFilterEnabled]);
 
+  const handleReferenceImageSelect = useCallback((file: File | null) => {
+    if (file) {
+      setHistory([file]);
+      setHistoryIndex(0);
+      setEditHotspot(null);
+      setDisplayHotspot(null);
+      setCrop(undefined);
+      setCompletedCrop(undefined);
+    } else {
+      setHistory([]);
+      setHistoryIndex(0);
+    }
+  }, []);
+
   const handleReferenceVideoSelect = useCallback((file: File | null) => {
     setReferenceVideoFile(file);
     setReferenceVideoUrl(null);
@@ -1273,6 +1303,7 @@ const App: React.FC = () => {
         isGeneratingImage={isLoading}
         onSelectGalleryImage={handleSelectGalleryImage}
         onSelectGalleryVideo={handleSelectGalleryVideo}
+        onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
         galleryRefreshTrigger={galleryRefreshTrigger}
       />;
     }
@@ -1571,8 +1602,10 @@ const App: React.FC = () => {
                 onGenerate={handleGenerateVideo}
                 videoUrl={videoUrl}
                 videoError={videoError}
+                referenceImage={currentImage}
                 referenceVideoFile={referenceVideoFile}
                 referenceVideoUrl={referenceVideoUrl}
+                onReferenceImageSelect={handleReferenceImageSelect}
                 onReferenceVideoSelect={handleReferenceVideoSelect}
                 onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
               />
@@ -1598,6 +1631,7 @@ const App: React.FC = () => {
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
       isGeneratingImage={isLoading}
       onSelectGalleryImage={handleSelectGalleryImage}
+      onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
       galleryRefreshTrigger={galleryRefreshTrigger}
     />;
   };

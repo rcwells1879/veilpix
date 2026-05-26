@@ -5,14 +5,17 @@
 
 import React, { useEffect, useState } from 'react';
 import { VideoIcon } from './icons';
+import ImageDropzone from './ImageDropzone';
 
 interface VideoControlsPanelProps {
   isLoading: boolean;
   onGenerate: (prompt: string, duration: number, resolution: string, audio: boolean, multiShots: boolean) => void;
   videoUrl?: string | null;
   videoError?: string | null;
+  referenceImage?: File | null;
   referenceVideoFile?: File | null;
   referenceVideoUrl?: string | null;
+  onReferenceImageSelect?: (file: File | null) => void;
   onReferenceVideoSelect?: (file: File | null) => void;
   onUseGeneratedVideoAsReference?: () => void;
 }
@@ -34,7 +37,7 @@ function getCreditCost(duration: number, resolution: string): number {
   return VIDEO_CREDIT_TABLE[duration]?.[resolution] ?? Math.ceil(duration * (resolution === '1080p' ? 2.0 : 1.4));
 }
 
-const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGenerate, videoUrl, videoError, referenceVideoFile, referenceVideoUrl, onReferenceVideoSelect, onUseGeneratedVideoAsReference }) => {
+const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGenerate, videoUrl, videoError, referenceImage, referenceVideoFile, referenceVideoUrl, onReferenceImageSelect, onReferenceVideoSelect, onUseGeneratedVideoAsReference }) => {
   const [videoPrompt, setVideoPrompt] = useState('');
   const [selectedDuration, setSelectedDuration] = useState<Duration>(5);
   const [selectedResolution, setSelectedResolution] = useState<Resolution>('1080p');
@@ -130,6 +133,20 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
       {videoError && (
         <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
           <p className="text-sm text-red-300">{videoError}</p>
+        </div>
+      )}
+
+      {/* Reference image replacement */}
+      {onReferenceImageSelect && (
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-gray-300">Reference Image</label>
+          <ImageDropzone
+            file={referenceImage || null}
+            onFileSelect={(file) => onReferenceImageSelect(file)}
+            label={referenceImage ? 'Replace Reference Image' : 'Upload Reference Image'}
+            isGeneratingImage={isLoading}
+          />
+          <p className="text-xs text-gray-500">Use this to replace the original image or add an image alongside the reference video.</p>
         </div>
       )}
 

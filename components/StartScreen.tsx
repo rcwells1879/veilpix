@@ -28,10 +28,11 @@ interface StartScreenProps {
   isGeneratingImage?: boolean;
   onSelectGalleryImage?: (file: File) => void;
   onSelectGalleryVideo?: (videoUrl: string, referenceImage: File) => void;
+  onMakeGalleryVideoReference?: (videoUrl: string) => void;
   galleryRefreshTrigger?: number;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onReferenceVideoSelect, referenceVideoFile = null, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, galleryRefreshTrigger }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onReferenceVideoSelect, referenceVideoFile = null, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
 
@@ -358,6 +359,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         <Gallery
           onSelectImage={onSelectGalleryImage}
           onSelectVideo={onSelectGalleryVideo}
+          onMakeVideoReference={onMakeGalleryVideoReference}
           refreshTrigger={galleryRefreshTrigger}
         />
       )}
