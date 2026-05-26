@@ -3,6 +3,7 @@
  *
  * Image-to-Video: Wan 2.6 Flash (wan/2-6-flash-image-to-video)
  * Text-to-Video:  Wan 2.7 (wan/2-7-text-to-video)
+ * Reference-to-Video: Wan 2.7 (wan/2-7-r2v)
  *
  * Transforms VeilPix requests into Kie.ai API format
  * and normalizes responses for the frontend video player.
@@ -93,6 +94,11 @@ function normalizeVideoResponse(wanResponse) {
  * @param {boolean} options.nsfwFilterEnabled - NSFW filter (default true)
  * @returns {object} Wan API input parameters
  */
+function clampWan27Duration(duration) {
+    const d = parseInt(duration);
+    return Math.max(2, Math.min(10, isNaN(d) ? 5 : d));
+}
+
 function buildTextToVideoRequest(prompt, options = {}) {
     const {
         duration = 5,
@@ -101,23 +107,55 @@ function buildTextToVideoRequest(prompt, options = {}) {
         nsfwFilterEnabled = true
     } = options;
 
-    // Wan 2.7 accepts integer duration (2-15), not string
-    const d = parseInt(duration);
-    const clampedDuration = Math.max(2, Math.min(15, isNaN(d) ? 5 : d));
-
     return {
         prompt,
         resolution,
-        ratio,
-        duration: clampedDuration,
+        aspect_ratio: ratio,
+        duration: clampWan27Duration(duration),
         prompt_extend: true,
         watermark: false,
         nsfw_checker: nsfwFilterEnabled
     };
 }
 
+/**
+ * Build Wan 2.7 reference-to-video request body.
+ * Kie docs allow reference_image and reference_video arrays together; at least one
+ * is required and the combined count cannot exceed 5.
+ */
+function buildReferenceToVideoRequest(prompt, options = {}) {
+    const {
+        referenceImages = [],
+        referenceVideos = [],
+        duration = 5,
+        resolution = '1080p',
+        ratio = '16:9',
+        nsfwFilterEnabled = true
+    } = options;
+
+    const request = {
+        prompt,
+        resolution,
+        aspect_ratio: ratio,
+        duration: clampWan27Duration(duration),
+        prompt_extend: true,
+        watermark: false,
+        nsfw_checker: nsfwFilterEnabled
+    };
+
+    if (referenceImages.length > 0) {
+        request.reference_image = referenceImages;
+    }
+    if (referenceVideos.length > 0) {
+        request.reference_video = referenceVideos;
+    }
+
+    return request;
+}
+
 module.exports = {
     buildImageToVideoRequest,
     buildTextToVideoRequest,
+    buildReferenceToVideoRequest,
     normalizeVideoResponse
 };

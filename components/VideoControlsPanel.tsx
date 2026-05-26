@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { VideoIcon } from './icons';
 
 interface VideoControlsPanelProps {
@@ -11,9 +11,13 @@ interface VideoControlsPanelProps {
   onGenerate: (prompt: string, duration: number, resolution: string, audio: boolean, multiShots: boolean) => void;
   videoUrl?: string | null;
   videoError?: string | null;
+  referenceVideoFile?: File | null;
+  referenceVideoUrl?: string | null;
+  onReferenceVideoSelect?: (file: File | null) => void;
+  onUseGeneratedVideoAsReference?: () => void;
 }
 
-const durations = [5, 10, 15] as const;
+const durations = [5, 10] as const;
 type Duration = typeof durations[number];
 
 const resolutions = ['720p', '1080p'] as const;
@@ -30,15 +34,27 @@ function getCreditCost(duration: number, resolution: string): number {
   return VIDEO_CREDIT_TABLE[duration]?.[resolution] ?? Math.ceil(duration * (resolution === '1080p' ? 2.0 : 1.4));
 }
 
-const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGenerate, videoUrl, videoError }) => {
+const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGenerate, videoUrl, videoError, referenceVideoFile, referenceVideoUrl, onReferenceVideoSelect, onUseGeneratedVideoAsReference }) => {
   const [videoPrompt, setVideoPrompt] = useState('');
   const [selectedDuration, setSelectedDuration] = useState<Duration>(5);
   const [selectedResolution, setSelectedResolution] = useState<Resolution>('1080p');
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [multiShotsEnabled, setMultiShotsEnabled] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [referenceVideoPreviewUrl, setReferenceVideoPreviewUrl] = useState<string | null>(null);
 
   const creditCost = getCreditCost(selectedDuration, selectedResolution);
+  const displayedReferenceVideoUrl = referenceVideoPreviewUrl || referenceVideoUrl;
+
+  useEffect(() => {
+    if (!referenceVideoFile) {
+      setReferenceVideoPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(referenceVideoFile);
+    setReferenceVideoPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [referenceVideoFile]);
 
   const handleGenerate = () => {
     if (videoPrompt.trim()) {
@@ -88,13 +104,24 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
           />
           <div className="flex items-center justify-between px-4 py-2 bg-black/40">
             <span className="text-sm text-gray-400">Generated Video</span>
-            <a
-              href={videoUrl}
-              onClick={handleDownload}
-              className="text-sm text-blue-400 hover:text-blue-300 transition-colors font-semibold"
-            >
-              {isDownloading ? 'Downloading…' : 'Download'}
-            </a>
+            <div className="flex items-center gap-3">
+              {onUseGeneratedVideoAsReference && (
+                <button
+                  type="button"
+                  onClick={onUseGeneratedVideoAsReference}
+                  className="text-sm text-cyan-300 hover:text-cyan-200 transition-colors font-semibold"
+                >
+                  Use as Reference Video
+                </button>
+              )}
+              <a
+                href={videoUrl}
+                onClick={handleDownload}
+                className="text-sm text-blue-400 hover:text-blue-300 transition-colors font-semibold"
+              >
+                {isDownloading ? 'Downloading…' : 'Download'}
+              </a>
+            </div>
           </div>
         </div>
       )}
@@ -103,6 +130,46 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({ isLoading, onGe
       {videoError && (
         <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
           <p className="text-sm text-red-300">{videoError}</p>
+        </div>
+      )}
+
+      {/* Reference video display/upload */}
+      {onReferenceVideoSelect && (
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-gray-300">Reference Video</label>
+          <div className="border border-gray-700 rounded-lg bg-gray-800/40 p-3">
+            {displayedReferenceVideoUrl ? (
+              <div className="flex flex-col gap-3">
+                <video src={displayedReferenceVideoUrl} controls className="w-full max-h-56 rounded-lg bg-black object-contain" />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-gray-400 truncate">
+                    {referenceVideoFile ? referenceVideoFile.name : 'Generated reference video'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onReferenceVideoSelect(null)}
+                    disabled={isLoading}
+                    className="text-sm text-red-300 hover:text-red-200 font-semibold disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label className="cursor-pointer flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed border-gray-600 rounded-lg hover:border-blue-500 hover:bg-gray-700/30 transition">
+                <span className="text-3xl">🎬</span>
+                <span className="text-sm font-semibold text-gray-200">Upload Reference Video</span>
+                <span className="text-xs text-gray-500">Combine it with the current image for Wan 2.7 reference-to-video</span>
+                <input
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
+                  disabled={isLoading}
+                  onChange={(event) => onReferenceVideoSelect(event.target.files?.[0] || null)}
+                />
+              </label>
+            )}
+          </div>
         </div>
       )}
 

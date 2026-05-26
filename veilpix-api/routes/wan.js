@@ -4,26 +4,28 @@ const { db } = require('../utils/database');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const {
     uploadTemporaryImage,
+    uploadTemporaryVideo,
     deleteTemporaryImage
 } = require('../utils/imageUpload');
 const {
     buildImageToVideoRequest,
     buildTextToVideoRequest,
+    buildReferenceToVideoRequest,
     normalizeVideoResponse
 } = require('../utils/wanAdapter');
 
 const router = express.Router();
 
-// Configure multer for image uploads (reference frame)
+// Configure multer for image/video uploads (reference media)
 const upload = multer({
     limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB limit
+        fileSize: 100 * 1024 * 1024 // 100MB limit for reference videos
     },
     fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
+        if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
             cb(null, true);
         } else {
-            cb(new Error('Only image files are allowed'));
+            cb(new Error('Only image and video files are allowed'));
         }
     }
 });
@@ -241,6 +243,9 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         if (!req.file) {
             return res.status(400).json({ error: 'No reference image provided' });
         }
+        if (!req.file.mimetype.startsWith('image/')) {
+            return res.status(400).json({ error: 'Reference image must be an image file' });
+        }
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ error: 'No video description provided' });
         }
@@ -310,6 +315,131 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
 
         if (!usageLogged) {
             await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message);
+        }
+
+        const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
+
+        res.status(isNsfwError ? 400 : 500).json({
+            error: isNsfwError ? 'Content policy violation' : 'Failed to generate video',
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Generate reference-to-video with optional reference image and/or reference video
+router.post('/generate-reference-to-video', upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'video', maxCount: 1 }
+]), checkUserCredits, async (req, res) => {
+    const startTime = Date.now();
+    let usageLogged = false;
+    const uploadedFilenames = [];
+
+    try {
+        const { prompt, duration = '5', resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = 'true', referenceVideoUrl } = req.body;
+        const imageFile = req.files?.image?.[0];
+        const videoFile = req.files?.video?.[0];
+
+        if (!imageFile && !videoFile && !referenceVideoUrl) {
+            return res.status(400).json({ error: 'Provide a reference image, reference video, or generated reference video URL' });
+        }
+        if (!prompt || !prompt.trim()) {
+            return res.status(400).json({ error: 'No video description provided' });
+        }
+        if (prompt.length > 5000) {
+            return res.status(400).json({ error: 'Prompt must be 5000 characters or less' });
+        }
+
+        const referenceImages = [];
+        const referenceVideos = [];
+
+        if (imageFile) {
+            if (!imageFile.mimetype.startsWith('image/')) {
+                return res.status(400).json({ error: 'Reference image must be an image file' });
+            }
+            const imageUpload = await uploadTemporaryImage(imageFile.buffer, imageFile.mimetype, req.user.userId);
+            if (!imageUpload.success) {
+                throw new Error(`Failed to upload image: ${imageUpload.error}`);
+            }
+            uploadedFilenames.push(imageUpload.filename);
+            referenceImages.push(imageUpload.url);
+            console.log(`✅ Reference image uploaded for Wan R2V: ${imageUpload.url}`);
+        }
+
+        if (videoFile) {
+            if (!videoFile.mimetype.startsWith('video/')) {
+                return res.status(400).json({ error: 'Reference video must be a video file' });
+            }
+            const videoUpload = await uploadTemporaryVideo(videoFile.buffer, videoFile.mimetype, req.user.userId);
+            if (!videoUpload.success) {
+                throw new Error(`Failed to upload video: ${videoUpload.error}`);
+            }
+            uploadedFilenames.push(videoUpload.filename);
+            referenceVideos.push(videoUpload.url);
+            console.log(`✅ Reference video uploaded for Wan R2V: ${videoUpload.url}`);
+        } else if (referenceVideoUrl) {
+            try {
+                const parsed = new URL(referenceVideoUrl);
+                if (!['http:', 'https:'].includes(parsed.protocol)) {
+                    throw new Error('Invalid URL protocol');
+                }
+                referenceVideos.push(referenceVideoUrl);
+            } catch {
+                return res.status(400).json({ error: 'Invalid reference video URL' });
+            }
+        }
+
+        if (referenceImages.length + referenceVideos.length > 5) {
+            return res.status(400).json({ error: 'Reference images and videos cannot exceed 5 total' });
+        }
+
+        const validRatios = ['16:9', '9:16', '1:1', '4:3', '3:4'];
+        const selectedRatio = validRatios.includes(ratio) ? ratio : '16:9';
+
+        const wanRequest = buildReferenceToVideoRequest(prompt.trim(), {
+            referenceImages,
+            referenceVideos,
+            duration: parseInt(duration),
+            resolution,
+            ratio: selectedRatio,
+            nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true || nsfwFilterEnabled === undefined
+        });
+
+        const taskResponse = await createWanTask(wanRequest, 'wan/2-7-r2v');
+        const taskId = taskResponse.data.taskId;
+        console.log(`📋 Reference-to-video task created with ID: ${taskId}`);
+
+        const completedJob = await pollWanJob(taskId);
+        const normalizedResponse = normalizeVideoResponse(completedJob);
+
+        if (!normalizedResponse.success) {
+            throw new Error(normalizedResponse.error || 'Failed to process video response');
+        }
+
+        for (const filename of uploadedFilenames) {
+            await deleteTemporaryImage(filename);
+        }
+
+        const creditCost = req.videoCreditCost;
+        usageLogged = await deductCreditAndTrack(req, startTime, 'reference-to-video', creditCost);
+
+        res.json({
+            success: true,
+            videoUrl: normalizedResponse.videoUrl,
+            processingTime: Date.now() - startTime,
+            creditsUsed: creditCost,
+            creditsRemaining: req.creditsInfo?.remaining || 0
+        });
+    } catch (error) {
+        console.error('Error generating reference-to-video with Wan:', error);
+
+        for (const filename of uploadedFilenames) {
+            await deleteTemporaryImage(filename);
+        }
+
+        if (!usageLogged) {
+            await deductCreditAndTrack(req, startTime, 'reference-to-video', 0, false, error.message);
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');

@@ -12,11 +12,35 @@ dist
 dist-ssr
 *.local
 
-# Environment variables
+# Environment variables and local secrets
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
+!.env.sample
 veilpix-api/.env
+veilpix-api/.env.*
+!veilpix-api/.env.example
+!veilpix-api/.env.sample
+
+# Credentials / private keys / local auth files
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+.npmrc
+.pypirc
+.netrc
+.aws/
+.azure/
+.gcloud/
+
+# Deployment/local tool state
+.ftp-deploy-sync-state*.json
 
 # Editor directories and files
 .vscode/*
@@ -33,12 +57,10 @@ veilpix-api/.env
 SEO-UPDATE-PLAN-2025.md
 .claude/agents/seo-expert-2025.md
 public/audi.jpeg
-.gitignore
 public/civic.jpeg
 public/3d model.jpeg
 public/blueprint.jpeg
 public/examples/headshot before.png
-.gitignore
 .playwright-mcp/veilpix-enchanted-cafe-result.png
 .claude/settings.local.json
 supabase/.temp/

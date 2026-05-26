@@ -467,17 +467,42 @@ export async function getGalleryVideoUrl(id: number): Promise<string | null> {
   }
 }
 
+async function createVideoPlaceholderThumbnail(): Promise<Blob> {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 320;
+    canvas.height = 180;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const gradient = ctx.createLinearGradient(0, 0, 320, 180);
+      gradient.addColorStop(0, '#111827');
+      gradient.addColorStop(1, '#0ea5e9');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 320, 180);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(140, 65);
+      ctx.lineTo(140, 115);
+      ctx.lineTo(185, 90);
+      ctx.closePath();
+      ctx.fill();
+    }
+    canvas.toBlob((blob) => resolve(blob || new Blob()), 'image/jpeg', 0.8);
+  });
+}
+
 /**
  * Save a video to the gallery
- * Stores the video URL and a thumbnail generated from the reference image
+ * Stores the video URL and a thumbnail generated from the reference image when available.
  */
-export async function saveVideoToGallery(referenceImage: File, videoUrl: string): Promise<void> {
+export async function saveVideoToGallery(referenceImage: File | null, videoUrl: string): Promise<void> {
   try {
     const db = await openDB();
-    const thumbnail = await createThumbnail(referenceImage);
+    const thumbnail = referenceImage ? await createThumbnail(referenceImage) : await createVideoPlaceholderThumbnail();
+    const storedBlob = referenceImage || thumbnail;
 
     const galleryEntry: GalleryImage = {
-      blob: referenceImage,
+      blob: storedBlob,
       thumbnail,
       createdAt: Date.now(),
       name: `video-${Date.now()}.mp4`,

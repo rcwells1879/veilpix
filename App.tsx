@@ -36,6 +36,7 @@ import {
   useGenerateCompositeWanImage,
   useGenerateTextToImageWanImage,
   useGenerateVideo,
+  useGenerateReferenceToVideo,
   useGenerateTextToVideo,
   useUsageStats
 } from './src/hooks/useImageGeneration';
@@ -349,11 +350,14 @@ const App: React.FC = () => {
   const textToImageMutation = !settings.nsfwFilterEnabled ? textToImageWan : textToImageNB2;
 
   const videoMutation = useGenerateVideo();
+  const referenceVideoMutation = useGenerateReferenceToVideo();
   const textToVideoMutation = useGenerateTextToVideo();
 
   // Video generation state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
+  const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
 
   // React 19 optimistic state for immediate UI feedback
   const [optimisticHistory, setOptimisticHistory] = useOptimistic(
@@ -362,7 +366,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageWan.isPending || textToImageNB2.isPending || videoMutation.isPending || textToVideoMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageWan.isPending || textToImageNB2.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -1012,6 +1016,8 @@ const App: React.FC = () => {
     if (newMode !== 'video') {
       setVideoUrl(null);
       setVideoError(null);
+      setReferenceVideoFile(null);
+      setReferenceVideoUrl(null);
     }
 
     if (view === 'editor' && currentImage) {
@@ -1045,8 +1051,8 @@ const App: React.FC = () => {
 
   // Handle video generation
   const handleGenerateVideo = useCallback(async (prompt: string, duration: number, resolution: string, audio: boolean, multiShots: boolean) => {
-    if (!currentImage) {
-      setVideoError('No reference image loaded.');
+    if (!currentImage && !referenceVideoFile && !referenceVideoUrl) {
+      setVideoError('Add a reference image, reference video, or both.');
       return;
     }
 
@@ -1054,20 +1060,32 @@ const App: React.FC = () => {
     setVideoUrl(null);
 
     try {
-      const response = await videoMutation.mutateAsync({
-        image: currentImage,
-        prompt,
-        duration,
-        resolution,
-        audio,
-        multiShots,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
+      const hasReferenceVideo = !!referenceVideoFile || !!referenceVideoUrl;
+      const response = hasReferenceVideo
+        ? await referenceVideoMutation.mutateAsync({
+            image: currentImage,
+            video: referenceVideoFile,
+            referenceVideoUrl,
+            prompt,
+            duration,
+            resolution,
+            ratio: '16:9',
+            nsfwFilterEnabled: settings.nsfwFilterEnabled
+          })
+        : await videoMutation.mutateAsync({
+            image: currentImage!,
+            prompt,
+            duration,
+            resolution,
+            audio,
+            multiShots,
+            nsfwFilterEnabled: settings.nsfwFilterEnabled
+          });
 
       if (response.success && response.videoUrl) {
         setVideoUrl(response.videoUrl);
-        // Save video to gallery with reference image as thumbnail source
-        saveVideoToGallery(currentImage, response.videoUrl).then(() => setGalleryRefreshTrigger(n => n + 1));
+        // Save generated videos to gallery. Use the current image as thumbnail when available.
+        saveVideoToGallery(currentImage ?? null, response.videoUrl).then(() => setGalleryRefreshTrigger(n => n + 1));
       } else {
         throw new Error(response.message || 'Failed to generate video');
       }
@@ -1080,7 +1098,20 @@ const App: React.FC = () => {
       }
       console.error('Video generation error:', err);
     }
-  }, [currentImage, videoMutation, settings.nsfwFilterEnabled]);
+  }, [currentImage, referenceVideoFile, referenceVideoUrl, videoMutation, referenceVideoMutation, settings.nsfwFilterEnabled]);
+
+  const handleReferenceVideoSelect = useCallback((file: File | null) => {
+    setReferenceVideoFile(file);
+    setReferenceVideoUrl(null);
+  }, []);
+
+  const handleUseGeneratedVideoAsReference = useCallback(() => {
+    if (!videoUrl) return;
+    setReferenceVideoFile(null);
+    setReferenceVideoUrl(videoUrl);
+    setVideoUrl(null);
+    setVideoError(null);
+  }, [videoUrl]);
 
   // Handle text-to-video generation (no reference image needed)
   const handleTextToVideoGenerate = useCallback(async (prompt: string, duration: number, resolution: string, ratio: string) => {
@@ -1100,6 +1131,7 @@ const App: React.FC = () => {
 
       if (response.success && response.videoUrl) {
         setVideoUrl(response.videoUrl);
+        saveVideoToGallery(null, response.videoUrl).then(() => setGalleryRefreshTrigger(n => n + 1));
       } else {
         throw new Error(response.message || 'Failed to generate video');
       }
@@ -1231,6 +1263,8 @@ const App: React.FC = () => {
         onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
         onTextToImageGenerate={handleTextToImageGenerate}
         onTextToVideoGenerate={handleTextToVideoGenerate}
+        onReferenceVideoSelect={handleReferenceVideoSelect}
+        referenceVideoFile={referenceVideoFile}
         activeMode={creativeMode}
         onModeChange={handleModeChange}
         compositeFile1={sourceImage1}
@@ -1537,6 +1571,10 @@ const App: React.FC = () => {
                 onGenerate={handleGenerateVideo}
                 videoUrl={videoUrl}
                 videoError={videoError}
+                referenceVideoFile={referenceVideoFile}
+                referenceVideoUrl={referenceVideoUrl}
+                onReferenceVideoSelect={handleReferenceVideoSelect}
+                onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
               />
             </Suspense>
           )}
@@ -1552,6 +1590,8 @@ const App: React.FC = () => {
       onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
       onTextToImageGenerate={handleTextToImageGenerate}
       onTextToVideoGenerate={handleTextToVideoGenerate}
+      onReferenceVideoSelect={handleReferenceVideoSelect}
+      referenceVideoFile={referenceVideoFile}
       activeMode={creativeMode}
       onModeChange={handleModeChange}
       isAuthenticated={isLoaded && isSignedIn}

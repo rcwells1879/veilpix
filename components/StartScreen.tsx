@@ -18,6 +18,8 @@ interface StartScreenProps {
   onUseWebcamForCompositeClick: () => void;
   onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void) => void;
   onTextToVideoGenerate?: (prompt: string, duration: number, resolution: string, ratio: string) => void;
+  onReferenceVideoSelect?: (file: File | null) => void;
+  referenceVideoFile?: File | null;
   activeMode: CreativeMode;
   onModeChange: (mode: CreativeMode) => void;
   compositeFile1?: File | null;
@@ -29,7 +31,7 @@ interface StartScreenProps {
   galleryRefreshTrigger?: number;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, galleryRefreshTrigger }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onReferenceVideoSelect, referenceVideoFile = null, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, galleryRefreshTrigger }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
 
@@ -38,11 +40,22 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
   const [textToVideoDuration, setTextToVideoDuration] = useState(5);
   const [textToVideoResolution, setTextToVideoResolution] = useState('1080p');
   const [textToVideoRatio, setTextToVideoRatio] = useState('16:9');
+  const [referenceVideoPreviewUrl, setReferenceVideoPreviewUrl] = useState<string | null>(null);
 
   // Update composite file when prop changes
   useEffect(() => {
     setCompositeFile1(initialCompositeFile1);
   }, [initialCompositeFile1]);
+
+  useEffect(() => {
+    if (!referenceVideoFile) {
+      setReferenceVideoPreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(referenceVideoFile);
+    setReferenceVideoPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [referenceVideoFile]);
 
   const handleComposite = useCallback(() => {
     if (compositeFile1 && compositeFile2) {
@@ -166,29 +179,78 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         {/* Video Mode Content */}
         {activeMode === 'video' && (
           <div className="flex flex-col items-center gap-4 animate-fade-in">
-            {/* Image-to-Video: Upload reference image */}
+            {/* Reference-to-Video: Upload reference image and/or video */}
             <div className="w-full">
-              <p className="text-sm font-semibold text-gray-400 text-center mb-2">Image-to-Video</p>
-              <ImageDropzone
-                file={null}
-                onFileSelect={(file) => {
-                  if (file) {
-                    const dt = new DataTransfer();
-                    dt.items.add(file);
-                    onFileSelect(dt.files);
-                  } else {
-                    onFileSelect(null);
-                  }
-                }}
-                label="Upload Reference Image"
-                showWebcam={true}
-                onWebcamClick={onUseWebcamClick}
-                showTextToImage={true}
-                onTextToImageGenerate={onTextToImageGenerate}
-                isAuthenticated={isAuthenticated}
-                onShowSignupPrompt={onShowSignupPrompt}
-                isGeneratingImage={isGeneratingImage}
-              />
+              <p className="text-sm font-semibold text-gray-400 text-center mb-2">Reference-to-Video</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                <ImageDropzone
+                  file={null}
+                  onFileSelect={(file) => {
+                    if (file) {
+                      const dt = new DataTransfer();
+                      dt.items.add(file);
+                      onFileSelect(dt.files);
+                    } else {
+                      onFileSelect(null);
+                    }
+                  }}
+                  label="Upload Reference Image"
+                  showWebcam={true}
+                  onWebcamClick={onUseWebcamClick}
+                  showTextToImage={true}
+                  onTextToImageGenerate={onTextToImageGenerate}
+                  isAuthenticated={isAuthenticated}
+                  onShowSignupPrompt={onShowSignupPrompt}
+                  isGeneratingImage={isGeneratingImage}
+                />
+
+                <div className="w-full h-full min-h-[250px] border-2 border-dashed border-gray-600 rounded-lg flex flex-col items-center justify-center p-6 text-center bg-gray-800/30 hover:bg-gray-700/40 hover:border-blue-500 transition-all duration-300">
+                  {referenceVideoFile ? (
+                    <div className="w-full flex flex-col items-center gap-3">
+                      <video
+                        src={referenceVideoPreviewUrl || undefined}
+                        controls
+                        className="w-full max-h-44 rounded-lg bg-black object-contain"
+                      />
+                      <p className="text-sm text-gray-300 truncate max-w-full">{referenceVideoFile.name}</p>
+                      <button
+                        type="button"
+                        onClick={() => onReferenceVideoSelect?.(null)}
+                        className="text-sm text-red-300 hover:text-red-200 font-semibold"
+                        disabled={isGeneratingImage}
+                      >
+                        Remove Reference Video
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center gap-3">
+                      <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-400/30 flex items-center justify-center">
+                        <span className="text-3xl">🎬</span>
+                      </div>
+                      <div>
+                        <p className="text-lg font-semibold text-gray-200">Upload Reference Video</p>
+                        <p className="text-sm text-gray-500 mt-1">MP4/WebM/MOV reference clip</p>
+                      </div>
+                      <input
+                        type="file"
+                        accept="video/*"
+                        className="hidden"
+                        disabled={isGeneratingImage}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0] || null;
+                          if (file && !isAuthenticated && onShowSignupPrompt) {
+                            onShowSignupPrompt();
+                            event.currentTarget.value = '';
+                            return;
+                          }
+                          onReferenceVideoSelect?.(file);
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 text-center mt-2">Use an image, a video, or both. If both are present, Wan 2.7 reference-to-video uses both references.</p>
             </div>
 
             {/* "Or" divider */}
@@ -216,7 +278,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 {/* Duration */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">Duration:</span>
-                  {([5, 10, 15] as const).map((d) => (
+                  {([5, 10] as const).map((d) => (
                     <button
                       key={d}
                       onClick={() => setTextToVideoDuration(d)}

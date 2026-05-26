@@ -26,29 +26,29 @@ const CLEANUP_HOURS = 2;
  * @param {string} userId - Optional user ID for organizing uploads
  * @returns {Promise<{success: boolean, url?: string, error?: string}>}
  */
-async function uploadTemporaryImage(imageBuffer, mimeType, userId = 'anonymous') {
+async function uploadTemporaryFile(fileBuffer, mimeType, userId = 'anonymous', label = 'file') {
     try {
         const supabase = getSupabaseClient();
 
         // Generate unique filename with timestamp for auto-cleanup
         const timestamp = Date.now();
         const randomId = crypto.randomBytes(8).toString('hex');
-        const extension = mimeType.split('/')[1] || 'png';
+        const extension = mimeType.split('/')[1] || 'bin';
         const filename = `${userId}/${timestamp}_${randomId}.${extension}`;
 
-        console.log(`📤 Uploading temporary image: ${filename}`);
+        console.log(`📤 Uploading temporary ${label}: ${filename}`);
 
         // Upload to Supabase Storage
         const { data, error } = await supabase.storage
             .from(TEMP_IMAGE_BUCKET)
-            .upload(filename, imageBuffer, {
+            .upload(filename, fileBuffer, {
                 contentType: mimeType,
                 cacheControl: '3600', // 1 hour cache
                 upsert: false
             });
 
         if (error) {
-            console.error('❌ Failed to upload image to storage:', error);
+            console.error(`❌ Failed to upload ${label} to storage:`, error);
             return {
                 success: false,
                 error: error.message
@@ -61,14 +61,14 @@ async function uploadTemporaryImage(imageBuffer, mimeType, userId = 'anonymous')
             .getPublicUrl(filename);
 
         if (!urlData || !urlData.publicUrl) {
-            console.error('❌ Failed to get public URL for uploaded image');
+            console.error(`❌ Failed to get public URL for uploaded ${label}`);
             return {
                 success: false,
                 error: 'Failed to generate public URL'
             };
         }
 
-        console.log(`✅ Image uploaded successfully: ${urlData.publicUrl}`);
+        console.log(`✅ ${label} uploaded successfully: ${urlData.publicUrl}`);
 
         return {
             success: true,
@@ -77,12 +77,20 @@ async function uploadTemporaryImage(imageBuffer, mimeType, userId = 'anonymous')
         };
 
     } catch (error) {
-        console.error('❌ Exception during image upload:', error);
+        console.error(`❌ Exception during ${label} upload:`, error);
         return {
             success: false,
             error: error.message
         };
     }
+}
+
+async function uploadTemporaryImage(imageBuffer, mimeType, userId = 'anonymous') {
+    return uploadTemporaryFile(imageBuffer, mimeType, userId, 'image');
+}
+
+async function uploadTemporaryVideo(videoBuffer, mimeType, userId = 'anonymous') {
+    return uploadTemporaryFile(videoBuffer, mimeType, userId, 'video');
 }
 
 /**
@@ -272,6 +280,8 @@ async function cleanupOldImages() {
 
 module.exports = {
     uploadTemporaryImage,
+    uploadTemporaryVideo,
+    uploadTemporaryFile,
     uploadMultipleImages,
     deleteTemporaryImage,
     deleteMultipleImages,

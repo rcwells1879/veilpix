@@ -808,6 +808,53 @@ export interface GenerateTextToVideoRequest {
   nsfwFilterEnabled?: boolean
 }
 
+export interface GenerateReferenceToVideoRequest {
+  image?: File | null
+  video?: File | null
+  referenceVideoUrl?: string | null
+  prompt: string
+  duration?: number
+  resolution?: string
+  ratio?: string
+  nsfwFilterEnabled?: boolean
+}
+
+export function useGenerateReferenceToVideo() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    retry: false,
+    mutationFn: async (data: GenerateReferenceToVideoRequest): Promise<VideoGenerationResponse> => {
+      const formData = new FormData()
+      if (data.image) {
+        const compressedImage = await compressImageIfNeeded(data.image, 20)
+        formData.append('image', compressedImage)
+      }
+      if (data.video) {
+        formData.append('video', data.video)
+      }
+      if (data.referenceVideoUrl) {
+        formData.append('referenceVideoUrl', data.referenceVideoUrl)
+      }
+      formData.append('prompt', data.prompt)
+      formData.append('duration', (data.duration || 5).toString())
+      formData.append('resolution', data.resolution || '1080p')
+      formData.append('ratio', data.ratio || '16:9')
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
+
+      return await apiRequest<VideoGenerationResponse>('/api/wan/generate-reference-to-video', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
 export function useGenerateTextToVideo() {
   const { apiRequest } = useApiClient()
 
