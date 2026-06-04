@@ -1,4 +1,4 @@
-name: Deploy VeilPix Frontend to Production
+name: Build VeilPix Frontend
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - 'public/**'
       - 'components/**'
       - 'App.tsx'
+      - 'index.css'
       - 'index.tsx'
       - 'types.ts'
       - 'index.html'
@@ -18,9 +19,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -40,22 +41,11 @@ jobs:
         VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
         VITE_API_BASE_URL: https://api.veilstudio.io
 
-    - name: Deploy via FTPS
-      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+    - name: Trigger VeilStudio Cloudflare Pages deployment
+      if: github.event_name == 'push'
+      uses: peter-evans/repository-dispatch@v3
       with:
-        server: ${{ secrets.FTP_SERVER }}
-        username: ${{ secrets.FTP_USERNAME }}
-        password: ${{ secrets.FTP_PASSWORD }}
-        protocol: ftp
-        port: 21
-        local-dir: ./dist/
-        server-dir: ./public_html/veilpix/
-        state-name: .ftp-deploy-sync-state-v2.json
-        exclude: |
-          **/.git*
-          **/.git*/**
-          **/node_modules/**
-          .DS_Store
-          Thumbs.db
-        dry-run: false
-        log-level: verbose
+        token: ${{ secrets.VEILSTUDIO_DISPATCH_TOKEN }}
+        repository: rcwells1879/VeilStudio
+        event-type: veilpix-updated
+        client-payload: '{"source_repo":"veilpix","source_sha":"${{ github.sha }}","source_ref":"${{ github.ref_name }}"}'
