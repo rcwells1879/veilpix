@@ -12,40 +12,44 @@ interface FAQItem {
 
 const faqData: FAQItem[] = [
   {
-    question: "What is Veilpix - Nano Banana 2 and how does it work?",
-    answer: "Veilpix - Nano Banana 2 is a free AI-powered photo editor that uses the advanced Nano Banana 2 AI model (powered by Google Gemini 3.1 Flash) to transform your images through simple text descriptions. Just upload a photo, click where you want to edit, and describe your changes in plain English."
+    question: "What is VeilPix and how does it work?",
+    answer: "VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, and reference-to-video clips with models including Nano Banana 2, Nano Banana Pro, SeeDream 4.5, Wan 2.7, and Wan 2.6 Flash."
   },
   {
-    question: "What makes Veilpix - Nano Banana 2 different from other AI photo editors?",
-    answer: "Veilpix - Nano Banana 2 offers precise localized editing - you can click specific areas of your image to make targeted changes. We also prioritize privacy by not storing your photos or prompts, and we don't use trackers or ads. Plus, it's free to try with 30 credits after signing in, and no payment details are required."
+    question: "Can VeilPix generate videos?",
+    answer: "Yes. VeilPix supports Wan 2.7 text-to-video, Wan 2.6 Flash image-to-video, and reference-to-video workflows that can use an image, a video, or both as creative guidance. Seedance 2.0 support is planned soon."
   },
   {
-    question: "What types of edits can I make?",
-    answer: "You can perform localized retouching (remove objects, change colors, add elements), apply creative filters and artistic styles, make professional adjustments (lighting, contrast, saturation), combine multiple images, and crop your photos. All through simple text descriptions."
+    question: "What makes VeilPix different from other AI photo editors?",
+    answer: "VeilPix brings image editing, text-to-image generation, and AI video generation into one private creative tool. It supports localized editing, multi-image composition, text-to-video, image-to-video, and reference-to-video without storing your photos, videos, or prompts."
   },
   {
-    question: "Can I use Veilpix - Nano Banana 2 for commercial purposes?",
-    answer: "Yes! The images you create with Veilpix - Nano Banana 2 are yours to use for any purpose, including commercial projects. We don't retain any rights to your edited photos."
+    question: "What types of images and videos can I create?",
+    answer: "You can retouch photos, remove or add objects, change colors, apply styles, adjust lighting, create images from prompts, combine reference images, generate videos from text, animate an image, or guide reference-to-video generation with uploaded media."
   },
   {
-    question: "How do you handle my photos and data?",
-    answer: "Privacy is our priority. We don't store your uploaded photos or editing prompts on our servers. Images are processed in real-time and discarded immediately after editing. We also don't use cookies, trackers, or ads."
+    question: "Can I use VeilPix for commercial purposes?",
+    answer: "Yes. Images and videos you create with VeilPix are yours to use for personal or commercial projects, subject to the terms of the model providers and any media you upload. VeilPix does not retain ownership of your generated media."
   },
   {
-    question: "Is Veilpix - Nano Banana 2 really free?",
-    answer: "Yes! Veilpix - Nano Banana 2 is free to try. Simply sign in to receive 30 free credits - no payment details required. Credits never expire and there are no recurring subscriptions. You only pay if you choose to purchase additional credits."
+    question: "How do you handle my photos, videos, and prompts?",
+    answer: "Privacy is a core priority. Uploaded photos, videos, and prompts are sent only for the requested generation or edit, then discarded rather than stored as a user library. VeilPix avoids advertising trackers and is designed around private creative workflows."
   },
   {
-    question: "What file formats do you support?",
-    answer: "Veilpix - Nano Banana 2 supports all common image formats including JPEG, PNG, WebP, and even HEIC files from Apple devices. HEIC files are automatically converted to ensure compatibility."
+    question: "Is VeilPix really free?",
+    answer: "Yes. VeilPix is free to try with 30 credits after sign-up and no payment required. Credits can be used across supported image and video workflows, and additional credits are available without a required subscription."
   },
   {
-    question: "Do I need to create an account?",
-    answer: "Yes, you need to sign in to use Veilpix - Nano Banana 2, but it's completely free and you'll receive 30 credits immediately upon registration. No payment details are required unless you want to purchase additional credits."
+    question: "What AI models does VeilPix use?",
+    answer: "VeilPix uses Nano Banana 2, Nano Banana Pro, and SeeDream 4.5 for image generation and editing, plus Wan 2.7 and Wan 2.6 Flash for video workflows. Seedance 2.0 is planned as a future video model option."
   },
   {
-    question: "Is Veilpix - Nano Banana 2 affiliated with Google?",
-    answer: "No, Veilpix - Nano Banana 2 is an independent application that uses the Nano Banana 2 AI model (powered by Google Gemini 3.1 Flash) through a third-party API platform. We are not affiliated with or endorsed by Google."
+    question: "What file formats does VeilPix support?",
+    answer: "VeilPix supports common image formats including JPEG, PNG, WebP, and HEIC, with HEIC auto-conversion for Apple device uploads. Video reference workflows support common browser-friendly video formats such as MP4, WebM, and MOV."
+  },
+  {
+    question: "Is VeilPix affiliated with Google?",
+    answer: "No. VeilPix is an independent application that integrates third-party image and video models, including Google Gemini-powered image models. VeilPix is not affiliated with or endorsed by Google, ByteDance, Wan, or Seedance."
   }
 ];
 
@@ -69,7 +73,7 @@ const FAQ: React.FC = () => {
           Frequently Asked Questions
         </h2>
         <p className="text-lg text-gray-400">
-          Everything you need to know about Veilpix - Nano Banana 2
+          Everything you need to know about VeilPix image and video generation
         </p>
       </div>
 

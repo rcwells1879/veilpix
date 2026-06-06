@@ -4,7 +4,7 @@
 */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { MagicWandIcon, PaletteIcon, SunIcon } from './icons';
+import { MagicWandIcon, PaletteIcon, SunIcon, VideoIcon } from './icons';
 import ImageDropzone from './ImageDropzone';
 import ModeSelector, { type CreativeMode } from './ModeSelector';
 import FAQ from './FAQ';
@@ -101,10 +101,10 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
   return (
     <div className="flex flex-col items-center gap-6 animate-fade-in w-full max-w-5xl mx-auto">
       <h1 className="text-5xl font-extrabold tracking-tight text-gray-100 sm:text-6xl md:text-7xl text-center">
-        Imagine. Describe. <span className="text-[#E04F67]">Transform.</span>
+        Create Images. Edit Photos. <span className="text-[#E04F67]">Generate Video.</span>
       </h1>
       <p className="max-w-3xl text-lg text-gray-400 md:text-xl text-center">
-        Retouch photos, combine images, apply creative filters, or make professional adjustments using simple text prompts.
+        Generate images from text, retouch photos, combine references, and create Wan 2.7 text-to-video, image-to-video, and reference-to-video clips from simple prompts.
       </p>
 
       <div className="w-full mt-6 bg-gray-800/50 border border-gray-700/80 rounded-xl p-2 md:p-8 flex flex-col gap-6 backdrop-blur-sm">
@@ -368,7 +368,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
       <BeforeAfterShowcase />
 
       <div className="mt-12 w-full">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
               <div className="bg-black/20 p-6 rounded-lg border border-gray-700/50 flex flex-col items-center text-center">
                   <div className="flex items-center justify-center w-12 h-12 bg-gray-700 rounded-full mb-4">
                      <MagicWandIcon className="w-6 h-6 text-blue-400" />
@@ -380,8 +380,15 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                   <div className="flex items-center justify-center w-12 h-12 bg-gray-700 rounded-full mb-4">
                      <PaletteIcon className="w-6 h-6 text-blue-400" />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-100">Creative Filters</h3>
-                  <p className="mt-2 text-gray-400">Transform photos with artistic styles. From vintage looks to futuristic glows, find or create the perfect filter.</p>
+                  <h3 className="text-xl font-bold text-gray-100">Text-to-Image</h3>
+                  <p className="mt-2 text-gray-400">Describe a scene, style, or product concept and generate new images with Nano Banana, SeeDream, and Wan image models.</p>
+              </div>
+              <div className="bg-black/20 p-6 rounded-lg border border-gray-700/50 flex flex-col items-center text-center">
+                  <div className="flex items-center justify-center w-12 h-12 bg-gray-700 rounded-full mb-4">
+                     <VideoIcon className="w-6 h-6 text-blue-400" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-100">AI Video Generation</h3>
+                  <p className="mt-2 text-gray-400">Create Wan 2.7 text-to-video clips, animate images, or guide reference-to-video workflows. Seedance 2.0 support is planned soon.</p>
               </div>
               <div className="bg-black/20 p-6 rounded-lg border border-gray-700/50 flex flex-col items-center text-center">
                   <div className="flex items-center justify-center w-12 h-12 bg-gray-700 rounded-full mb-4">

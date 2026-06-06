@@ -1,7 +1,7 @@
 {
-  "name": "VeilPix - AI Image Editor",
+  "name": "VeilPix - AI Image and Video Generator",
   "short_name": "VeilPix",
-  "description": "Free AI photo editing with Nano Banana Pro and SeeDream 4.5. Private, no restrictions.",
+  "description": "Private AI image editing, text-to-image, text-to-video, image-to-video, and reference-to-video generation with Wan 2.7 and planned Seedance 2.0 support.",
   "start_url": "/veilpix/",
   "display": "standalone",
   "background_color": "#020106",
@@ -10,5 +10,5 @@
     {"src": "/veilpix/favicon.png", "sizes": "192x192", "type": "image/png"},
     {"src": "/veilpix/apple-touch-icon-180x180.png", "sizes": "180x180", "type": "image/png"}
   ],
-  "categories": ["photo", "graphics", "productivity"]
+  "categories": ["photo", "graphics", "video", "productivity"]
 }

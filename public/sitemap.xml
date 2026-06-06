@@ -3,13 +3,13 @@
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://veilstudio.io/veilpix/</loc>
-    <lastmod>2025-12-03</lastmod>
+    <lastmod>2026-06-06</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://veilstudio.io/veilpix/og-image.webp</image:loc>
-      <image:title>VeilPix AI Image Editor - Nano Banana 2, Nano Banana Pro, and SeeDream 4.5</image:title>
-      <image:caption>Free AI photo editing with complete privacy</image:caption>
+      <image:title>VeilPix AI Image and Video Generator - Wan 2.7, Seedance 2.0 planned, Nano Banana, and SeeDream</image:title>
+      <image:caption>Private AI image editing, text-to-image, text-to-video, image-to-video, and reference-to-video generation</image:caption>
     </image:image>
   </url>
   <url>

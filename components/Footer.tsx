@@ -77,7 +77,7 @@ const Footer: React.FC<FooterProps> = ({ onShowPricing }) => {
                 <span className="text-white">Studio</span>
               </a>
               <p className="mt-4 text-gray-300 max-w-md">
-                Developing powerful, beautiful AI-integrated applications with privacy and security as core principles.
+                Developing private AI tools for image editing, text-to-image generation, video generation, and creative workflows.
               </p>
               <div className="flex space-x-6 mt-6">
                 {socialLinks.map((item) => (

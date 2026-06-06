@@ -1,6 +1,6 @@
 {
-  "name": "Copy of VeilPix",
-  "description": "A powerful, AI photo editor. Retouch, apply creative filters, and make professional adjustments to your images using simple text prompts.",
+  "name": "VeilPix",
+  "description": "A private AI image and video generator for photo editing, text-to-image, text-to-video, image-to-video, and reference-to-video workflows.",
   "requestFramePermissions": [
     "camera"
   ],
