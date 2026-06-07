@@ -12,6 +12,7 @@ const {
     SEEDANCE_PRICING,
     buildSeedanceRequest,
     clampDuration,
+    estimateSeedanceKieCredits,
     estimateSeedanceVeilPixCredits,
     normalizeResolution,
     normalizeSeedanceResponse,
@@ -336,13 +337,15 @@ router.post('/generate-video', upload.fields([
         const measuredVideoDuration = hasVideoReference
             ? getReferenceVideoDuration(videoFile, referenceVideoUrl ? referenceVideoDuration || MAX_REFERENCE_VIDEO_SECONDS : referenceVideoDuration)
             : 0;
-        const estimatedCredits = estimateSeedanceVeilPixCredits({
+        const seedancePricingContext = {
             variant: selectedVariant,
             resolution: selectedResolution,
             duration: selectedDuration,
             hasVideoReference,
             referenceVideoDuration: measuredVideoDuration
-        });
+        };
+        const estimatedKieCredits = estimateSeedanceKieCredits(seedancePricingContext);
+        const estimatedCredits = estimateSeedanceVeilPixCredits(seedancePricingContext);
         const { credits, error } = await db.getUserCredits(req.user.userId);
 
         if (error) {
@@ -429,9 +432,24 @@ router.post('/generate-video', upload.fields([
             await deleteTemporaryImage(filename);
         }
 
-        const actualCredits = completedJob.taskData?.creditsConsumed
-            ? veilpixCreditsFromKieCredits(completedJob.taskData.creditsConsumed)
-            : estimatedCredits;
+        const providerKieCredits = Number(completedJob.taskData?.creditsConsumed);
+        const providerCredits = Number.isFinite(providerKieCredits) && providerKieCredits > 0
+            ? veilpixCreditsFromKieCredits(providerKieCredits)
+            : 0;
+        const actualCredits = Math.max(estimatedCredits, providerCredits);
+
+        console.log('Seedance billing summary:', {
+            variant: selectedVariant,
+            resolution: selectedResolution,
+            outputSeconds: selectedDuration,
+            hasVideoReference,
+            referenceVideoSeconds: measuredVideoDuration,
+            estimatedKieCredits,
+            estimatedVeilPixCredits: estimatedCredits,
+            providerKieCredits: Number.isFinite(providerKieCredits) ? providerKieCredits : null,
+            providerVeilPixCredits: providerCredits || null,
+            chargedVeilPixCredits: actualCredits
+        });
 
         usageLogged = await deductCreditsAndTrack(req, startTime, 'seedance-video', actualCredits);
 
