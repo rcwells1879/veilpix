@@ -421,6 +421,10 @@ const App: React.FC = () => {
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
+  const [isWebcamForComposite, setIsWebcamForComposite] = useState(false);
+  const [isWebcamForCompositeSecond, setIsWebcamForCompositeSecond] = useState(false);
+  const [creativeMode, setCreativeMode] = useState<CreativeMode>('single');
+  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
   
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
@@ -671,11 +675,6 @@ const App: React.FC = () => {
       setView('composite');
     }
   }, []);
-
-  const [isWebcamForComposite, setIsWebcamForComposite] = useState(false);
-  const [isWebcamForCompositeSecond, setIsWebcamForCompositeSecond] = useState(false);
-  const [creativeMode, setCreativeMode] = useState<CreativeMode>('single');
-  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
 
   const handleWebcamCapture = useCallback((file: File) => {
     if (isWebcamForCompositeSecond) {
