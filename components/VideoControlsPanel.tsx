@@ -317,26 +317,26 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-700/70 bg-gray-900/40 p-3">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold text-gray-300">Active References</p>
-            <p className="text-xs text-gray-500">These references are sent to the selected video model.</p>
+      {videoProvider === 'wan' && (
+        <div className="rounded-lg border border-gray-700/70 bg-gray-900/40 p-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-gray-300">Active References</p>
+              <p className="text-xs text-gray-500">These references are sent to the selected video model.</p>
+            </div>
+            {videoUrl && onUseGeneratedVideoAsReference && (
+              <button
+                type="button"
+                onClick={onUseGeneratedVideoAsReference}
+                disabled={isLoading}
+                className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-50"
+              >
+                Use Generated Video
+              </button>
+            )}
           </div>
-          {videoUrl && onUseGeneratedVideoAsReference && (
-            <button
-              type="button"
-              onClick={onUseGeneratedVideoAsReference}
-              disabled={isLoading}
-              className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-50"
-            >
-              Use Generated Video
-            </button>
-          )}
-        </div>
 
-        {videoProvider === 'wan' ? (
-          referenceImage || displayedReferenceVideoUrl ? (
+          {referenceImage || displayedReferenceVideoUrl ? (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {referenceImage && (
                 <ReferenceChip label="Image" name={referenceImage.name} onRemove={() => onReferenceImageSelect?.(null)}>
@@ -357,44 +357,9 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
             <p className="rounded-md border border-dashed border-gray-700 px-3 py-4 text-center text-sm text-gray-500">
               Wan needs a reference image, a reference video, or both.
             </p>
-          )
-        ) : (
-          seedanceReferenceImages.length > 0 || displayedSeedanceVideoUrl || seedanceReferenceAudioFile ? (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {seedanceReferenceImages.map((file, index) => (
-                <ReferenceChip
-                  key={`${file.name}-${file.lastModified}-${index}`}
-                  label={`Image ${index + 1}`}
-                  name={file.name}
-                  onRemove={() => onSeedanceReferenceImagesChange(seedanceReferenceImages.filter((_, imageIndex) => imageIndex !== index))}
-                >
-                  <FileImagePreview file={file} className="h-full w-full object-cover" />
-                </ReferenceChip>
-              ))}
-              {displayedSeedanceVideoUrl && (
-                <ReferenceChip
-                  label={seedanceReferenceVideoDuration ? `Video ${seedanceReferenceVideoDuration}s` : 'Video'}
-                  name={seedanceReferenceVideoFile ? seedanceReferenceVideoFile.name : 'Album video reference'}
-                  onRemove={() => seedanceReferenceVideoFile ? onSeedanceReferenceVideoSelect(null) : onSeedanceReferenceVideoUrlRemove()}
-                >
-                  <video src={displayedSeedanceVideoUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" />
-                </ReferenceChip>
-              )}
-              {seedanceReferenceAudioFile && (
-                <ReferenceChip label="Audio" name={seedanceReferenceAudioFile.name} onRemove={() => onSeedanceReferenceAudioSelect(null)}>
-                  <div className="flex h-full w-full items-center justify-center bg-[#E04F67]/15 text-xs font-bold text-[#F3A2AF]">
-                    AUDIO
-                  </div>
-                </ReferenceChip>
-              )}
-            </div>
-          ) : (
-            <p className="rounded-md border border-dashed border-[#E04F67]/30 bg-[#E04F67]/5 px-3 py-4 text-center text-sm text-[#F3A2AF]">
-              Seedance can start from text, or use image, video, and audio references together.
-            </p>
-          )
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {videoProvider === 'wan' ? (
         <>
