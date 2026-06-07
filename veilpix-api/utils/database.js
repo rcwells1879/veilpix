@@ -50,6 +50,99 @@ async function testConnection() {
     }
 }
 
+function numericValue(value) {
+    return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function pickBestCreditUser(users, currentUserId = null) {
+    return (users || [])
+        .filter(user => user && user.id !== currentUserId)
+        .sort((a, b) => {
+            const creditDelta = numericValue(b.credits_remaining) - numericValue(a.credits_remaining);
+            if (creditDelta !== 0) return creditDelta;
+            return numericValue(b.total_credits_purchased) - numericValue(a.total_credits_purchased);
+        })[0] || null;
+}
+
+async function findUserByEmail(supabase, normalizedEmail, email, currentUserId = null) {
+    const candidates = new Map();
+
+    if (normalizedEmail) {
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('normalized_email', normalizedEmail)
+            .limit(10);
+
+        if (error) {
+            console.warn('Unable to query users by normalized email:', error.message);
+        } else {
+            for (const user of data || []) candidates.set(user.id, user);
+        }
+    }
+
+    if (email) {
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', email)
+            .limit(10);
+
+        if (error) {
+            console.warn('Unable to query users by email:', error.message);
+        } else {
+            for (const user of data || []) candidates.set(user.id, user);
+        }
+    }
+
+    return pickBestCreditUser([...candidates.values()], currentUserId);
+}
+
+async function reconcileUserFromEmailMatch(supabase, currentUser, matchedUser, clerkUserId, email, normalizedEmail) {
+    if (!matchedUser || matchedUser.id === currentUser.id) {
+        return currentUser;
+    }
+
+    const currentCredits = numericValue(currentUser.credits_remaining);
+    const matchedCredits = numericValue(matchedUser.credits_remaining);
+    const currentPurchased = numericValue(currentUser.total_credits_purchased);
+    const matchedPurchased = numericValue(matchedUser.total_credits_purchased);
+
+    const updateData = {
+        email: currentUser.email || email,
+        normalized_email: currentUser.normalized_email || normalizedEmail,
+        credits_remaining: Math.max(currentCredits, matchedCredits),
+        total_credits_purchased: Math.max(currentPurchased, matchedPurchased),
+        stripe_customer_id: currentUser.stripe_customer_id || matchedUser.stripe_customer_id || null,
+        subscription_status: currentUser.subscription_status === 'free'
+            ? (matchedUser.subscription_status || currentUser.subscription_status)
+            : currentUser.subscription_status,
+        updated_at: new Date().toISOString()
+    };
+
+    console.log('DB: Reconciling same-email Clerk account credits', {
+        currentClerkUserId: clerkUserId,
+        matchedClerkUserId: matchedUser.clerk_user_id,
+        currentCredits,
+        matchedCredits,
+        reconciledCredits: updateData.credits_remaining
+    });
+
+    const { data, error } = await supabase
+        .from('users')
+        .update(updateData)
+        .eq('id', currentUser.id)
+        .select()
+        .single();
+
+    if (error) {
+        console.warn('Unable to reconcile same-email user credits:', error.message);
+        return currentUser;
+    }
+
+    return data;
+}
+
 // Database utility functions
 const db = {
     // User management
@@ -77,7 +170,39 @@ const db = {
 
             if (existingUser && !fetchError) {
                 console.log('🔍 DB: Found existing user, returning');
-                return { user: existingUser, created: false };
+                const matchedUser = await findUserByEmail(supabase, normalizedEmail, email, existingUser.id);
+                const reconciledUser = await reconcileUserFromEmailMatch(
+                    supabase,
+                    existingUser,
+                    matchedUser,
+                    clerkUserId,
+                    email,
+                    normalizedEmail
+                );
+                return { user: reconciledUser, created: false };
+            }
+
+            const sameEmailUser = await findUserByEmail(supabase, normalizedEmail, email);
+            if (sameEmailUser && !fetchError) {
+                console.log('DB: Found same-email user for new Clerk ID, migrating row');
+                const { data: migratedUser, error: migrateError } = await supabase
+                    .from('users')
+                    .update({
+                        clerk_user_id: clerkUserId,
+                        email: sameEmailUser.email || email,
+                        normalized_email: sameEmailUser.normalized_email || normalizedEmail,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', sameEmailUser.id)
+                    .select()
+                    .single();
+
+                if (!migrateError && migratedUser) {
+                    console.log('DB: Migrated same-email user to current Clerk ID');
+                    return { user: migratedUser, created: false };
+                }
+
+                console.warn('Unable to migrate same-email user to current Clerk ID:', migrateError?.message);
             }
 
             // Create new user if doesn't exist (with 30 initial credits)

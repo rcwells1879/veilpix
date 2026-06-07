@@ -33,7 +33,10 @@ async function getUser(req, res, next) {
                 console.log(`🔍 AUTH[${requestId}]: Processing authenticated user (attempt ${attempt + 1})`);
                 
                 // Get user details from Clerk to get email with timeout
-                let userEmail = null;
+                let userEmail = auth.sessionClaims?.email ||
+                    auth.sessionClaims?.primary_email ||
+                    auth.sessionClaims?.email_address ||
+                    null;
                 try {
                     console.log(`🔍 AUTH[${requestId}]: Fetching user email from Clerk...`);
                     
@@ -44,7 +47,7 @@ async function getUser(req, res, next) {
                     );
                     
                     const clerkUser = await Promise.race([clerkPromise, timeoutPromise]);
-                    userEmail = clerkUser.emailAddresses?.[0]?.emailAddress || null;
+                    userEmail = clerkUser.emailAddresses?.[0]?.emailAddress || userEmail;
                     console.log(`✅ AUTH[${requestId}]: Successfully fetched user email`);
                 } catch (clerkError) {
                     console.warn(`⚠️ AUTH[${requestId}]: Could not fetch user email from Clerk:`, clerkError.message);
