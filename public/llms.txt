@@ -7,7 +7,7 @@ VeilPix is a free, privacy-focused AI image and video generator for photo editin
 - Free tier: 30 credits after sign-up
 - AI image models: Nano Banana 2, Nano Banana Pro, SeeDream 4.5, Wan 2.7 Image
 - AI video models: Wan 2.7 text-to-video and reference-to-video, Wan 2.6 Flash image-to-video
-- Planned video model support: Seedance 2.0
+- Video model support: Seedance 2.0
 - Privacy: No long-term media storage, no advertising trackers, private editing and generation
 - Formats: JPEG, PNG, WebP, HEIC (auto-converted), plus common video references such as MP4, WebM, and MOV
 - No watermarks on output

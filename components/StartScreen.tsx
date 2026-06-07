@@ -11,15 +11,22 @@ import FAQ from './FAQ';
 import BeforeAfterShowcase from './BeforeAfterShowcase';
 import Gallery from './Gallery';
 
+type VideoProvider = 'wan' | 'seedance';
+type SeedanceVariant = 'regular' | 'fast';
+
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;
   onCompositeSelect: (file1: File, file2: File) => void;
   onUseWebcamClick: () => void;
   onUseWebcamForCompositeClick: () => void;
   onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void) => void;
-  onTextToVideoGenerate?: (prompt: string, duration: number, resolution: string, ratio: string) => void;
+  onTextToVideoGenerate?: (prompt: string, duration: number, resolution: string, ratio: string, provider?: VideoProvider, seedanceVariant?: SeedanceVariant) => void;
   onReferenceVideoSelect?: (file: File | null) => void;
   referenceVideoFile?: File | null;
+  onSeedanceReferenceVideoSelect?: (file: File | null) => void;
+  seedanceReferenceVideoFile?: File | null;
+  videoProvider: VideoProvider;
+  onVideoProviderChange: (provider: VideoProvider) => void;
   activeMode: CreativeMode;
   onModeChange: (mode: CreativeMode) => void;
   compositeFile1?: File | null;
@@ -27,12 +34,12 @@ interface StartScreenProps {
   onShowSignupPrompt?: () => void;
   isGeneratingImage?: boolean;
   onSelectGalleryImage?: (file: File) => void;
-  onSelectGalleryVideo?: (videoUrl: string, referenceImage: File) => void;
-  onMakeGalleryVideoReference?: (videoUrl: string) => void;
+  onSelectGalleryVideo?: (videoUrl: string, referenceImage: File | null, videoDuration?: number) => void;
+  onMakeGalleryVideoReference?: (videoUrl: string, videoDuration?: number) => void;
   galleryRefreshTrigger?: number;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onReferenceVideoSelect, referenceVideoFile = null, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onReferenceVideoSelect, referenceVideoFile = null, onSeedanceReferenceVideoSelect, seedanceReferenceVideoFile = null, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
 
@@ -41,7 +48,9 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
   const [textToVideoDuration, setTextToVideoDuration] = useState(5);
   const [textToVideoResolution, setTextToVideoResolution] = useState('1080p');
   const [textToVideoRatio, setTextToVideoRatio] = useState('16:9');
+  const [textToVideoSeedanceVariant, setTextToVideoSeedanceVariant] = useState<SeedanceVariant>('regular');
   const [referenceVideoPreviewUrl, setReferenceVideoPreviewUrl] = useState<string | null>(null);
+  const activeReferenceVideoFile = videoProvider === 'seedance' ? seedanceReferenceVideoFile : referenceVideoFile;
 
   // Update composite file when prop changes
   useEffect(() => {
@@ -49,14 +58,26 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
   }, [initialCompositeFile1]);
 
   useEffect(() => {
-    if (!referenceVideoFile) {
+    if (!activeReferenceVideoFile) {
       setReferenceVideoPreviewUrl(null);
       return;
     }
-    const objectUrl = URL.createObjectURL(referenceVideoFile);
+    const objectUrl = URL.createObjectURL(activeReferenceVideoFile);
     setReferenceVideoPreviewUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
-  }, [referenceVideoFile]);
+  }, [activeReferenceVideoFile]);
+
+  useEffect(() => {
+    if (videoProvider === 'seedance' && textToVideoSeedanceVariant === 'fast' && textToVideoResolution === '1080p') {
+      setTextToVideoResolution('720p');
+    }
+    if (videoProvider === 'wan' && textToVideoDuration > 10) {
+      setTextToVideoDuration(10);
+    }
+    if (videoProvider === 'wan' && !['720p', '1080p'].includes(textToVideoResolution)) {
+      setTextToVideoResolution('1080p');
+    }
+  }, [textToVideoDuration, textToVideoResolution, textToVideoSeedanceVariant, videoProvider]);
 
   const handleComposite = useCallback(() => {
     if (compositeFile1 && compositeFile2) {
@@ -104,7 +125,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         Create Images. Edit Photos. <span className="text-[#E04F67]">Generate Video.</span>
       </h1>
       <p className="max-w-3xl text-lg text-gray-400 md:text-xl text-center">
-        Generate images from text, retouch photos, combine references, and create Wan 2.7 text-to-video, image-to-video, and reference-to-video clips from simple prompts.
+        Generate images from text, retouch photos, combine references, and create Wan 2.7 or Seedance 2.0 video clips from simple prompts.
       </p>
 
       <div className="w-full mt-6 bg-gray-800/50 border border-gray-700/80 rounded-xl p-2 md:p-8 flex flex-col gap-6 backdrop-blur-sm">
@@ -180,9 +201,40 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         {/* Video Mode Content */}
         {activeMode === 'video' && (
           <div className="flex flex-col items-center gap-4 animate-fade-in">
+            <div className="w-full rounded-lg border border-white/10 bg-gray-900/50 p-3">
+              <div className="grid grid-cols-2 rounded-lg border border-white/10 bg-gray-950/40 p-1">
+                <button
+                  type="button"
+                  onClick={() => onVideoProviderChange('wan')}
+                  className={`rounded-md px-4 py-2 text-sm font-bold transition ${
+                    videoProvider === 'wan'
+                      ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                      : 'text-gray-400 hover:bg-white/10 hover:text-white'
+                  }`}
+                  disabled={isGeneratingImage}
+                >
+                  Wan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onVideoProviderChange('seedance')}
+                  className={`rounded-md px-4 py-2 text-sm font-bold transition ${
+                    videoProvider === 'seedance'
+                      ? 'bg-[#E04F67] text-white shadow-lg shadow-[#E04F67]/25'
+                      : 'text-[#F3A2AF] hover:bg-[#E04F67]/15 hover:text-white'
+                  }`}
+                  disabled={isGeneratingImage}
+                >
+                  Seedance <span className="ml-1 rounded bg-white/15 px-1.5 py-0.5 text-[10px] uppercase">New</span>
+                </button>
+              </div>
+            </div>
+
             {/* Reference-to-Video: Upload reference image and/or video */}
             <div className="w-full">
-              <p className="text-sm font-semibold text-gray-400 text-center mb-2">Reference-to-Video</p>
+              <p className="text-sm font-semibold text-gray-400 text-center mb-2">
+                {videoProvider === 'seedance' ? 'Seedance References' : 'Reference-to-Video'}
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                 <ImageDropzone
                   file={null}
@@ -206,17 +258,17 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 />
 
                 <div className="w-full h-full min-h-[250px] border-2 border-dashed border-gray-600 rounded-lg flex flex-col items-center justify-center p-6 text-center bg-gray-800/30 hover:bg-gray-700/40 hover:border-blue-500 transition-all duration-300">
-                  {referenceVideoFile ? (
+                  {activeReferenceVideoFile ? (
                     <div className="w-full flex flex-col items-center gap-3">
                       <video
                         src={referenceVideoPreviewUrl || undefined}
                         controls
                         className="w-full max-h-44 rounded-lg bg-black object-contain"
                       />
-                      <p className="text-sm text-gray-300 truncate max-w-full">{referenceVideoFile.name}</p>
+                      <p className="text-sm text-gray-300 truncate max-w-full">{activeReferenceVideoFile.name}</p>
                       <button
                         type="button"
-                        onClick={() => onReferenceVideoSelect?.(null)}
+                        onClick={() => videoProvider === 'seedance' ? onSeedanceReferenceVideoSelect?.(null) : onReferenceVideoSelect?.(null)}
                         className="text-sm text-red-300 hover:text-red-200 font-semibold"
                         disabled={isGeneratingImage}
                       >
@@ -230,7 +282,9 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                       </div>
                       <div>
                         <p className="text-lg font-semibold text-gray-200">Upload Reference Video</p>
-                        <p className="text-sm text-gray-500 mt-1">MP4/WebM/MOV reference clip</p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {videoProvider === 'seedance' ? 'Seedance video reference, up to 15s' : 'MP4/WebM/MOV reference clip'}
+                        </p>
                       </div>
                       <input
                         type="file"
@@ -244,14 +298,22 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                             event.currentTarget.value = '';
                             return;
                           }
-                          onReferenceVideoSelect?.(file);
+                          if (videoProvider === 'seedance') {
+                            onSeedanceReferenceVideoSelect?.(file);
+                          } else {
+                            onReferenceVideoSelect?.(file);
+                          }
                         }}
                       />
                     </label>
                   )}
                 </div>
               </div>
-              <p className="text-xs text-gray-500 text-center mt-2">Use an image, a video, or both. If both are present, Wan 2.7 reference-to-video uses both references.</p>
+              <p className="text-xs text-gray-500 text-center mt-2">
+                {videoProvider === 'seedance'
+                  ? 'Images added here become Seedance image references, and the video becomes the Seedance video reference.'
+                  : 'Use an image, a video, or both. If both are present, Wan 2.7 reference-to-video uses both references.'}
+              </p>
             </div>
 
             {/* "Or" divider */}
@@ -276,10 +338,30 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
 
               {/* Controls row */}
               <div className="flex flex-wrap gap-2">
+                {videoProvider === 'seedance' && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-gray-500">Mode:</span>
+                    {(['regular', 'fast'] as const).map((variant) => (
+                      <button
+                        key={variant}
+                        onClick={() => setTextToVideoSeedanceVariant(variant)}
+                        className={`py-1 px-2.5 rounded text-xs font-semibold capitalize transition-all duration-200 ${
+                          textToVideoSeedanceVariant === variant
+                            ? 'bg-[#E04F67] text-white shadow'
+                            : 'bg-[#E04F67]/10 text-[#F3A2AF] hover:bg-[#E04F67]/20 hover:text-white'
+                        }`}
+                        disabled={isGeneratingImage}
+                      >
+                        {variant === 'regular' ? 'Regular' : 'Fast'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* Duration */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">Duration:</span>
-                  {([5, 10] as const).map((d) => (
+                  {(videoProvider === 'seedance' ? [5, 10, 15] : [5, 10]).map((d) => (
                     <button
                       key={d}
                       onClick={() => setTextToVideoDuration(d)}
@@ -298,7 +380,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 {/* Aspect Ratio */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">Ratio:</span>
-                  {(['16:9', '9:16', '1:1', '4:3'] as const).map((r) => (
+                  {(videoProvider === 'seedance' ? ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] : ['16:9', '9:16', '1:1', '4:3']).map((r) => (
                     <button
                       key={r}
                       onClick={() => setTextToVideoRatio(r)}
@@ -317,7 +399,11 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 {/* Resolution */}
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-gray-500">Quality:</span>
-                  {(['720p', '1080p'] as const).map((q) => (
+                  {(videoProvider === 'seedance'
+                    ? textToVideoSeedanceVariant === 'fast'
+                      ? ['480p', '720p']
+                      : ['480p', '720p', '1080p']
+                    : ['720p', '1080p']).map((q) => (
                     <button
                       key={q}
                       onClick={() => setTextToVideoResolution(q)}
@@ -341,13 +427,24 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     return;
                   }
                   if (textToVideoPrompt.trim() && onTextToVideoGenerate) {
-                    onTextToVideoGenerate(textToVideoPrompt.trim(), textToVideoDuration, textToVideoResolution, textToVideoRatio);
+                    onTextToVideoGenerate(
+                      textToVideoPrompt.trim(),
+                      textToVideoDuration,
+                      textToVideoResolution,
+                      textToVideoRatio,
+                      videoProvider,
+                      textToVideoSeedanceVariant
+                    );
                   }
                 }}
                 disabled={!textToVideoPrompt.trim() || isGeneratingImage}
-                className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+                className={`w-full text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg hover:shadow-xl hover:-translate-y-px active:scale-95 active:shadow-inner disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none ${
+                  videoProvider === 'seedance'
+                    ? 'bg-gradient-to-br from-[#E04F67] to-[#B83D8A] shadow-[#E04F67]/20 hover:shadow-[#E04F67]/35 disabled:from-[#7B3140] disabled:to-[#6F2A55]'
+                    : 'bg-gradient-to-br from-blue-600 to-blue-500 shadow-blue-500/20 hover:shadow-blue-500/40 disabled:from-blue-800 disabled:to-blue-700'
+                }`}
               >
-                {isGeneratingImage ? 'Generating Video...' : 'Generate Video from Text'}
+                {isGeneratingImage ? 'Generating Video...' : `Generate ${videoProvider === 'seedance' ? 'Seedance' : 'Wan'} Video from Text`}
               </button>
             </div>
           </div>
@@ -388,7 +485,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                      <VideoIcon className="w-6 h-6 text-blue-400" />
                   </div>
                   <h3 className="text-xl font-bold text-gray-100">AI Video Generation</h3>
-                  <p className="mt-2 text-gray-400">Create Wan 2.7 text-to-video clips, animate images, or guide reference-to-video workflows. Seedance 2.0 support is planned soon.</p>
+                  <p className="mt-2 text-gray-400">Create Wan 2.7 clips or use Seedance 2.0 for multimodal image, video, and audio reference workflows.</p>
               </div>
               <div className="bg-black/20 p-6 rounded-lg border border-gray-700/50 flex flex-col items-center text-center">
                   <div className="flex items-center justify-center w-12 h-12 bg-gray-700 rounded-full mb-4">

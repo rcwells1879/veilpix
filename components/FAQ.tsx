@@ -17,7 +17,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "Can VeilPix generate videos?",
-    answer: "Yes. VeilPix supports Wan 2.7 text-to-video, Wan 2.6 Flash image-to-video, and reference-to-video workflows that can use an image, a video, or both as creative guidance. Seedance 2.0 support is planned soon."
+    answer: "Yes. VeilPix supports Wan 2.7 text-to-video, Wan 2.6 Flash image-to-video, Seedance 2.0 multimodal video generation, and reference workflows that can use images, video, and audio as creative guidance."
   },
   {
     question: "What makes VeilPix different from other AI photo editors?",

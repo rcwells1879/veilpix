@@ -38,6 +38,7 @@ import {
   useGenerateVideo,
   useGenerateReferenceToVideo,
   useGenerateTextToVideo,
+  useGenerateSeedanceVideo,
   useUsageStats
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
@@ -53,6 +54,48 @@ import SignupPromptModal from './components/SignupPromptModal';
 import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import { SettingsState } from './components/SettingsMenu';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery } from './src/utils/workflowStorage';
+
+type VideoProvider = 'wan' | 'seedance';
+type SeedanceVariant = 'regular' | 'fast';
+
+interface VideoGenerateOptions {
+  provider: VideoProvider;
+  prompt: string;
+  duration: number;
+  resolution: string;
+  ratio: string;
+  wanAudio?: boolean;
+  wanMultiShots?: boolean;
+  seedanceVariant?: SeedanceVariant;
+  seedanceGenerateAudio?: boolean;
+  seedanceWebSearch?: boolean;
+}
+
+function getVideoDurationSeconds(source: File | string): Promise<number | null> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    const objectUrl = typeof source === 'string' ? null : URL.createObjectURL(source);
+    const timeout = window.setTimeout(() => finish(null), 5000);
+    let done = false;
+
+    const finish = (duration: number | null) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timeout);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      video.removeAttribute('src');
+      video.load();
+      resolve(duration);
+    };
+
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      finish(Number.isFinite(video.duration) ? Math.ceil(video.duration) : null);
+    };
+    video.onerror = () => finish(null);
+    video.src = objectUrl || source;
+  });
+}
 
 // Lazy-loaded components for video and composite-from-editor modes
 const VideoControlsPanel = lazy(() => import('./components/VideoControlsPanel'));
@@ -352,12 +395,20 @@ const App: React.FC = () => {
   const videoMutation = useGenerateVideo();
   const referenceVideoMutation = useGenerateReferenceToVideo();
   const textToVideoMutation = useGenerateTextToVideo();
+  const seedanceVideoMutation = useGenerateSeedanceVideo();
 
   // Video generation state
+  const [videoProvider, setVideoProvider] = useState<VideoProvider>('wan');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
+  const [referenceVideoDuration, setReferenceVideoDuration] = useState<number | null>(null);
+  const [seedanceReferenceImages, setSeedanceReferenceImages] = useState<File[]>([]);
+  const [seedanceReferenceVideoFile, setSeedanceReferenceVideoFile] = useState<File | null>(null);
+  const [seedanceReferenceVideoUrl, setSeedanceReferenceVideoUrl] = useState<string | null>(null);
+  const [seedanceReferenceVideoDuration, setSeedanceReferenceVideoDuration] = useState<number | null>(null);
+  const [seedanceReferenceAudioFile, setSeedanceReferenceAudioFile] = useState<File | null>(null);
 
   // React 19 optimistic state for immediate UI feedback
   const [optimisticHistory, setOptimisticHistory] = useOptimistic(
@@ -366,7 +417,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageWan.isPending || textToImageNB2.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageWan.isPending || textToImageNB2.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -510,6 +561,21 @@ const App: React.FC = () => {
 
   // Handle selecting an image from the gallery
   const handleSelectGalleryImage = useCallback((file: File) => {
+    if (creativeMode === 'video') {
+      if (videoProvider === 'seedance') {
+        setSeedanceReferenceImages(prev => {
+          const next = [...prev, file];
+          return next.slice(0, 4);
+        });
+        setVideoUrl(null);
+        setVideoError(null);
+        setView('editor');
+        return;
+      }
+      setVideoUrl(null);
+      setVideoError(null);
+    }
+
     setHistory([file]);
     setHistoryIndex(0);
     setEditHotspot(null);
@@ -518,35 +584,49 @@ const App: React.FC = () => {
     setCrop(undefined);
     setCompletedCrop(undefined);
     setView('editor');
-  }, []);
+  }, [creativeMode, videoProvider]);
 
   // Handle selecting a video from the gallery for viewing/reuse with its saved thumbnail image
-  const handleSelectGalleryVideo = useCallback((videoUrlFromGallery: string, referenceImage: File) => {
-    setHistory([referenceImage]);
-    setHistoryIndex(0);
+  const handleSelectGalleryVideo = useCallback((videoUrlFromGallery: string, referenceImage: File | null, videoDuration?: number) => {
+    if (referenceImage) {
+      setHistory([referenceImage]);
+      setHistoryIndex(0);
+    } else {
+      setHistory([]);
+      setHistoryIndex(-1);
+    }
     setEditHotspot(null);
     setDisplayHotspot(null);
     setCreativeMode('video');
     setReferenceVideoFile(null);
     setReferenceVideoUrl(null);
+    setReferenceVideoDuration(null);
     setVideoUrl(videoUrlFromGallery);
+    setSeedanceReferenceVideoDuration(videoDuration ?? null);
     setVideoError(null);
     setView('editor');
   }, []);
 
   // Start a new reference-to-video flow from an existing gallery video
-  const handleMakeGalleryVideoReference = useCallback((videoUrlFromGallery: string) => {
-    setHistory([]);
-    setHistoryIndex(0);
+  const handleMakeGalleryVideoReference = useCallback((videoUrlFromGallery: string, videoDuration?: number) => {
     setEditHotspot(null);
     setDisplayHotspot(null);
     setCreativeMode('video');
-    setReferenceVideoFile(null);
-    setReferenceVideoUrl(videoUrlFromGallery);
+    if (videoProvider === 'seedance') {
+      setSeedanceReferenceVideoFile(null);
+      setSeedanceReferenceVideoUrl(videoUrlFromGallery);
+      setSeedanceReferenceVideoDuration(videoDuration ?? null);
+    } else {
+      setHistory([]);
+      setHistoryIndex(-1);
+      setReferenceVideoFile(null);
+      setReferenceVideoUrl(videoUrlFromGallery);
+      setReferenceVideoDuration(videoDuration ?? null);
+    }
     setVideoUrl(null);
     setVideoError(null);
     setView('editor');
-  }, []);
+  }, [videoProvider]);
 
   const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
     // Check if user is authenticated, if not show signup prompt
@@ -1024,6 +1104,26 @@ const App: React.FC = () => {
       }
   }, [currentImage]);
 
+  const handleVideoDownload = useCallback(async () => {
+    if (!videoUrl) return;
+
+    try {
+      const response = await fetch(videoUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `veilpix-video-${Date.now()}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      window.open(videoUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, [videoUrl]);
+
   // Handle creative mode switching (single/composite/video)
   const handleModeChange = useCallback((newMode: CreativeMode) => {
     setCreativeMode(newMode);
@@ -1034,6 +1134,12 @@ const App: React.FC = () => {
       setVideoError(null);
       setReferenceVideoFile(null);
       setReferenceVideoUrl(null);
+      setReferenceVideoDuration(null);
+      setSeedanceReferenceImages([]);
+      setSeedanceReferenceVideoFile(null);
+      setSeedanceReferenceVideoUrl(null);
+      setSeedanceReferenceVideoDuration(null);
+      setSeedanceReferenceAudioFile(null);
     }
 
     if (view === 'editor' && currentImage) {
@@ -1066,8 +1172,21 @@ const App: React.FC = () => {
   }, [isLoaded, isSignedIn]);
 
   // Handle video generation
-  const handleGenerateVideo = useCallback(async (prompt: string, duration: number, resolution: string, audio: boolean, multiShots: boolean) => {
-    if (!currentImage && !referenceVideoFile && !referenceVideoUrl) {
+  const handleGenerateVideo = useCallback(async (options: VideoGenerateOptions) => {
+    const {
+      provider,
+      prompt,
+      duration,
+      resolution,
+      ratio,
+      wanAudio = true,
+      wanMultiShots = false,
+      seedanceVariant = 'regular',
+      seedanceGenerateAudio = false,
+      seedanceWebSearch = false
+    } = options;
+
+    if (provider === 'wan' && !currentImage && !referenceVideoFile && !referenceVideoUrl) {
       setVideoError('Add a reference image, reference video, or both.');
       return;
     }
@@ -1076,32 +1195,52 @@ const App: React.FC = () => {
     setVideoUrl(null);
 
     try {
-      const hasReferenceVideo = !!referenceVideoFile || !!referenceVideoUrl;
-      const response = hasReferenceVideo
-        ? await referenceVideoMutation.mutateAsync({
-            image: currentImage,
-            video: referenceVideoFile,
-            referenceVideoUrl,
+      const response = provider === 'seedance'
+        ? await seedanceVideoMutation.mutateAsync({
+            referenceImages: seedanceReferenceImages,
+            referenceVideo: seedanceReferenceVideoFile,
+            referenceVideoUrl: seedanceReferenceVideoUrl,
+            referenceVideoDuration: seedanceReferenceVideoDuration,
+            referenceAudio: seedanceReferenceAudioFile,
             prompt,
+            variant: seedanceVariant,
             duration,
             resolution,
-            ratio: '16:9',
+            aspectRatio: ratio,
+            generateAudio: seedanceGenerateAudio,
+            webSearch: seedanceWebSearch,
             nsfwFilterEnabled: settings.nsfwFilterEnabled
           })
-        : await videoMutation.mutateAsync({
-            image: currentImage!,
-            prompt,
-            duration,
-            resolution,
-            audio,
-            multiShots,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
-          });
+        : (!!referenceVideoFile || !!referenceVideoUrl)
+          ? await referenceVideoMutation.mutateAsync({
+              image: currentImage,
+              video: referenceVideoFile,
+              referenceVideoUrl,
+              prompt,
+              duration,
+              resolution,
+              ratio,
+              nsfwFilterEnabled: settings.nsfwFilterEnabled
+            })
+          : await videoMutation.mutateAsync({
+              image: currentImage!,
+              prompt,
+              duration,
+              resolution,
+              audio: wanAudio,
+              multiShots: wanMultiShots,
+              nsfwFilterEnabled: settings.nsfwFilterEnabled
+            });
 
       if (response.success && response.videoUrl) {
         setVideoUrl(response.videoUrl);
-        // Save generated videos to gallery. Use the current image as thumbnail when available.
-        saveVideoToGallery(currentImage ?? null, response.videoUrl).then(() => setGalleryRefreshTrigger(n => n + 1));
+        saveVideoToGallery({
+          videoUrl: response.videoUrl,
+          referenceImage: provider === 'seedance' ? seedanceReferenceImages[0] ?? null : currentImage ?? null,
+          referenceVideoFile: provider === 'seedance' ? seedanceReferenceVideoFile : referenceVideoFile,
+          referenceVideoUrl: provider === 'seedance' ? seedanceReferenceVideoUrl : referenceVideoUrl,
+          videoDuration: duration
+        }).then(() => setGalleryRefreshTrigger(n => n + 1));
       } else {
         throw new Error(response.message || 'Failed to generate video');
       }
@@ -1114,7 +1253,20 @@ const App: React.FC = () => {
       }
       console.error('Video generation error:', err);
     }
-  }, [currentImage, referenceVideoFile, referenceVideoUrl, videoMutation, referenceVideoMutation, settings.nsfwFilterEnabled]);
+  }, [
+    currentImage,
+    referenceVideoFile,
+    referenceVideoUrl,
+    seedanceReferenceAudioFile,
+    seedanceReferenceImages,
+    seedanceReferenceVideoDuration,
+    seedanceReferenceVideoFile,
+    seedanceReferenceVideoUrl,
+    videoMutation,
+    referenceVideoMutation,
+    seedanceVideoMutation,
+    settings.nsfwFilterEnabled
+  ]);
 
   const handleReferenceImageSelect = useCallback((file: File | null) => {
     if (file) {
@@ -1130,38 +1282,85 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleReferenceVideoSelect = useCallback((file: File | null) => {
+  const handleReferenceVideoSelect = useCallback(async (file: File | null) => {
     setReferenceVideoFile(file);
     setReferenceVideoUrl(null);
+    setReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
+  }, []);
+
+  const handleSeedanceReferenceImagesChange = useCallback((images: File[]) => {
+    setSeedanceReferenceImages(images.slice(0, 4));
+  }, []);
+
+  const handleSeedanceReferenceVideoSelect = useCallback(async (file: File | null) => {
+    setSeedanceReferenceVideoFile(file);
+    setSeedanceReferenceVideoUrl(null);
+    setSeedanceReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
+  }, []);
+
+  const handleSeedanceReferenceVideoUrlRemove = useCallback(() => {
+    setSeedanceReferenceVideoFile(null);
+    setSeedanceReferenceVideoUrl(null);
+    setSeedanceReferenceVideoDuration(null);
+  }, []);
+
+  const handleSeedanceReferenceAudioSelect = useCallback((file: File | null) => {
+    setSeedanceReferenceAudioFile(file);
   }, []);
 
   const handleUseGeneratedVideoAsReference = useCallback(() => {
     if (!videoUrl) return;
-    setReferenceVideoFile(null);
-    setReferenceVideoUrl(videoUrl);
+    if (videoProvider === 'seedance') {
+      setSeedanceReferenceVideoFile(null);
+      setSeedanceReferenceVideoUrl(videoUrl);
+      setSeedanceReferenceVideoDuration(null);
+    } else {
+      setReferenceVideoFile(null);
+      setReferenceVideoUrl(videoUrl);
+      setReferenceVideoDuration(null);
+    }
     setVideoUrl(null);
     setVideoError(null);
-  }, [videoUrl]);
+  }, [videoProvider, videoUrl]);
 
   // Handle text-to-video generation (no reference image needed)
-  const handleTextToVideoGenerate = useCallback(async (prompt: string, duration: number, resolution: string, ratio: string) => {
+  const handleTextToVideoGenerate = useCallback(async (
+    prompt: string,
+    duration: number,
+    resolution: string,
+    ratio: string,
+    providerOverride: VideoProvider = videoProvider,
+    seedanceVariant: SeedanceVariant = 'regular'
+  ) => {
     setVideoError(null);
     setVideoUrl(null);
     setCreativeMode('video');
     setView('editor');
 
     try {
-      const response = await textToVideoMutation.mutateAsync({
-        prompt,
-        duration,
-        resolution,
-        ratio,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
+      const response = providerOverride === 'seedance'
+        ? await seedanceVideoMutation.mutateAsync({
+            prompt,
+            variant: seedanceVariant,
+            duration,
+            resolution,
+            aspectRatio: ratio,
+            nsfwFilterEnabled: settings.nsfwFilterEnabled
+          })
+        : await textToVideoMutation.mutateAsync({
+            prompt,
+            duration,
+            resolution,
+            ratio,
+            nsfwFilterEnabled: settings.nsfwFilterEnabled
+          });
 
       if (response.success && response.videoUrl) {
         setVideoUrl(response.videoUrl);
-        saveVideoToGallery(null, response.videoUrl).then(() => setGalleryRefreshTrigger(n => n + 1));
+        saveVideoToGallery({
+          videoUrl: response.videoUrl,
+          videoDuration: duration
+        }).then(() => setGalleryRefreshTrigger(n => n + 1));
       } else {
         throw new Error(response.message || 'Failed to generate video');
       }
@@ -1174,7 +1373,7 @@ const App: React.FC = () => {
       }
       console.error('Text-to-video generation error:', err);
     }
-  }, [textToVideoMutation, settings.nsfwFilterEnabled]);
+  }, [seedanceVideoMutation, textToVideoMutation, videoProvider, settings.nsfwFilterEnabled]);
 
   const handleFileSelect = async (files: FileList | null) => {
     if (files && files[0]) {
@@ -1188,6 +1387,26 @@ const App: React.FC = () => {
         return;
       }
       console.log('✅ User authenticated, proceeding with upload');
+      if (creativeMode === 'video' && videoProvider === 'seedance') {
+        const file = files[0];
+        setIsProcessingFile(true);
+        try {
+          const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
+          const processedFile = await isHEIC(file) ? await processFileForUpload(file) : file;
+          setSeedanceReferenceImages(prev => [...prev, processedFile].slice(0, 4));
+          setVideoUrl(null);
+          setVideoError(null);
+          setView('editor');
+          saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
+        } catch (error) {
+          console.error('Failed to process Seedance reference image:', error);
+          setError(`Failed to process reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+          setIsProcessingFile(false);
+        }
+        return;
+      }
+
       await handleImageUpload(files[0]);
     }
   };
@@ -1295,6 +1514,10 @@ const App: React.FC = () => {
         onTextToVideoGenerate={handleTextToVideoGenerate}
         onReferenceVideoSelect={handleReferenceVideoSelect}
         referenceVideoFile={referenceVideoFile}
+        onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+        seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+        videoProvider={videoProvider}
+        onVideoProviderChange={setVideoProvider}
         activeMode={creativeMode}
         onModeChange={handleModeChange}
         compositeFile1={sourceImage1}
@@ -1334,15 +1557,16 @@ const App: React.FC = () => {
       // Determine which "before" image to show in slider based on compare mode
       const sliderBeforeImage = sliderCompareMode === 'original' ? originalImageUrl : previousImageUrl;
       const sliderBeforeLabel = sliderCompareMode === 'original' ? 'Original' : 'Previous';
+      const hasGeneratedVideoPreview = creativeMode === 'video' && Boolean(videoUrl);
 
-      const imageDisplay = showSlider && canUndo && activeTab !== 'crop' && sliderBeforeImage ? (
+      const imageDisplay = currentImageUrl && showSlider && canUndo && activeTab !== 'crop' && sliderBeforeImage ? (
         <BeforeAfterSlider
           beforeImage={sliderBeforeImage}
           afterImage={currentImageUrl}
           beforeLabel={sliderBeforeLabel}
           afterLabel="Current"
         />
-      ) : (
+      ) : currentImageUrl ? (
         <div className="relative">
           {/* Base image is the original, only shown when comparing and current image exists */}
           {originalImageUrl && isComparing && canUndo && (
@@ -1363,10 +1587,10 @@ const App: React.FC = () => {
               className={`${originalImageUrl && isComparing && canUndo ? 'absolute top-0 left-0' : ''} w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing && canUndo ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
           />
         </div>
-      );
+      ) : null;
       
       // For ReactCrop, we need a single image element. We'll use the current one.
-      const cropImageElement = (
+      const cropImageElement = currentImageUrl ? (
         <img 
           ref={imgRef}
           key={`crop-${currentImageUrl}`}
@@ -1374,7 +1598,7 @@ const App: React.FC = () => {
           alt="Crop this image"
           className="w-full h-auto object-contain max-h-[60vh] rounded-xl"
         />
-      );
+      ) : null;
 
 
       return (
@@ -1384,59 +1608,75 @@ const App: React.FC = () => {
             <ModeSelector activeMode={creativeMode} onModeChange={handleModeChange} />
           </div>
 
-          {/* Image display area (hidden for text-to-video with no reference image) */}
-          {currentImageUrl ? (
-          <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20">
-              {isLoading && (
-                  <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in">
-                      <Spinner />
-                      <p className="text-gray-300">
-                        {isProcessingFile ? 'Processing image...' : 'AI is working its magic...'}
-                      </p>
+          {hasGeneratedVideoPreview ? (
+            <div className="relative w-full overflow-hidden rounded-xl bg-black/30 shadow-2xl">
+              <video
+                src={videoUrl || undefined}
+                controls
+                playsInline
+                className="max-h-[70vh] w-full bg-black object-contain"
+              />
+              <div className="absolute left-3 top-3 rounded-md bg-black/60 px-3 py-1 text-sm text-gray-200 backdrop-blur-sm">
+                Generated Video
+              </div>
+              <button
+                onClick={handleVideoDownload}
+                className="absolute bottom-3 right-3 rounded-md border border-white bg-black/30 p-2 transition-all duration-200 ease-in-out hover:bg-white/10 active:scale-95"
+                aria-label="Download video"
+              >
+                <DownloadIcon className="h-5 w-5 text-white" />
+              </button>
+            </div>
+          ) : currentImageUrl ? (
+            <div className="relative w-full overflow-hidden rounded-xl bg-black/20 shadow-2xl">
+                {isLoading && (
+                    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/70 animate-fade-in">
+                        <Spinner />
+                        <p className="text-gray-300">
+                          {isProcessingFile ? 'Processing image...' : 'AI is working its magic...'}
+                        </p>
+                    </div>
+                )}
+
+                {activeTab === 'crop' && creativeMode === 'single' ? (
+                  <div className="flex w-full items-center justify-center">
+                    <ReactCrop
+                      crop={crop}
+                      onChange={c => setCrop(c)}
+                      onComplete={c => setCompletedCrop(c)}
+                      aspect={aspect}
+                      className="max-h-[60vh]"
+                    >
+                      {cropImageElement}
+                    </ReactCrop>
                   </div>
-              )}
+                ) : imageDisplay }
 
-              {activeTab === 'crop' && creativeMode === 'single' ? (
-                <div className="flex justify-center items-center w-full">
-                  <ReactCrop
-                    crop={crop}
-                    onChange={c => setCrop(c)}
-                    onComplete={c => setCompletedCrop(c)}
-                    aspect={aspect}
-                    className="max-h-[60vh]"
-                  >
-                    {cropImageElement}
-                  </ReactCrop>
-                </div>
-              ) : imageDisplay }
+                {displayHotspot && !isLoading && activeTab === 'retouch' && creativeMode === 'single' && (
+                    <div
+                        className="absolute z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-500/50 pointer-events-none"
+                        style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
+                    >
+                        <div className="absolute inset-0 h-6 w-6 rounded-full bg-blue-400 animate-ping"></div>
+                    </div>
+                )}
 
-              {displayHotspot && !isLoading && activeTab === 'retouch' && creativeMode === 'single' && (
-                  <div
-                      className="absolute rounded-full w-6 h-6 bg-blue-500/50 border-2 border-white pointer-events-none -translate-x-1/2 -translate-y-1/2 z-10"
-                      style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
-                  >
-                      <div className="absolute inset-0 rounded-full w-6 h-6 animate-ping bg-blue-400"></div>
+                {creativeMode === 'video' && !isLoading && (
+                  <div className="absolute left-3 top-3 z-20 rounded-md bg-black/60 px-3 py-1 text-sm text-gray-300 backdrop-blur-sm">
+                    Reference Image
                   </div>
-              )}
+                )}
 
-              {/* Reference Image label for video mode */}
-              {creativeMode === 'video' && !isLoading && (
-                <div className="absolute top-3 left-3 px-3 py-1 bg-black/60 rounded-md text-sm text-gray-300 backdrop-blur-sm z-20">
-                  Reference Image
-                </div>
-              )}
-
-              {/* Download icon overlay - bottom right corner */}
-              {!isLoading && activeTab !== 'crop' && (
-                <button
-                  onClick={handleDownload}
-                  className="absolute bottom-3 right-3 p-2 bg-transparent border border-white rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 active:scale-95 z-20"
-                  aria-label="Download image"
-                >
-                  <DownloadIcon className="w-5 h-5 text-white" />
-                </button>
-              )}
-          </div>
+                {!isLoading && activeTab !== 'crop' && creativeMode === 'single' && (
+                  <button
+                    onClick={handleDownload}
+                    className="absolute bottom-3 right-3 z-20 rounded-md border border-white bg-transparent p-2 transition-all duration-200 ease-in-out hover:bg-white/10 active:scale-95"
+                    aria-label="Download image"
+                  >
+                    <DownloadIcon className="h-5 w-5 text-white" />
+                  </button>
+                )}
+            </div>
           ) : creativeMode === 'video' && isLoading ? (
             /* Loading state for text-to-video (no reference image) */
             <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20 min-h-[200px] flex items-center justify-center">
@@ -1447,8 +1687,8 @@ const App: React.FC = () => {
             </div>
           ) : null}
 
-          {/* Toolbar - show for single and video modes */}
-          {creativeMode !== 'composite' && (
+          {/* Image editing toolbar */}
+          {creativeMode === 'single' && (
             <div className="flex flex-wrap items-center justify-center gap-3">
               <button
                   onClick={handleUndo}
@@ -1529,6 +1769,17 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {creativeMode === 'video' && (
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                  onClick={handleUploadNew}
+                  className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
+              >
+                  Home/Gallery
+              </button>
+            </div>
+          )}
+
           {/* Mode-specific panels */}
           {creativeMode === 'single' && (
             <>
@@ -1600,13 +1851,25 @@ const App: React.FC = () => {
               <VideoControlsPanel
                 isLoading={isLoading}
                 onGenerate={handleGenerateVideo}
+                videoProvider={videoProvider}
+                onVideoProviderChange={setVideoProvider}
                 videoUrl={videoUrl}
                 videoError={videoError}
                 referenceImage={currentImage}
                 referenceVideoFile={referenceVideoFile}
                 referenceVideoUrl={referenceVideoUrl}
+                referenceVideoDuration={referenceVideoDuration}
+                seedanceReferenceImages={seedanceReferenceImages}
+                seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+                seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
+                seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
+                seedanceReferenceAudioFile={seedanceReferenceAudioFile}
                 onReferenceImageSelect={handleReferenceImageSelect}
                 onReferenceVideoSelect={handleReferenceVideoSelect}
+                onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
+                onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+                onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
+                onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
                 onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
               />
             </Suspense>
@@ -1625,12 +1888,17 @@ const App: React.FC = () => {
       onTextToVideoGenerate={handleTextToVideoGenerate}
       onReferenceVideoSelect={handleReferenceVideoSelect}
       referenceVideoFile={referenceVideoFile}
+      onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+      seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+      videoProvider={videoProvider}
+      onVideoProviderChange={setVideoProvider}
       activeMode={creativeMode}
       onModeChange={handleModeChange}
       isAuthenticated={isLoaded && isSignedIn}
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
       isGeneratingImage={isLoading}
       onSelectGalleryImage={handleSelectGalleryImage}
+      onSelectGalleryVideo={handleSelectGalleryVideo}
       onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
       galleryRefreshTrigger={galleryRefreshTrigger}
     />;

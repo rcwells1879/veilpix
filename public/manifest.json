@@ -1,7 +1,7 @@
 {
   "name": "VeilPix - AI Image and Video Generator",
   "short_name": "VeilPix",
-  "description": "Private AI image editing, text-to-image, text-to-video, image-to-video, and reference-to-video generation with Wan 2.7 and planned Seedance 2.0 support.",
+  "description": "Private AI image editing, text-to-image, text-to-video, image-to-video, and multimodal reference video generation with Wan 2.7 and Seedance 2.0.",
   "start_url": "/veilpix/",
   "display": "standalone",
   "background_color": "#020106",

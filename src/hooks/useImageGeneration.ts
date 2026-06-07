@@ -758,6 +758,7 @@ export interface VideoGenerationResponse {
   success: boolean
   message?: string
   creditsRemaining?: number
+  creditsUsed?: number
   processingTime?: number
 }
 
@@ -817,6 +818,71 @@ export interface GenerateReferenceToVideoRequest {
   resolution?: string
   ratio?: string
   nsfwFilterEnabled?: boolean
+}
+
+export interface GenerateSeedanceVideoRequest {
+  referenceImages?: File[]
+  referenceVideo?: File | null
+  referenceVideoUrl?: string | null
+  referenceVideoDuration?: number | null
+  referenceAudio?: File | null
+  prompt: string
+  variant?: 'regular' | 'fast'
+  duration?: number
+  resolution?: string
+  aspectRatio?: string
+  generateAudio?: boolean
+  webSearch?: boolean
+  nsfwFilterEnabled?: boolean
+}
+
+export function useGenerateSeedanceVideo() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    retry: false,
+    mutationFn: async (data: GenerateSeedanceVideoRequest): Promise<VideoGenerationResponse> => {
+      const formData = new FormData()
+
+      if (data.referenceImages?.length) {
+        const compressedImages = await compressMultipleImages(data.referenceImages, 20)
+        compressedImages.slice(0, 4).forEach((image) => {
+          formData.append('referenceImages', image)
+        })
+      }
+      if (data.referenceVideo) {
+        formData.append('referenceVideo', data.referenceVideo)
+      }
+      if (data.referenceVideoUrl) {
+        formData.append('referenceVideoUrl', data.referenceVideoUrl)
+      }
+      if (typeof data.referenceVideoDuration === 'number') {
+        formData.append('referenceVideoDuration', data.referenceVideoDuration.toString())
+      }
+      if (data.referenceAudio) {
+        formData.append('referenceAudio', data.referenceAudio)
+      }
+
+      formData.append('prompt', data.prompt)
+      formData.append('variant', data.variant || 'regular')
+      formData.append('duration', (data.duration || 5).toString())
+      formData.append('resolution', data.resolution || '720p')
+      formData.append('aspectRatio', data.aspectRatio || '16:9')
+      formData.append('generateAudio', (data.generateAudio === true).toString())
+      formData.append('webSearch', (data.webSearch === true).toString())
+      formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
+
+      return await apiRequest<VideoGenerationResponse>('/api/seedance/generate-video', {
+        method: 'POST',
+        body: formData,
+        headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
 }
 
 export function useGenerateReferenceToVideo() {

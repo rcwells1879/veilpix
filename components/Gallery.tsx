@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   getGalleryImages,
   getGalleryImage,
+  getGalleryVideoDetails,
   getGalleryVideoUrl,
   deleteGalleryImage,
   clearGallery,
@@ -15,8 +16,8 @@ import {
 
 interface GalleryProps {
   onSelectImage: (file: File) => void;
-  onSelectVideo?: (videoUrl: string, referenceImage: File) => void;
-  onMakeVideoReference?: (videoUrl: string) => void;
+  onSelectVideo?: (videoUrl: string, referenceImage: File | null, videoDuration?: number) => void;
+  onMakeVideoReference?: (videoUrl: string, videoDuration?: number) => void;
   refreshTrigger?: number;
 }
 
@@ -69,13 +70,10 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeV
     setLoadingImageId(id);
 
     if (entryType === 'video' && onSelectVideo) {
-      const [file, videoUrl] = await Promise.all([
-        getGalleryImage(id),
-        getGalleryVideoUrl(id),
-      ]);
+      const details = await getGalleryVideoDetails(id);
       setLoadingImageId(null);
-      if (file && videoUrl) {
-        onSelectVideo(videoUrl, file);
+      if (details) {
+        onSelectVideo(details.videoUrl, details.referenceImage, details.videoDuration);
       }
     } else {
       const file = await getGalleryImage(id);
@@ -89,10 +87,13 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeV
   const handleMakeReference = async (id: number) => {
     if (!onMakeVideoReference) return;
     setLoadingImageId(id);
-    const videoUrl = await getGalleryVideoUrl(id);
+    const [videoUrl, details] = await Promise.all([
+      getGalleryVideoUrl(id),
+      getGalleryVideoDetails(id),
+    ]);
     setLoadingImageId(null);
     if (videoUrl) {
-      onMakeVideoReference(videoUrl);
+      onMakeVideoReference(videoUrl, details?.videoDuration);
     }
   };
 
