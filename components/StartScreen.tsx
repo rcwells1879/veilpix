@@ -11,6 +11,7 @@ import FAQ from './FAQ';
 import BeforeAfterShowcase from './BeforeAfterShowcase';
 import Gallery from './Gallery';
 import VideoControlsPanel from './VideoControlsPanel';
+import type { GalleryVideoDetails } from '../src/utils/workflowStorage';
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast';
@@ -57,13 +58,14 @@ interface StartScreenProps {
   onShowSignupPrompt?: () => void;
   isGeneratingImage?: boolean;
   onSelectGalleryImage?: (file: File) => void;
-  onSelectGalleryVideo?: (videoUrl: string, referenceImage: File | null, videoDuration?: number) => void;
-  onMakeGalleryVideoReference?: (videoUrl: string, videoDuration?: number) => void;
+  onSelectGalleryVideo?: (details: GalleryVideoDetails) => void;
+  onMakeGalleryImageReference?: (file: File) => void;
+  onMakeGalleryVideoReference?: (details: GalleryVideoDetails) => void;
   galleryRefreshTrigger?: number;
   videoError?: string | null;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
 
@@ -232,7 +234,8 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         <Gallery
           onSelectImage={onSelectGalleryImage}
           onSelectVideo={onSelectGalleryVideo}
-          onMakeVideoReference={onMakeGalleryVideoReference}
+          onMakeImageReference={activeMode === 'video' ? onMakeGalleryImageReference : undefined}
+          onMakeVideoReference={activeMode === 'video' ? onMakeGalleryVideoReference : undefined}
           refreshTrigger={galleryRefreshTrigger}
         />
       )}

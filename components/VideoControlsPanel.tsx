@@ -247,7 +247,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   };
 
   const handleSeedanceImagesInput = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
+    const files = (Array.from(event.currentTarget.files ?? []) as File[]).filter((file) => file.type.startsWith('image/'));
     if (files.length > 0) {
       onSeedanceReferenceImagesChange([...seedanceReferenceImages, ...files].slice(0, 4));
     }
@@ -255,7 +255,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   };
 
   const handleWanImagesInput = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
+    const files = (Array.from(event.currentTarget.files ?? []) as File[]).filter((file) => file.type.startsWith('image/'));
     if (files.length > 0) {
       if (onWanReferenceImagesChange) {
         onWanReferenceImagesChange([...activeWanReferenceImages, ...files].slice(0, maxWanReferenceImages));

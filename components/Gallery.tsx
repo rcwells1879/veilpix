@@ -8,16 +8,17 @@ import {
   getGalleryImages,
   getGalleryImage,
   getGalleryVideoDetails,
-  getGalleryVideoUrl,
   deleteGalleryImage,
   clearGallery,
   GalleryThumbnail,
+  GalleryVideoDetails,
 } from '../src/utils/workflowStorage';
 
 interface GalleryProps {
   onSelectImage: (file: File) => void;
-  onSelectVideo?: (videoUrl: string, referenceImage: File | null, videoDuration?: number) => void;
-  onMakeVideoReference?: (videoUrl: string, videoDuration?: number) => void;
+  onSelectVideo?: (details: GalleryVideoDetails) => void;
+  onMakeImageReference?: (file: File) => void;
+  onMakeVideoReference?: (details: GalleryVideoDetails) => void;
   refreshTrigger?: number;
 }
 
@@ -35,7 +36,7 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeVideoReference, refreshTrigger }) => {
+const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeImageReference, onMakeVideoReference, refreshTrigger }) => {
   const [images, setImages] = useState<GalleryThumbnail[]>([]);
   const [loading, setLoading] = useState(true);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
@@ -69,31 +70,53 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeV
   const handleImageClick = async (id: number, entryType: 'image' | 'video') => {
     setLoadingImageId(id);
 
-    if (entryType === 'video' && onSelectVideo) {
-      const details = await getGalleryVideoDetails(id);
-      setLoadingImageId(null);
-      if (details) {
-        onSelectVideo(details.videoUrl, details.referenceImage, details.videoDuration);
+    try {
+      if (entryType === 'video' && onSelectVideo) {
+        const details = await getGalleryVideoDetails(id);
+        if (details) {
+          onSelectVideo(details);
+        }
+        return;
       }
-    } else {
+
       const file = await getGalleryImage(id);
-      setLoadingImageId(null);
       if (file) {
         onSelectImage(file);
       }
+    } catch (error) {
+      console.error('Failed to open gallery item:', error);
+    } finally {
+      setLoadingImageId(null);
     }
   };
 
   const handleMakeReference = async (id: number) => {
     if (!onMakeVideoReference) return;
     setLoadingImageId(id);
-    const [videoUrl, details] = await Promise.all([
-      getGalleryVideoUrl(id),
-      getGalleryVideoDetails(id),
-    ]);
-    setLoadingImageId(null);
-    if (videoUrl) {
-      onMakeVideoReference(videoUrl, details?.videoDuration);
+    try {
+      const details = await getGalleryVideoDetails(id);
+      if (details) {
+        onMakeVideoReference(details);
+      }
+    } catch (error) {
+      console.error('Failed to use gallery video as reference:', error);
+    } finally {
+      setLoadingImageId(null);
+    }
+  };
+
+  const handleMakeImageReference = async (id: number) => {
+    if (!onMakeImageReference) return;
+    setLoadingImageId(id);
+    try {
+      const file = await getGalleryImage(id);
+      if (file) {
+        onMakeImageReference(file);
+      }
+    } catch (error) {
+      console.error('Failed to use gallery image as reference:', error);
+    } finally {
+      setLoadingImageId(null);
     }
   };
 
@@ -202,6 +225,20 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeV
                 onClick={(e) => {
                   e.stopPropagation();
                   handleMakeReference(image.id);
+                }}
+                className="absolute top-2 left-2 bg-cyan-600/90 hover:bg-cyan-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg"
+              >
+                Make Reference
+              </button>
+            )}
+
+            {/* Image reference action */}
+            {image.type === 'image' && onMakeImageReference && loadingImageId !== image.id && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMakeImageReference(image.id);
                 }}
                 className="absolute top-2 left-2 bg-cyan-600/90 hover:bg-cyan-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg"
               >

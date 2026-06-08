@@ -31,8 +31,11 @@ export interface GalleryImage {
   name: string;
   type?: 'image' | 'video'; // undefined treated as 'image' for backward compat
   videoUrl?: string;         // External URL for video entries
+  videoBlob?: Blob;          // Local copy for video entries when the provider URL is temporary
   videoDuration?: number;
   hasReferenceImage?: boolean;
+  provider?: 'wan' | 'seedance';
+  referenceImages?: StoredGalleryFile[];
 }
 
 export interface GalleryThumbnail {
@@ -44,6 +47,23 @@ export interface GalleryThumbnail {
   videoUrl?: string;
   videoDuration?: number;
   hasReferenceImage?: boolean;
+  provider?: 'wan' | 'seedance';
+}
+
+interface StoredGalleryFile {
+  blob: Blob;
+  name: string;
+  type: string;
+  lastModified?: number;
+}
+
+export interface GalleryVideoDetails {
+  videoUrl: string;
+  videoFile: File | null;
+  referenceImage: File | null;
+  referenceImages: File[];
+  videoDuration?: number;
+  provider?: 'wan' | 'seedance';
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -399,8 +419,8 @@ export async function getGalleryImages(): Promise<GalleryThumbnail[]> {
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
         if (cursor) {
-          const { id, thumbnail, createdAt, name, type, videoUrl, videoDuration, hasReferenceImage } = cursor.value as GalleryImage;
-          thumbnails.push({ id: id!, thumbnail, createdAt, name, type: type || 'image', videoUrl, videoDuration, hasReferenceImage });
+          const { id, thumbnail, createdAt, name, type, videoUrl, videoDuration, hasReferenceImage, provider } = cursor.value as GalleryImage;
+          thumbnails.push({ id: id!, thumbnail, createdAt, name, type: type || 'image', videoUrl, videoDuration, hasReferenceImage, provider });
           cursor.continue();
         } else {
           resolve(thumbnails);
@@ -433,8 +453,8 @@ export async function getGalleryImage(id: number): Promise<File | null> {
 
       request.onsuccess = () => {
         const image = request.result as GalleryImage | undefined;
-        if (image) {
-          const file = new File([image.blob], image.name, { type: image.blob.type });
+        if (image?.blob) {
+          const file = new File([image.blob], image.name, { type: image.blob.type || 'image/png' });
           resolve(file);
         } else {
           resolve(null);
@@ -471,7 +491,23 @@ export async function getGalleryVideoUrl(id: number): Promise<string | null> {
   }
 }
 
-export async function getGalleryVideoDetails(id: number): Promise<{ videoUrl: string; referenceImage: File | null; videoDuration?: number } | null> {
+function toStoredGalleryFile(file: File): StoredGalleryFile {
+  return {
+    blob: file,
+    name: file.name,
+    type: file.type,
+    lastModified: file.lastModified,
+  };
+}
+
+function fromStoredGalleryFile(file: StoredGalleryFile, fallbackName: string): File {
+  return new File([file.blob], file.name || fallbackName, {
+    type: file.type || file.blob.type || 'image/png',
+    lastModified: file.lastModified,
+  });
+}
+
+export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDetails | null> {
   try {
     const db = await openDB();
 
@@ -481,19 +517,29 @@ export async function getGalleryVideoDetails(id: number): Promise<{ videoUrl: st
       const request = store.get(id);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
+      request.onsuccess = async () => {
         const entry = request.result as GalleryImage | undefined;
         if (!entry?.videoUrl) {
           resolve(null);
           return;
         }
-        const referenceImage = entry.hasReferenceImage
-          ? new File([entry.blob], entry.name.replace(/\.mp4$/i, '-reference.jpg'), { type: entry.blob.type || 'image/jpeg' })
+        const referenceImages = entry.referenceImages?.length
+          ? entry.referenceImages.map((file, index) => fromStoredGalleryFile(file, `video-reference-${index + 1}.png`))
+          : entry.hasReferenceImage && entry.blob
+            ? [new File([entry.blob], entry.name.replace(/\.mp4$/i, '-reference.jpg'), { type: entry.blob.type || 'image/jpeg' })]
+            : [];
+        const downloadedVideoBlob = entry.videoBlob ? null : await fetchVideoBlob(entry.videoUrl);
+        const videoBlob = entry.videoBlob || downloadedVideoBlob;
+        const videoFile = videoBlob
+          ? new File([videoBlob], entry.name || `video-${id}.mp4`, { type: videoBlob.type || 'video/mp4' })
           : null;
         resolve({
           videoUrl: entry.videoUrl,
-          referenceImage,
+          videoFile,
+          referenceImage: referenceImages[0] ?? null,
+          referenceImages,
           videoDuration: entry.videoDuration,
+          provider: entry.provider,
         });
       };
     });
@@ -586,9 +632,23 @@ async function createVideoFrameThumbnailFromFile(file: File): Promise<Blob | nul
   }
 }
 
+async function fetchVideoBlob(videoUrl: string): Promise<Blob | null> {
+  try {
+    const response = await fetch(videoUrl);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return blob.type.startsWith('video/') || blob.size > 0 ? blob : null;
+  } catch (error) {
+    console.warn('Could not save local copy of generated video:', error);
+    return null;
+  }
+}
+
 export interface SaveVideoToGalleryOptions {
   videoUrl: string;
+  provider?: 'wan' | 'seedance';
   referenceImage?: File | null;
+  referenceImages?: File[];
   referenceVideoFile?: File | null;
   referenceVideoUrl?: string | null;
   videoDuration?: number;
@@ -600,9 +660,17 @@ export interface SaveVideoToGalleryOptions {
  */
 export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<void> {
   try {
-    const { videoUrl, referenceImage = null, referenceVideoFile = null, referenceVideoUrl = null, videoDuration } = options;
+    const { videoUrl, provider, referenceImage = null, referenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, videoDuration } = options;
     const db = await openDB();
-    const generatedVideoThumbnail = await createVideoFrameThumbnail(videoUrl);
+    const storedReferenceImages = referenceImages.length > 0
+      ? referenceImages.slice(0, 5)
+      : referenceImage
+        ? [referenceImage]
+        : [];
+    const videoBlob = await fetchVideoBlob(videoUrl);
+    const generatedVideoThumbnail = videoBlob
+      ? await createVideoFrameThumbnailFromFile(new File([videoBlob], `video-${Date.now()}.mp4`, { type: videoBlob.type || 'video/mp4' }))
+      : await createVideoFrameThumbnail(videoUrl);
     const referenceVideoThumbnail = generatedVideoThumbnail
       ? null
       : referenceVideoFile
@@ -613,8 +681,8 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
     const thumbnail =
       generatedVideoThumbnail ||
       referenceVideoThumbnail ||
-      (referenceImage ? await createThumbnail(referenceImage) : await createVideoPlaceholderThumbnail());
-    const storedBlob = referenceImage || thumbnail;
+      (storedReferenceImages[0] ? await createThumbnail(storedReferenceImages[0]) : await createVideoPlaceholderThumbnail());
+    const storedBlob = storedReferenceImages[0] || thumbnail;
 
     const galleryEntry: GalleryImage = {
       blob: storedBlob,
@@ -623,8 +691,11 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       name: `video-${Date.now()}.mp4`,
       type: 'video',
       videoUrl,
+      videoBlob: videoBlob || undefined,
       videoDuration,
-      hasReferenceImage: Boolean(referenceImage),
+      hasReferenceImage: storedReferenceImages.length > 0,
+      provider,
+      referenceImages: storedReferenceImages.map(toStoredGalleryFile),
     };
 
     return new Promise((resolve, reject) => {
