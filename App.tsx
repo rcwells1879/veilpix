@@ -1367,58 +1367,6 @@ const App: React.FC = () => {
     setVideoError(null);
   }, [videoProvider, videoUrl]);
 
-  // Handle text-to-video generation (no reference image needed)
-  const handleTextToVideoGenerate = useCallback(async (
-    prompt: string,
-    duration: number,
-    resolution: string,
-    ratio: string,
-    providerOverride: VideoProvider = videoProvider,
-    seedanceVariant: SeedanceVariant = 'regular'
-  ) => {
-    setVideoError(null);
-    setVideoUrl(null);
-    setCreativeMode('video');
-    setView('editor');
-
-    try {
-      const response = providerOverride === 'seedance'
-        ? await seedanceVideoMutation.mutateAsync({
-            prompt,
-            variant: seedanceVariant,
-            duration,
-            resolution,
-            aspectRatio: ratio,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
-          })
-        : await textToVideoMutation.mutateAsync({
-            prompt,
-            duration,
-            resolution,
-            ratio,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
-          });
-
-      if (response.success && response.videoUrl) {
-        setVideoUrl(response.videoUrl);
-        saveVideoToGallery({
-          videoUrl: response.videoUrl,
-          videoDuration: duration
-        }).then(() => setGalleryRefreshTrigger(n => n + 1));
-      } else {
-        throw new Error(response.message || 'Failed to generate video');
-      }
-    } catch (err: any) {
-      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      if (isSafetyFilterError(errorMessage, settings.nsfwFilterEnabled)) {
-        setError(errorMessage);
-      } else {
-        setVideoError(`Failed to generate video. ${errorMessage}`);
-      }
-      console.error('Text-to-video generation error:', err);
-    }
-  }, [seedanceVideoMutation, textToVideoMutation, videoProvider, settings.nsfwFilterEnabled]);
-
   const handleFileSelect = async (files: FileList | null) => {
     if (files && files[0]) {
       // Debug authentication state
@@ -1575,7 +1523,6 @@ const App: React.FC = () => {
         onUseWebcamClick={handleUseWebcamClick}
         onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
         onTextToImageGenerate={handleTextToImageGenerate}
-        onTextToVideoGenerate={handleTextToVideoGenerate}
         onVideoGenerate={handleStartScreenVideoGenerate}
         onReferenceVideoSelect={handleReferenceVideoSelect}
         onWanReferenceImagesChange={handleWanReferenceImagesChange}
@@ -1710,7 +1657,11 @@ const App: React.FC = () => {
                     <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/70 animate-fade-in">
                         <Spinner />
                         <p className="text-gray-300">
-                          {isProcessingFile ? 'Processing image...' : 'AI is working its magic...'}
+                          {isProcessingFile
+                            ? 'Processing image...'
+                            : creativeMode === 'video'
+                              ? 'AI is generating your video...'
+                              : 'AI is working its magic...'}
                         </p>
                     </div>
                 )}
@@ -1973,7 +1924,6 @@ const App: React.FC = () => {
       onUseWebcamClick={handleUseWebcamClick}
       onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
       onTextToImageGenerate={handleTextToImageGenerate}
-      onTextToVideoGenerate={handleTextToVideoGenerate}
       onVideoGenerate={handleStartScreenVideoGenerate}
       onReferenceVideoSelect={handleReferenceVideoSelect}
       onWanReferenceImagesChange={handleWanReferenceImagesChange}

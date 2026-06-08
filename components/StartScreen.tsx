@@ -21,7 +21,6 @@ interface StartScreenProps {
   onUseWebcamClick: () => void;
   onUseWebcamForCompositeClick: () => void;
   onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void) => void;
-  onTextToVideoGenerate?: (prompt: string, duration: number, resolution: string, ratio: string, provider?: VideoProvider, seedanceVariant?: SeedanceVariant) => void;
   onVideoGenerate?: (options: {
     provider: VideoProvider;
     prompt: string;
@@ -64,45 +63,14 @@ interface StartScreenProps {
   videoError?: string | null;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
-
-  // Text-to-video state
-  const [textToVideoPrompt, setTextToVideoPrompt] = useState('');
-  const [textToVideoDuration, setTextToVideoDuration] = useState(5);
-  const [textToVideoResolution, setTextToVideoResolution] = useState('1080p');
-  const [textToVideoRatio, setTextToVideoRatio] = useState('16:9');
-  const [textToVideoSeedanceVariant, setTextToVideoSeedanceVariant] = useState<SeedanceVariant>('regular');
-  const [referenceVideoPreviewUrl, setReferenceVideoPreviewUrl] = useState<string | null>(null);
-  const activeReferenceVideoFile = videoProvider === 'seedance' ? seedanceReferenceVideoFile : referenceVideoFile;
 
   // Update composite file when prop changes
   useEffect(() => {
     setCompositeFile1(initialCompositeFile1);
   }, [initialCompositeFile1]);
-
-  useEffect(() => {
-    if (!activeReferenceVideoFile) {
-      setReferenceVideoPreviewUrl(null);
-      return;
-    }
-    const objectUrl = URL.createObjectURL(activeReferenceVideoFile);
-    setReferenceVideoPreviewUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [activeReferenceVideoFile]);
-
-  useEffect(() => {
-    if (videoProvider === 'seedance' && textToVideoSeedanceVariant === 'fast' && textToVideoResolution === '1080p') {
-      setTextToVideoResolution('720p');
-    }
-    if (videoProvider === 'wan' && textToVideoDuration > 10) {
-      setTextToVideoDuration(10);
-    }
-    if (videoProvider === 'wan' && !['720p', '1080p'].includes(textToVideoResolution)) {
-      setTextToVideoResolution('1080p');
-    }
-  }, [textToVideoDuration, textToVideoResolution, textToVideoSeedanceVariant, videoProvider]);
 
   const handleComposite = useCallback(() => {
     if (compositeFile1 && compositeFile2) {
@@ -255,227 +223,6 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               onSeedanceReferenceVideoUrlRemove={onSeedanceReferenceVideoUrlRemove || (() => {})}
               onSeedanceReferenceAudioSelect={onSeedanceReferenceAudioSelect || (() => {})}
             />
-            {false && (
-              <>
-            {/* Reference-to-Video: Upload reference image and/or video */}
-            <div className="w-full">
-              <p className="text-sm font-semibold text-gray-400 text-center mb-2">
-                {videoProvider === 'seedance' ? 'Seedance References' : 'Reference-to-Video'}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                <ImageDropzone
-                  file={null}
-                  onFileSelect={(file) => {
-                    if (file) {
-                      const dt = new DataTransfer();
-                      dt.items.add(file);
-                      onFileSelect(dt.files);
-                    } else {
-                      onFileSelect(null);
-                    }
-                  }}
-                  label="Upload Reference Image"
-                  showWebcam={true}
-                  onWebcamClick={onUseWebcamClick}
-                  showTextToImage={true}
-                  onTextToImageGenerate={onTextToImageGenerate}
-                  isAuthenticated={isAuthenticated}
-                  onShowSignupPrompt={onShowSignupPrompt}
-                  isGeneratingImage={isGeneratingImage}
-                />
-
-                <div className="w-full h-full min-h-[250px] border-2 border-dashed border-gray-600 rounded-lg flex flex-col items-center justify-center p-6 text-center bg-gray-800/30 hover:bg-gray-700/40 hover:border-blue-500 transition-all duration-300">
-                  {activeReferenceVideoFile ? (
-                    <div className="w-full flex flex-col items-center gap-3">
-                      <video
-                        src={referenceVideoPreviewUrl || undefined}
-                        controls
-                        className="w-full max-h-44 rounded-lg bg-black object-contain"
-                      />
-                      <p className="text-sm text-gray-300 truncate max-w-full">{activeReferenceVideoFile.name}</p>
-                      <button
-                        type="button"
-                        onClick={() => videoProvider === 'seedance' ? onSeedanceReferenceVideoSelect?.(null) : onReferenceVideoSelect?.(null)}
-                        className="text-sm text-red-300 hover:text-red-200 font-semibold"
-                        disabled={isGeneratingImage}
-                      >
-                        Remove Reference Video
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center gap-3">
-                      <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-400/30 flex items-center justify-center">
-                        <span className="text-3xl">🎬</span>
-                      </div>
-                      <div>
-                        <p className="text-lg font-semibold text-gray-200">Upload Reference Video</p>
-                        <p className="text-sm text-gray-500 mt-1">
-                          {videoProvider === 'seedance' ? 'Seedance video reference, up to 15s' : 'MP4/WebM/MOV reference clip'}
-                        </p>
-                      </div>
-                      <input
-                        type="file"
-                        accept="video/*"
-                        className="hidden"
-                        disabled={isGeneratingImage}
-                        onChange={(event) => {
-                          const file = event.target.files?.[0] || null;
-                          if (file && !isAuthenticated && onShowSignupPrompt) {
-                            onShowSignupPrompt();
-                            event.currentTarget.value = '';
-                            return;
-                          }
-                          if (videoProvider === 'seedance') {
-                            onSeedanceReferenceVideoSelect?.(file);
-                          } else {
-                            onReferenceVideoSelect?.(file);
-                          }
-                        }}
-                      />
-                    </label>
-                  )}
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 text-center mt-2">
-                {videoProvider === 'seedance'
-                  ? 'Images added here become Seedance image references, and the video becomes the Seedance video reference.'
-                  : 'Use an image, a video, or both. If both are present, Wan 2.7 reference-to-video uses both references.'}
-              </p>
-            </div>
-
-            {/* "Or" divider */}
-            <div className="flex items-center w-full gap-4">
-              <div className="flex-1 h-px bg-gray-600"></div>
-              <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider">or</span>
-              <div className="flex-1 h-px bg-gray-600"></div>
-            </div>
-
-            {/* Text-to-Video prompt */}
-            <div className="w-full flex flex-col gap-3">
-              <p className="text-sm font-semibold text-gray-400 text-center">Text-to-Video</p>
-              <textarea
-                value={textToVideoPrompt}
-                onChange={(e) => setTextToVideoPrompt(e.target.value)}
-                placeholder="Describe the video you want to create... (e.g., 'A futuristic city street at night, neon reflections shimmering on wet ground as a hover car glides past')"
-                className="w-full bg-gray-800/50 border border-gray-600 text-gray-200 rounded-lg p-4 text-base focus:ring-2 focus:ring-blue-500 focus:outline-none transition resize-none"
-                rows={3}
-                disabled={isGeneratingImage}
-                maxLength={5000}
-              />
-
-              {/* Controls row */}
-              <div className="flex flex-wrap gap-2">
-                {videoProvider === 'seedance' && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-gray-500">Mode:</span>
-                    {(['regular', 'fast'] as const).map((variant) => (
-                      <button
-                        key={variant}
-                        onClick={() => setTextToVideoSeedanceVariant(variant)}
-                        className={`py-1 px-2.5 rounded text-xs font-semibold capitalize transition-all duration-200 ${
-                          textToVideoSeedanceVariant === variant
-                            ? 'bg-[#E04F67] text-white shadow'
-                            : 'bg-[#E04F67]/10 text-[#F3A2AF] hover:bg-[#E04F67]/20 hover:text-white'
-                        }`}
-                        disabled={isGeneratingImage}
-                      >
-                        {variant === 'regular' ? 'Regular' : 'Fast'}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Duration */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-gray-500">Duration:</span>
-                  {(videoProvider === 'seedance' ? [5, 10, 15] : [5, 10]).map((d) => (
-                    <button
-                      key={d}
-                      onClick={() => setTextToVideoDuration(d)}
-                      className={`py-1 px-2.5 rounded text-xs font-semibold transition-all duration-200 ${
-                        textToVideoDuration === d
-                          ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow'
-                          : 'bg-white/10 text-gray-400 hover:bg-white/20 hover:text-white'
-                      }`}
-                      disabled={isGeneratingImage}
-                    >
-                      {d}s
-                    </button>
-                  ))}
-                </div>
-
-                {/* Aspect Ratio */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-gray-500">Ratio:</span>
-                  {(videoProvider === 'seedance' ? ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'] : ['16:9', '9:16', '1:1', '4:3']).map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setTextToVideoRatio(r)}
-                      className={`py-1 px-2.5 rounded text-xs font-semibold transition-all duration-200 ${
-                        textToVideoRatio === r
-                          ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow'
-                          : 'bg-white/10 text-gray-400 hover:bg-white/20 hover:text-white'
-                      }`}
-                      disabled={isGeneratingImage}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Resolution */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-gray-500">Quality:</span>
-                  {(videoProvider === 'seedance'
-                    ? textToVideoSeedanceVariant === 'fast'
-                      ? ['480p', '720p']
-                      : ['480p', '720p', '1080p']
-                    : ['720p', '1080p']).map((q) => (
-                    <button
-                      key={q}
-                      onClick={() => setTextToVideoResolution(q)}
-                      className={`py-1 px-2.5 rounded text-xs font-semibold transition-all duration-200 ${
-                        textToVideoResolution === q
-                          ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow'
-                          : 'bg-white/10 text-gray-400 hover:bg-white/20 hover:text-white'
-                      }`}
-                      disabled={isGeneratingImage}
-                    >
-                      {q}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  if (!isAuthenticated && onShowSignupPrompt) {
-                    onShowSignupPrompt();
-                    return;
-                  }
-                  if (textToVideoPrompt.trim() && onTextToVideoGenerate) {
-                    onTextToVideoGenerate(
-                      textToVideoPrompt.trim(),
-                      textToVideoDuration,
-                      textToVideoResolution,
-                      textToVideoRatio,
-                      videoProvider,
-                      textToVideoSeedanceVariant
-                    );
-                  }
-                }}
-                disabled={!textToVideoPrompt.trim() || isGeneratingImage}
-                className={`w-full text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg hover:shadow-xl hover:-translate-y-px active:scale-95 active:shadow-inner disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none ${
-                  videoProvider === 'seedance'
-                    ? 'bg-gradient-to-br from-[#E04F67] to-[#B83D8A] shadow-[#E04F67]/20 hover:shadow-[#E04F67]/35 disabled:from-[#7B3140] disabled:to-[#6F2A55]'
-                    : 'bg-gradient-to-br from-blue-600 to-blue-500 shadow-blue-500/20 hover:shadow-blue-500/40 disabled:from-blue-800 disabled:to-blue-700'
-                }`}
-              >
-                {isGeneratingImage ? 'Generating Video...' : `Generate ${videoProvider === 'seedance' ? 'Seedance' : 'Wan'} Video from Text`}
-              </button>
-            </div>
-              </>
-            )}
           </div>
         )}
       </div>
