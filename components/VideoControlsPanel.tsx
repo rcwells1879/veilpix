@@ -317,6 +317,21 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
         </div>
       )}
 
+      {videoProvider === 'seedance' && (
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-gray-300">Describe your video</label>
+          <textarea
+            value={videoPrompt}
+            onChange={(e) => setVideoPrompt(e.target.value)}
+            placeholder="Describe the motion, action, camera movement, and style you want..."
+            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-[#E04F67]"
+            rows={3}
+            disabled={isLoading}
+            maxLength={5000}
+          />
+        </div>
+      )}
+
       {videoProvider === 'wan' && (
         <div className="rounded-lg border border-gray-700/70 bg-gray-900/40 p-3">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -518,18 +533,20 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
-        <label className="text-sm font-semibold text-gray-300">Describe your video</label>
-        <textarea
-          value={videoPrompt}
-          onChange={(e) => setVideoPrompt(e.target.value)}
-          placeholder="Describe the motion, action, camera movement, and style you want..."
-          className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-500"
-          rows={3}
-          disabled={isLoading}
-          maxLength={5000}
-        />
-      </div>
+      {videoProvider === 'wan' && (
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-gray-300">Describe your video</label>
+          <textarea
+            value={videoPrompt}
+            onChange={(e) => setVideoPrompt(e.target.value)}
+            placeholder="Describe the motion, action, camera movement, and style you want..."
+            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-500"
+            rows={3}
+            disabled={isLoading}
+            maxLength={5000}
+          />
+        </div>
+      )}
 
       {videoProvider === 'wan' ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

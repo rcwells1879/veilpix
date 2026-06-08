@@ -10,6 +10,7 @@ import ModeSelector, { type CreativeMode } from './ModeSelector';
 import FAQ from './FAQ';
 import BeforeAfterShowcase from './BeforeAfterShowcase';
 import Gallery from './Gallery';
+import VideoControlsPanel from './VideoControlsPanel';
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast';
@@ -21,10 +22,29 @@ interface StartScreenProps {
   onUseWebcamForCompositeClick: () => void;
   onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void) => void;
   onTextToVideoGenerate?: (prompt: string, duration: number, resolution: string, ratio: string, provider?: VideoProvider, seedanceVariant?: SeedanceVariant) => void;
+  onVideoGenerate?: (options: {
+    provider: VideoProvider;
+    prompt: string;
+    duration: number;
+    resolution: string;
+    ratio: string;
+    wanAudio?: boolean;
+    wanMultiShots?: boolean;
+    seedanceVariant?: SeedanceVariant;
+    seedanceGenerateAudio?: boolean;
+    seedanceWebSearch?: boolean;
+  }) => void;
   onReferenceVideoSelect?: (file: File | null) => void;
   referenceVideoFile?: File | null;
   onSeedanceReferenceVideoSelect?: (file: File | null) => void;
+  seedanceReferenceImages?: File[];
   seedanceReferenceVideoFile?: File | null;
+  seedanceReferenceVideoUrl?: string | null;
+  seedanceReferenceVideoDuration?: number | null;
+  seedanceReferenceAudioFile?: File | null;
+  onSeedanceReferenceImagesChange?: (files: File[]) => void;
+  onSeedanceReferenceVideoUrlRemove?: () => void;
+  onSeedanceReferenceAudioSelect?: (file: File | null) => void;
   videoProvider: VideoProvider;
   onVideoProviderChange: (provider: VideoProvider) => void;
   activeMode: CreativeMode;
@@ -37,9 +57,10 @@ interface StartScreenProps {
   onSelectGalleryVideo?: (videoUrl: string, referenceImage: File | null, videoDuration?: number) => void;
   onMakeGalleryVideoReference?: (videoUrl: string, videoDuration?: number) => void;
   galleryRefreshTrigger?: number;
+  videoError?: string | null;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onReferenceVideoSelect, referenceVideoFile = null, onSeedanceReferenceVideoSelect, seedanceReferenceVideoFile = null, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onTextToVideoGenerate, onVideoGenerate, onReferenceVideoSelect, referenceVideoFile = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
 
@@ -201,6 +222,36 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         {/* Video Mode Content */}
         {activeMode === 'video' && (
           <div className="flex flex-col items-center gap-4 animate-fade-in">
+            {videoProvider === 'seedance' ? (
+              <VideoControlsPanel
+                isLoading={isGeneratingImage}
+                onGenerate={(options) => {
+                  if (!isAuthenticated && onShowSignupPrompt) {
+                    onShowSignupPrompt();
+                    return;
+                  }
+                  onVideoGenerate?.(options);
+                }}
+                videoProvider={videoProvider}
+                onVideoProviderChange={onVideoProviderChange}
+                videoError={videoError}
+                referenceImage={null}
+                referenceVideoFile={referenceVideoFile}
+                referenceVideoUrl={null}
+                referenceVideoDuration={null}
+                seedanceReferenceImages={seedanceReferenceImages}
+                seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+                seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
+                seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
+                seedanceReferenceAudioFile={seedanceReferenceAudioFile}
+                onReferenceVideoSelect={onReferenceVideoSelect}
+                onSeedanceReferenceImagesChange={onSeedanceReferenceImagesChange || (() => {})}
+                onSeedanceReferenceVideoSelect={onSeedanceReferenceVideoSelect || (() => {})}
+                onSeedanceReferenceVideoUrlRemove={onSeedanceReferenceVideoUrlRemove || (() => {})}
+                onSeedanceReferenceAudioSelect={onSeedanceReferenceAudioSelect || (() => {})}
+              />
+            ) : (
+              <>
             <div className="w-full rounded-lg border border-white/10 bg-gray-900/50 p-3">
               <div className="grid grid-cols-2 rounded-lg border border-white/10 bg-gray-950/40 p-1">
                 <button
@@ -447,6 +498,8 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 {isGeneratingImage ? 'Generating Video...' : `Generate ${videoProvider === 'seedance' ? 'Seedance' : 'Wan'} Video from Text`}
               </button>
             </div>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1267,6 +1267,12 @@ const App: React.FC = () => {
     settings.nsfwFilterEnabled
   ]);
 
+  const handleStartScreenVideoGenerate = useCallback((options: VideoGenerateOptions) => {
+    setCreativeMode('video');
+    setView('editor');
+    handleGenerateVideo(options);
+  }, [handleGenerateVideo]);
+
   const handleReferenceImageSelect = useCallback((file: File | null) => {
     if (file) {
       setHistory([file]);
@@ -1511,10 +1517,18 @@ const App: React.FC = () => {
         onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
         onTextToImageGenerate={handleTextToImageGenerate}
         onTextToVideoGenerate={handleTextToVideoGenerate}
+        onVideoGenerate={handleStartScreenVideoGenerate}
         onReferenceVideoSelect={handleReferenceVideoSelect}
         referenceVideoFile={referenceVideoFile}
         onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+        seedanceReferenceImages={seedanceReferenceImages}
         seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+        seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
+        seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
+        seedanceReferenceAudioFile={seedanceReferenceAudioFile}
+        onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
+        onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
+        onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
         videoProvider={videoProvider}
         onVideoProviderChange={setVideoProvider}
         activeMode={creativeMode}
@@ -1527,6 +1541,7 @@ const App: React.FC = () => {
         onSelectGalleryVideo={handleSelectGalleryVideo}
         onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
         galleryRefreshTrigger={galleryRefreshTrigger}
+        videoError={videoError}
       />;
     }
 
@@ -1885,10 +1900,18 @@ const App: React.FC = () => {
       onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
       onTextToImageGenerate={handleTextToImageGenerate}
       onTextToVideoGenerate={handleTextToVideoGenerate}
+      onVideoGenerate={handleStartScreenVideoGenerate}
       onReferenceVideoSelect={handleReferenceVideoSelect}
       referenceVideoFile={referenceVideoFile}
       onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+      seedanceReferenceImages={seedanceReferenceImages}
       seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+      seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
+      seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
+      seedanceReferenceAudioFile={seedanceReferenceAudioFile}
+      onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
+      onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
+      onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
       videoProvider={videoProvider}
       onVideoProviderChange={setVideoProvider}
       activeMode={creativeMode}
@@ -1900,6 +1923,7 @@ const App: React.FC = () => {
       onSelectGalleryVideo={handleSelectGalleryVideo}
       onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
       galleryRefreshTrigger={galleryRefreshTrigger}
+      videoError={videoError}
     />;
   };
   
