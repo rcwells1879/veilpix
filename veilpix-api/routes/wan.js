@@ -329,7 +329,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
 
 // Generate reference-to-video with optional reference image and/or reference video
 router.post('/generate-reference-to-video', upload.fields([
-    { name: 'image', maxCount: 1 },
+    { name: 'image', maxCount: 5 },
     { name: 'video', maxCount: 1 }
 ]), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
@@ -338,11 +338,11 @@ router.post('/generate-reference-to-video', upload.fields([
 
     try {
         const { prompt, duration = '5', resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = 'true', referenceVideoUrl } = req.body;
-        const imageFile = req.files?.image?.[0];
+        const imageFiles = req.files?.image || [];
         const videoFile = req.files?.video?.[0];
 
-        if (!imageFile && !videoFile && !referenceVideoUrl) {
-            return res.status(400).json({ error: 'Provide a reference image, reference video, or generated reference video URL' });
+        if (imageFiles.length === 0 && !videoFile && !referenceVideoUrl) {
+            return res.status(400).json({ error: 'Provide at least one reference image, reference video, or generated reference video URL' });
         }
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ error: 'No video description provided' });
@@ -354,9 +354,9 @@ router.post('/generate-reference-to-video', upload.fields([
         const referenceImages = [];
         const referenceVideos = [];
 
-        if (imageFile) {
+        for (const imageFile of imageFiles) {
             if (!imageFile.mimetype.startsWith('image/')) {
-                return res.status(400).json({ error: 'Reference image must be an image file' });
+                return res.status(400).json({ error: 'Reference images must be image files' });
             }
             const imageUpload = await uploadTemporaryImage(imageFile.buffer, imageFile.mimetype, req.user.userId);
             if (!imageUpload.success) {
@@ -458,7 +458,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
     let usageLogged = false;
 
     try {
-        const { prompt, duration = 5, resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = true } = req.body;
+        const { prompt, duration = 5, resolution = '1080p', ratio = '16:9', multiShots = false, nsfwFilterEnabled = true } = req.body;
 
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ error: 'No video description provided' });
@@ -470,19 +470,20 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
         const validRatios = ['16:9', '9:16', '1:1', '4:3', '3:4'];
         const selectedRatio = validRatios.includes(ratio) ? ratio : '16:9';
 
-        // Build Wan 2.7 text-to-video API request
+        // Build Wan 2.6 text-to-video API request
         const wanRequest = buildTextToVideoRequest(
             prompt.trim(),
             {
                 duration: typeof duration === 'number' ? duration : parseInt(duration),
                 resolution,
                 ratio: selectedRatio,
+                multiShots: multiShots === 'true' || multiShots === true,
                 nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true || nsfwFilterEnabled === undefined
             }
         );
 
-        // Call Wan 2.7 API for text-to-video
-        const taskResponse = await createWanTask(wanRequest, 'wan/2-7-text-to-video');
+        // Call Wan 2.6 API for text-to-video
+        const taskResponse = await createWanTask(wanRequest, 'wan/2-6-text-to-video');
         const taskId = taskResponse.data.taskId;
         console.log(`📋 Text-to-video task created with ID: ${taskId}`);
 

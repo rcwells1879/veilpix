@@ -2,7 +2,7 @@
  * Wan Video API Adapter
  *
  * Image-to-Video: Wan 2.6 Flash (wan/2-6-flash-image-to-video)
- * Text-to-Video:  Wan 2.7 (wan/2-7-text-to-video)
+ * Text-to-Video:  Wan 2.6 (wan/2-6-text-to-video)
  * Reference-to-Video: Wan 2.7 (wan/2-7-r2v)
  *
  * Transforms VeilPix requests into Kie.ai API format
@@ -84,13 +84,13 @@ function normalizeVideoResponse(wanResponse) {
 }
 
 /**
- * Build Wan 2.7 text-to-video request body
+ * Build Wan 2.6 text-to-video request body
  *
  * @param {string} prompt - Video description (max 5000 chars)
  * @param {object} options - Optional parameters
- * @param {number} options.duration - Video duration in seconds (integer 2-15, default 5)
+ * @param {number} options.duration - Video duration in seconds (default 5)
  * @param {string} options.resolution - '720p' or '1080p' (default '1080p')
- * @param {string} options.ratio - Aspect ratio (default '16:9')
+ * @param {boolean} options.multiShots - Enable multi-shot mode (default false)
  * @param {boolean} options.nsfwFilterEnabled - NSFW filter (default true)
  * @returns {object} Wan API input parameters
  */
@@ -103,17 +103,15 @@ function buildTextToVideoRequest(prompt, options = {}) {
     const {
         duration = 5,
         resolution = '1080p',
-        ratio = '16:9',
+        multiShots = false,
         nsfwFilterEnabled = true
     } = options;
 
     return {
         prompt,
         resolution,
-        aspect_ratio: ratio,
-        duration: clampWan27Duration(duration),
-        prompt_extend: true,
-        watermark: false,
+        duration: snapDuration(duration),
+        multi_shots: multiShots,
         nsfw_checker: nsfwFilterEnabled
     };
 }

@@ -404,6 +404,7 @@ const App: React.FC = () => {
   const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
   const [referenceVideoDuration, setReferenceVideoDuration] = useState<number | null>(null);
+  const [wanReferenceImages, setWanReferenceImages] = useState<File[]>([]);
   const [seedanceReferenceImages, setSeedanceReferenceImages] = useState<File[]>([]);
   const [seedanceReferenceVideoFile, setSeedanceReferenceVideoFile] = useState<File | null>(null);
   const [seedanceReferenceVideoUrl, setSeedanceReferenceVideoUrl] = useState<string | null>(null);
@@ -573,11 +574,13 @@ const App: React.FC = () => {
         });
         setVideoUrl(null);
         setVideoError(null);
-        setView('editor');
         return;
       }
+      const maxImages = referenceVideoFile || referenceVideoUrl ? 4 : 5;
+      setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
       setVideoUrl(null);
       setVideoError(null);
+      return;
     }
 
     setHistory([file]);
@@ -588,7 +591,7 @@ const App: React.FC = () => {
     setCrop(undefined);
     setCompletedCrop(undefined);
     setView('editor');
-  }, [creativeMode, videoProvider]);
+  }, [creativeMode, referenceVideoFile, referenceVideoUrl, videoProvider]);
 
   // Handle selecting a video from the gallery for viewing/reuse with its saved thumbnail image
   const handleSelectGalleryVideo = useCallback((videoUrlFromGallery: string, referenceImage: File | null, videoDuration?: number) => {
@@ -626,10 +629,10 @@ const App: React.FC = () => {
       setReferenceVideoFile(null);
       setReferenceVideoUrl(videoUrlFromGallery);
       setReferenceVideoDuration(videoDuration ?? null);
+      setWanReferenceImages(prev => prev.slice(0, 4));
     }
     setVideoUrl(null);
     setVideoError(null);
-    setView('editor');
   }, [videoProvider]);
 
   const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
@@ -1088,6 +1091,15 @@ const App: React.FC = () => {
       setCreativeMode('single');
       setVideoUrl(null);
       setVideoError(null);
+      setWanReferenceImages([]);
+      setReferenceVideoFile(null);
+      setReferenceVideoUrl(null);
+      setReferenceVideoDuration(null);
+      setSeedanceReferenceImages([]);
+      setSeedanceReferenceVideoFile(null);
+      setSeedanceReferenceVideoUrl(null);
+      setSeedanceReferenceVideoDuration(null);
+      setSeedanceReferenceAudioFile(null);
       setView('start');
   }, []);
 
@@ -1149,7 +1161,11 @@ const App: React.FC = () => {
       }
       // For 'single' and 'video' — just switch the panel, no state changes
     }
-  }, [view, currentImage]);
+
+    if (newMode === 'video' && view === 'editor' && currentImage && videoProvider === 'wan') {
+      setWanReferenceImages(prev => prev.length > 0 ? prev : [currentImage]);
+    }
+  }, [view, currentImage, videoProvider]);
 
   // Handle combining from the editor overlay
   const handleCompositeFromEditor = useCallback((file2: File) => {
@@ -1185,17 +1201,16 @@ const App: React.FC = () => {
       seedanceWebSearch = false
     } = options;
 
-    if (provider === 'wan' && !currentImage && !referenceVideoFile && !referenceVideoUrl) {
-      setVideoError('Add a reference image, reference video, or both.');
-      return;
-    }
-
     setVideoError(null);
     setVideoUrl(null);
 
     try {
-      const response = provider === 'seedance'
-        ? await seedanceVideoMutation.mutateAsync({
+      const wanHasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
+      const wanReferenceImagesForRequest = wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
+      let response: any;
+
+      if (provider === 'seedance') {
+        response = await seedanceVideoMutation.mutateAsync({
             referenceImages: seedanceReferenceImages,
             referenceVideo: seedanceReferenceVideoFile,
             referenceVideoUrl: seedanceReferenceVideoUrl,
@@ -1209,33 +1224,44 @@ const App: React.FC = () => {
             generateAudio: seedanceGenerateAudio,
             webSearch: seedanceWebSearch,
             nsfwFilterEnabled: settings.nsfwFilterEnabled
-          })
-        : (!!referenceVideoFile || !!referenceVideoUrl)
-          ? await referenceVideoMutation.mutateAsync({
-              image: currentImage,
-              video: referenceVideoFile,
-              referenceVideoUrl,
-              prompt,
-              duration,
-              resolution,
-              ratio,
-              nsfwFilterEnabled: settings.nsfwFilterEnabled
-            })
-          : await videoMutation.mutateAsync({
-              image: currentImage!,
-              prompt,
-              duration,
-              resolution,
-              audio: wanAudio,
-              multiShots: wanMultiShots,
-              nsfwFilterEnabled: settings.nsfwFilterEnabled
-            });
+        });
+      } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
+        response = await textToVideoMutation.mutateAsync({
+          prompt,
+          duration,
+          resolution,
+          ratio,
+          multiShots: wanMultiShots,
+          nsfwFilterEnabled: settings.nsfwFilterEnabled
+        });
+      } else if (wanReferenceImagesForRequest.length === 1 && !wanHasReferenceVideo) {
+        response = await videoMutation.mutateAsync({
+          image: wanReferenceImagesForRequest[0],
+          prompt,
+          duration,
+          resolution,
+          audio: wanAudio,
+          multiShots: wanMultiShots,
+          nsfwFilterEnabled: settings.nsfwFilterEnabled
+        });
+      } else {
+        response = await referenceVideoMutation.mutateAsync({
+          images: wanReferenceImagesForRequest,
+          video: referenceVideoFile,
+          referenceVideoUrl,
+          prompt,
+          duration,
+          resolution,
+          ratio,
+          nsfwFilterEnabled: settings.nsfwFilterEnabled
+        });
+      }
 
       if (response.success && response.videoUrl) {
         setVideoUrl(response.videoUrl);
         saveVideoToGallery({
           videoUrl: response.videoUrl,
-          referenceImage: provider === 'seedance' ? seedanceReferenceImages[0] ?? null : currentImage ?? null,
+          referenceImage: provider === 'seedance' ? seedanceReferenceImages[0] ?? null : wanReferenceImagesForRequest[0] ?? null,
           referenceVideoFile: provider === 'seedance' ? seedanceReferenceVideoFile : referenceVideoFile,
           referenceVideoUrl: provider === 'seedance' ? seedanceReferenceVideoUrl : referenceVideoUrl,
           videoDuration: duration
@@ -1256,6 +1282,7 @@ const App: React.FC = () => {
     currentImage,
     referenceVideoFile,
     referenceVideoUrl,
+    wanReferenceImages,
     seedanceReferenceAudioFile,
     seedanceReferenceImages,
     seedanceReferenceVideoDuration,
@@ -1263,6 +1290,7 @@ const App: React.FC = () => {
     seedanceReferenceVideoUrl,
     videoMutation,
     referenceVideoMutation,
+    textToVideoMutation,
     seedanceVideoMutation,
     settings.nsfwFilterEnabled
   ]);
@@ -1287,10 +1315,20 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const handleWanReferenceImagesChange = useCallback((images: File[]) => {
+    const hasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
+    setWanReferenceImages(images.slice(0, hasReferenceVideo ? 4 : 5));
+    setVideoUrl(null);
+    setVideoError(null);
+  }, [referenceVideoFile, referenceVideoUrl]);
+
   const handleReferenceVideoSelect = useCallback(async (file: File | null) => {
     setReferenceVideoFile(file);
     setReferenceVideoUrl(null);
     setReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
+    if (file) {
+      setWanReferenceImages(prev => prev.slice(0, 4));
+    }
   }, []);
 
   const handleSeedanceReferenceImagesChange = useCallback((images: File[]) => {
@@ -1323,6 +1361,7 @@ const App: React.FC = () => {
       setReferenceVideoFile(null);
       setReferenceVideoUrl(videoUrl);
       setReferenceVideoDuration(null);
+      setWanReferenceImages(prev => prev.slice(0, 4));
     }
     setVideoUrl(null);
     setVideoError(null);
@@ -1405,6 +1444,26 @@ const App: React.FC = () => {
           saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
         } catch (error) {
           console.error('Failed to process Seedance reference image:', error);
+          setError(`Failed to process reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+          setIsProcessingFile(false);
+        }
+        return;
+      }
+
+      if (creativeMode === 'video' && videoProvider === 'wan') {
+        const file = files[0];
+        setIsProcessingFile(true);
+        try {
+          const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
+          const processedFile = await isHEIC(file) ? await processFileForUpload(file) : file;
+          const maxImages = referenceVideoFile || referenceVideoUrl ? 4 : 5;
+          setWanReferenceImages(prev => [...prev, processedFile].slice(0, maxImages));
+          setVideoUrl(null);
+          setVideoError(null);
+          saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
+        } catch (error) {
+          console.error('Failed to process Wan reference image:', error);
           setError(`Failed to process reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
           setIsProcessingFile(false);
@@ -1519,7 +1578,11 @@ const App: React.FC = () => {
         onTextToVideoGenerate={handleTextToVideoGenerate}
         onVideoGenerate={handleStartScreenVideoGenerate}
         onReferenceVideoSelect={handleReferenceVideoSelect}
+        onWanReferenceImagesChange={handleWanReferenceImagesChange}
+        wanReferenceImages={wanReferenceImages}
         referenceVideoFile={referenceVideoFile}
+        referenceVideoUrl={referenceVideoUrl}
+        referenceVideoDuration={referenceVideoDuration}
         onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
         seedanceReferenceImages={seedanceReferenceImages}
         seedanceReferenceVideoFile={seedanceReferenceVideoFile}
@@ -1869,7 +1932,8 @@ const App: React.FC = () => {
                 onVideoProviderChange={setVideoProvider}
                 videoUrl={videoUrl}
                 videoError={videoError}
-                referenceImage={currentImage}
+                referenceImage={null}
+                wanReferenceImages={wanReferenceImages}
                 referenceVideoFile={referenceVideoFile}
                 referenceVideoUrl={referenceVideoUrl}
                 referenceVideoDuration={referenceVideoDuration}
@@ -1879,6 +1943,7 @@ const App: React.FC = () => {
                 seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
                 seedanceReferenceAudioFile={seedanceReferenceAudioFile}
                 onReferenceImageSelect={handleReferenceImageSelect}
+                onWanReferenceImagesChange={handleWanReferenceImagesChange}
                 onReferenceVideoSelect={handleReferenceVideoSelect}
                 onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
                 onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
@@ -1887,6 +1952,15 @@ const App: React.FC = () => {
                 onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
               />
             </Suspense>
+          )}
+
+          {creativeMode === 'video' && (
+            <Gallery
+              onSelectImage={handleSelectGalleryImage}
+              onSelectVideo={handleSelectGalleryVideo}
+              onMakeVideoReference={handleMakeGalleryVideoReference}
+              refreshTrigger={galleryRefreshTrigger}
+            />
           )}
         </div>
       );
@@ -1902,7 +1976,11 @@ const App: React.FC = () => {
       onTextToVideoGenerate={handleTextToVideoGenerate}
       onVideoGenerate={handleStartScreenVideoGenerate}
       onReferenceVideoSelect={handleReferenceVideoSelect}
+      onWanReferenceImagesChange={handleWanReferenceImagesChange}
+      wanReferenceImages={wanReferenceImages}
       referenceVideoFile={referenceVideoFile}
+      referenceVideoUrl={referenceVideoUrl}
+      referenceVideoDuration={referenceVideoDuration}
       onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
       seedanceReferenceImages={seedanceReferenceImages}
       seedanceReferenceVideoFile={seedanceReferenceVideoFile}

@@ -17,7 +17,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "Can VeilPix generate videos?",
-    answer: "Yes. VeilPix supports Wan 2.7 text-to-video, Wan 2.6 Flash image-to-video, Seedance 2.0 multimodal video generation, and reference workflows that can use images, video, and audio as creative guidance."
+    answer: "Yes. VeilPix supports Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, Wan 2.7 reference-to-video, Seedance 2.0 multimodal video generation, and reference workflows that can use images, video, and audio as creative guidance."
   },
   {
     question: "What makes VeilPix different from other AI photo editors?",
@@ -41,7 +41,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "What AI models does VeilPix use?",
-    answer: "VeilPix uses Nano Banana 2, Nano Banana Pro, and SeeDream 4.5 for image generation and editing, plus Wan 2.7 and Wan 2.6 Flash for video workflows. Seedance 2.0 is planned as a future video model option."
+    answer: "VeilPix uses Nano Banana 2, Nano Banana Pro, and SeeDream 4.5 for image generation and editing, plus Wan 2.6, Wan 2.7, and Seedance 2.0 for video workflows."
   },
   {
     question: "What file formats does VeilPix support?",

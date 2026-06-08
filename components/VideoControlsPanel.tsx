@@ -5,7 +5,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { VideoIcon } from './icons';
-import ImageDropzone from './ImageDropzone';
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast';
@@ -31,6 +30,7 @@ interface VideoControlsPanelProps {
   videoUrl?: string | null;
   videoError?: string | null;
   referenceImage?: File | null;
+  wanReferenceImages?: File[];
   referenceVideoFile?: File | null;
   referenceVideoUrl?: string | null;
   referenceVideoDuration?: number | null;
@@ -40,6 +40,7 @@ interface VideoControlsPanelProps {
   seedanceReferenceVideoDuration?: number | null;
   seedanceReferenceAudioFile?: File | null;
   onReferenceImageSelect?: (file: File | null) => void;
+  onWanReferenceImagesChange?: (files: File[]) => void;
   onReferenceVideoSelect?: (file: File | null) => void;
   onSeedanceReferenceImagesChange: (files: File[]) => void;
   onSeedanceReferenceVideoSelect: (file: File | null) => void;
@@ -48,7 +49,8 @@ interface VideoControlsPanelProps {
   onUseGeneratedVideoAsReference?: () => void;
 }
 
-const WAN_DURATIONS = [5, 10] as const;
+const WAN_26_DURATIONS = [5, 10, 15] as const;
+const WAN_27_DURATIONS = [5, 10] as const;
 const WAN_RESOLUTIONS = ['720p', '1080p'] as const;
 const WAN_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
 const SEEDANCE_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'] as const;
@@ -97,6 +99,10 @@ function getSeedanceCreditCost(
   return Math.max(1, Math.ceil((kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
 }
 
+function getWanMaxReferenceImages(hasVideoReference: boolean): number {
+  return hasVideoReference ? 4 : 5;
+}
+
 function FileImagePreview({ file, className }: { file: File; className: string }) {
   const [url, setUrl] = useState<string | null>(null);
 
@@ -110,52 +116,6 @@ function FileImagePreview({ file, className }: { file: File; className: string }
   return <img src={url} alt={file.name} className={className} />;
 }
 
-function FileVideoPreview({ file, className }: { file: File; className: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    const objectUrl = URL.createObjectURL(file);
-    setUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [file]);
-
-  if (!url) return null;
-  return <video src={url} muted playsInline preload="metadata" className={className} />;
-}
-
-function ReferenceChip({
-  label,
-  name,
-  onRemove,
-  children,
-}: {
-  label: string;
-  name: string;
-  onRemove?: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="group relative flex h-20 min-w-0 items-center gap-3 rounded-lg border border-white/10 bg-white/[0.04] p-2">
-      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-black/40">
-        {children}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">{label}</p>
-        <p className="truncate text-sm font-semibold text-gray-200">{name}</p>
-      </div>
-      {onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="shrink-0 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs font-semibold text-gray-300 transition hover:border-red-300/50 hover:text-red-200 disabled:opacity-50"
-        >
-          Remove
-        </button>
-      )}
-    </div>
-  );
-}
-
 const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   isLoading,
   onGenerate,
@@ -164,6 +124,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   videoUrl,
   videoError,
   referenceImage,
+  wanReferenceImages,
   referenceVideoFile,
   referenceVideoUrl,
   referenceVideoDuration,
@@ -173,6 +134,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   seedanceReferenceVideoDuration,
   seedanceReferenceAudioFile,
   onReferenceImageSelect,
+  onWanReferenceImagesChange,
   onReferenceVideoSelect,
   onSeedanceReferenceImagesChange,
   onSeedanceReferenceVideoSelect,
@@ -198,6 +160,15 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   const hasSeedanceVideoReference = Boolean(seedanceReferenceVideoFile || seedanceReferenceVideoUrl);
   const displayedReferenceVideoUrl = referenceVideoPreviewUrl || referenceVideoUrl;
   const displayedSeedanceVideoUrl = seedanceVideoPreviewUrl || seedanceReferenceVideoUrl;
+  const activeWanReferenceImages = wanReferenceImages ?? (referenceImage ? [referenceImage] : []);
+  const hasWanVideoReference = Boolean(referenceVideoFile || referenceVideoUrl);
+  const maxWanReferenceImages = getWanMaxReferenceImages(hasWanVideoReference);
+  const canAddWanReferenceImages = Boolean(onWanReferenceImagesChange || onReferenceImageSelect);
+  const wanUsesTextToVideo = activeWanReferenceImages.length === 0 && !hasWanVideoReference;
+  const wanUsesReferenceToVideo = activeWanReferenceImages.length > 1 || hasWanVideoReference;
+  const wanSupportsAudioToggle = !wanUsesTextToVideo && !wanUsesReferenceToVideo;
+  const wanSupportsMultiShotToggle = !wanUsesReferenceToVideo;
+  const wanDurationOptions = wanUsesReferenceToVideo ? WAN_27_DURATIONS : WAN_26_DURATIONS;
 
   const wanCreditCost = useMemo(() => getWanCreditCost(wanDuration, wanResolution), [wanDuration, wanResolution]);
   const seedanceCreditCost = useMemo(() => getSeedanceCreditCost(
@@ -233,6 +204,18 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
     setSeedanceVideoPreviewUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [seedanceReferenceVideoFile]);
+
+  useEffect(() => {
+    if (videoProvider === 'wan' && onWanReferenceImagesChange && activeWanReferenceImages.length > maxWanReferenceImages) {
+      onWanReferenceImagesChange(activeWanReferenceImages.slice(0, maxWanReferenceImages));
+    }
+  }, [activeWanReferenceImages, maxWanReferenceImages, onWanReferenceImagesChange, videoProvider]);
+
+  useEffect(() => {
+    if (videoProvider === 'wan' && wanUsesReferenceToVideo && wanDuration > 10) {
+      setWanDuration(10);
+    }
+  }, [videoProvider, wanDuration, wanUsesReferenceToVideo]);
 
   const handleGenerate = () => {
     const prompt = videoPrompt.trim();
@@ -271,10 +254,22 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
     event.currentTarget.value = '';
   };
 
+  const handleWanImagesInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
+    if (files.length > 0) {
+      if (onWanReferenceImagesChange) {
+        onWanReferenceImagesChange([...activeWanReferenceImages, ...files].slice(0, maxWanReferenceImages));
+      } else {
+        onReferenceImageSelect?.(files[0]);
+      }
+    }
+    event.currentTarget.value = '';
+  };
+
   const activeCreditCost = videoProvider === 'seedance' ? seedanceCreditCost : wanCreditCost;
   const activeModelName = videoProvider === 'seedance'
     ? seedanceVariant === 'fast' ? 'Seedance 2.0 Fast' : 'Seedance 2.0'
-    : 'Wan 2.7';
+    : wanUsesTextToVideo ? 'Wan 2.6' : wanUsesReferenceToVideo ? 'Wan 2.7' : 'Wan 2.6 Flash';
 
   return (
     <div className="w-full flex flex-col gap-4 animate-fade-in">
@@ -317,86 +312,83 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
         </div>
       )}
 
-      {videoProvider === 'seedance' && (
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-semibold text-gray-300">Describe your video</label>
-          <textarea
-            value={videoPrompt}
-            onChange={(e) => setVideoPrompt(e.target.value)}
-            placeholder="Describe the motion, action, camera movement, and style you want..."
-            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-[#E04F67]"
-            rows={3}
-            disabled={isLoading}
-            maxLength={5000}
-          />
-        </div>
-      )}
-
-      {videoProvider === 'wan' && (
-        <div className="rounded-lg border border-gray-700/70 bg-gray-900/40 p-3">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold text-gray-300">Active References</p>
-              <p className="text-xs text-gray-500">These references are sent to the selected video model.</p>
-            </div>
-            {videoUrl && onUseGeneratedVideoAsReference && (
-              <button
-                type="button"
-                onClick={onUseGeneratedVideoAsReference}
-                disabled={isLoading}
-                className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-50"
-              >
-                Use Generated Video
-              </button>
-            )}
-          </div>
-
-          {referenceImage || displayedReferenceVideoUrl ? (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {referenceImage && (
-                <ReferenceChip label="Image" name={referenceImage.name} onRemove={() => onReferenceImageSelect?.(null)}>
-                  <FileImagePreview file={referenceImage} className="h-full w-full object-cover" />
-                </ReferenceChip>
-              )}
-              {displayedReferenceVideoUrl && (
-                <ReferenceChip
-                  label={referenceVideoDuration ? `Video ${referenceVideoDuration}s` : 'Video'}
-                  name={referenceVideoFile ? referenceVideoFile.name : 'Album video reference'}
-                  onRemove={() => onReferenceVideoSelect?.(null)}
-                >
-                  <video src={displayedReferenceVideoUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" />
-                </ReferenceChip>
-              )}
-            </div>
-          ) : (
-            <p className="rounded-md border border-dashed border-gray-700 px-3 py-4 text-center text-sm text-gray-500">
-              Wan needs a reference image, a reference video, or both.
-            </p>
-          )}
-        </div>
-      )}
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-semibold text-gray-300">Describe your video</label>
+        <textarea
+          value={videoPrompt}
+          onChange={(e) => setVideoPrompt(e.target.value)}
+          placeholder="Describe the motion, action, camera movement, and style you want..."
+          className={`w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 ${
+            videoProvider === 'seedance' ? 'focus:ring-[#E04F67]' : 'focus:ring-blue-500'
+          }`}
+          rows={3}
+          disabled={isLoading}
+          maxLength={5000}
+        />
+      </div>
 
       {videoProvider === 'wan' ? (
-        <>
-          {onReferenceImageSelect && (
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-gray-300">Reference Image</label>
-              <ImageDropzone
-                file={referenceImage || null}
-                onFileSelect={(file) => onReferenceImageSelect(file)}
-                label={referenceImage ? 'Replace Reference Image' : 'Upload Reference Image'}
-                isGeneratingImage={isLoading}
-              />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="flex flex-col gap-2 md:col-span-2">
+            <label className="text-sm font-semibold text-gray-300">Reference Images</label>
+            <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {activeWanReferenceImages.slice(0, maxWanReferenceImages).map((file, index) => (
+                  <div key={`${file.name}-${file.lastModified}-${index}`} className="relative aspect-square overflow-hidden rounded-md bg-black/40">
+                    <FileImagePreview file={file} className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onWanReferenceImagesChange) {
+                          onWanReferenceImagesChange(activeWanReferenceImages.filter((_, imageIndex) => imageIndex !== index));
+                        } else {
+                          onReferenceImageSelect?.(null);
+                        }
+                      }}
+                      disabled={isLoading}
+                      className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-1 text-[10px] font-bold text-white transition hover:bg-red-600 disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {canAddWanReferenceImages && activeWanReferenceImages.length < maxWanReferenceImages && (
+                  <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-blue-400/40 bg-blue-500/5 p-3 text-center transition hover:border-blue-400 hover:bg-blue-500/10">
+                    <span className="text-sm font-bold text-blue-200">Add Image</span>
+                    <span className="text-xs text-gray-500">{maxWanReferenceImages - activeWanReferenceImages.length} slots left</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      disabled={isLoading}
+                      onChange={handleWanImagesInput}
+                    />
+                  </label>
+                )}
+              </div>
             </div>
-          )}
+          </div>
 
-          {onReferenceVideoSelect && (
-            <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
               <label className="text-sm font-semibold text-gray-300">Reference Video</label>
+              {videoUrl && onUseGeneratedVideoAsReference && (
+                <button
+                  type="button"
+                  onClick={onUseGeneratedVideoAsReference}
+                  disabled={isLoading}
+                  className="rounded-md border border-cyan-300/30 bg-cyan-400/10 px-2.5 py-1.5 text-xs font-bold text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-50"
+                >
+                  Use Generated
+                </button>
+              )}
+            </div>
+            {onReferenceVideoSelect && (
               <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
                 {displayedReferenceVideoUrl ? (
-                  <div className="flex flex-col gap-3">
-                    <video src={displayedReferenceVideoUrl} controls className="max-h-56 w-full rounded-lg bg-black object-contain" />
+                  <div className="flex flex-col gap-2">
+                    <video src={displayedReferenceVideoUrl} controls className="max-h-40 w-full rounded bg-black object-contain" />
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate text-sm text-gray-400">
                         {referenceVideoFile ? referenceVideoFile.name : 'Album video reference'}
@@ -412,10 +404,10 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-600 py-8 transition hover:border-blue-500 hover:bg-gray-700/30">
-                    <VideoIcon className="h-8 w-8 text-blue-300" />
-                    <span className="text-sm font-semibold text-gray-200">Upload Reference Video</span>
-                    <span className="text-xs text-gray-500">Add motion guidance for Wan reference-to-video</span>
+                  <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-600 py-6 text-center transition hover:border-blue-500 hover:bg-gray-700/30">
+                    <VideoIcon className="h-7 w-7 text-blue-300" />
+                    <span className="text-sm font-semibold text-gray-200">Add Video</span>
+                    <span className="text-xs text-gray-500">Motion reference</span>
                     <input
                       type="file"
                       accept="video/*"
@@ -426,9 +418,9 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
                   </label>
                 )}
               </div>
-            </div>
-          )}
-        </>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="flex flex-col gap-2 md:col-span-2">
@@ -533,27 +525,12 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
         </div>
       )}
 
-      {videoProvider === 'wan' && (
-        <div className="flex flex-col gap-2">
-          <label className="text-sm font-semibold text-gray-300">Describe your video</label>
-          <textarea
-            value={videoPrompt}
-            onChange={(e) => setVideoPrompt(e.target.value)}
-            placeholder="Describe the motion, action, camera movement, and style you want..."
-            className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-500"
-            rows={3}
-            disabled={isLoading}
-            maxLength={5000}
-          />
-        </div>
-      )}
-
       {videoProvider === 'wan' ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <label className="text-sm font-semibold text-gray-300">Duration</label>
             <div className="flex gap-2">
-              {WAN_DURATIONS.map((duration) => (
+              {wanDurationOptions.map((duration) => (
                 <button
                   key={duration}
                   type="button"
@@ -592,68 +569,78 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 sm:col-span-2">
-            <label className="text-sm font-semibold text-gray-300">Aspect Ratio</label>
-            <div className="grid grid-cols-5 gap-2">
-              {WAN_RATIOS.map((ratio) => (
-                <button
-                  key={ratio}
-                  type="button"
-                  onClick={() => setWanRatio(ratio)}
-                  className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
-                    wanRatio === ratio
-                      ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
-                      : 'border border-white/20 bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
-                  }`}
-                  disabled={isLoading}
-                >
-                  {ratio}
-                </button>
-              ))}
+          {wanUsesReferenceToVideo && (
+            <div className="flex flex-col gap-2 sm:col-span-2">
+              <label className="text-sm font-semibold text-gray-300">Aspect Ratio</label>
+              <div className="grid grid-cols-5 gap-2">
+                {WAN_RATIOS.map((ratio) => (
+                  <button
+                    key={ratio}
+                    type="button"
+                    onClick={() => setWanRatio(ratio)}
+                    className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                      wanRatio === ratio
+                        ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
+                        : 'border border-white/20 bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                    }`}
+                    disabled={isLoading}
+                  >
+                    {ratio}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-gray-300">Audio</label>
-            <div className="flex gap-2">
-              {([true, false] as const).map((enabled) => (
-                <button
-                  key={String(enabled)}
-                  type="button"
-                  onClick={() => setAudioEnabled(enabled)}
-                  className={`flex-1 rounded-md px-4 py-2.5 text-sm font-semibold transition ${
-                    audioEnabled === enabled
-                      ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
-                      : 'border border-white/20 bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
-                  }`}
-                  disabled={isLoading}
-                >
-                  {enabled ? 'On' : 'Off'}
-                </button>
-              ))}
-            </div>
-          </div>
+          {(wanSupportsAudioToggle || wanSupportsMultiShotToggle) && (
+            <>
+              {wanSupportsAudioToggle && (
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-semibold text-gray-300">Audio</label>
+                  <div className="flex gap-2">
+                    {([true, false] as const).map((enabled) => (
+                      <button
+                        key={String(enabled)}
+                        type="button"
+                        onClick={() => setAudioEnabled(enabled)}
+                        className={`flex-1 rounded-md px-4 py-2.5 text-sm font-semibold transition ${
+                          audioEnabled === enabled
+                            ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
+                            : 'border border-white/20 bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                        }`}
+                        disabled={isLoading}
+                      >
+                        {enabled ? 'On' : 'Off'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-gray-300">Multi-Shot</label>
-            <div className="flex gap-2">
-              {([false, true] as const).map((enabled) => (
-                <button
-                  key={String(enabled)}
-                  type="button"
-                  onClick={() => setMultiShotsEnabled(enabled)}
-                  className={`flex-1 rounded-md px-4 py-2.5 text-sm font-semibold transition ${
-                    multiShotsEnabled === enabled
-                      ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
-                      : 'border border-white/20 bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
-                  }`}
-                  disabled={isLoading}
-                >
-                  {enabled ? 'On' : 'Off'}
-                </button>
-              ))}
-            </div>
-          </div>
+              {wanSupportsMultiShotToggle && (
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-semibold text-gray-300">Multi-Shot</label>
+                  <div className="flex gap-2">
+                    {([false, true] as const).map((enabled) => (
+                      <button
+                        key={String(enabled)}
+                        type="button"
+                        onClick={() => setMultiShotsEnabled(enabled)}
+                        className={`flex-1 rounded-md px-4 py-2.5 text-sm font-semibold transition ${
+                          multiShotsEnabled === enabled
+                            ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg'
+                            : 'border border-white/20 bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                        }`}
+                        disabled={isLoading}
+                      >
+                        {enabled ? 'On' : 'Off'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

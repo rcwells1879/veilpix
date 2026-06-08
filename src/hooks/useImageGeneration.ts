@@ -797,8 +797,8 @@ export function useGenerateVideo() {
 }
 
 // ============================================================================
-// Wan 2.7 Text-to-Video API Hook
-// Uses Wan 2.7 via Kie.ai for text-to-video generation (no reference image)
+// Wan 2.6 Text-to-Video API Hook
+// Uses Wan 2.6 via Kie.ai for text-to-video generation (no reference image)
 // ============================================================================
 
 export interface GenerateTextToVideoRequest {
@@ -806,11 +806,13 @@ export interface GenerateTextToVideoRequest {
   duration?: number   // 2-15 seconds (default 5)
   resolution?: string // '720p' | '1080p' (default '1080p')
   ratio?: string      // '16:9' | '9:16' | '1:1' | '4:3' | '3:4' (default '16:9')
+  multiShots?: boolean
   nsfwFilterEnabled?: boolean
 }
 
 export interface GenerateReferenceToVideoRequest {
   image?: File | null
+  images?: File[]
   video?: File | null
   referenceVideoUrl?: string | null
   prompt: string
@@ -892,9 +894,12 @@ export function useGenerateReferenceToVideo() {
     retry: false,
     mutationFn: async (data: GenerateReferenceToVideoRequest): Promise<VideoGenerationResponse> => {
       const formData = new FormData()
-      if (data.image) {
-        const compressedImage = await compressImageIfNeeded(data.image, 20)
-        formData.append('image', compressedImage)
+      const imageReferences = data.images?.length ? data.images : data.image ? [data.image] : []
+      if (imageReferences.length) {
+        const compressedImages = await compressMultipleImages(imageReferences, 20)
+        compressedImages.slice(0, 5).forEach((image) => {
+          formData.append('image', image)
+        })
       }
       if (data.video) {
         formData.append('video', data.video)
@@ -934,6 +939,7 @@ export function useGenerateTextToVideo() {
           duration: data.duration || 5,
           resolution: data.resolution || '1080p',
           ratio: data.ratio || '16:9',
+          multiShots: data.multiShots === true,
           nsfwFilterEnabled: data.nsfwFilterEnabled !== false
         }),
         headers: { 'Content-Type': 'application/json' },
