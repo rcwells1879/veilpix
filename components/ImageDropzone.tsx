@@ -189,7 +189,15 @@ const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label
             <div className="flex flex-col items-center justify-center text-center">
                 <PhotoIcon className="w-12 h-12 text-gray-500 mb-2" />
                 <span className="font-semibold text-gray-300">{label}</span>
-                <span className="text-sm text-gray-500">Click to upload, drag & drop, generate with text, or use webcam</span>
+                <span className="text-sm text-gray-500">
+                  {showTextToImage && showWebcam
+                    ? 'Click to upload, drag & drop, generate with text, or use webcam'
+                    : showTextToImage
+                      ? 'Click to upload, drag & drop, or generate with text'
+                      : showWebcam
+                        ? 'Click to upload, drag & drop, or use webcam'
+                        : 'Click to upload or drag & drop'}
+                </span>
             </div>
           )}
           <input type="file" className="hidden" accept="image/*,.heic,.heif" onChange={handleFileChange} disabled={isProcessing} />

@@ -68,6 +68,7 @@ interface StartScreenProps {
 const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
+  const [singleTextPrompt, setSingleTextPrompt] = useState('');
 
   // Update composite file when prop changes
   useEffect(() => {
@@ -114,6 +115,19 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     }
   }, [onTextToImageGenerate]);
 
+  const handleSingleTextToImageSubmit = useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const prompt = singleTextPrompt.trim();
+    if (!prompt || !onTextToImageGenerate) return;
+
+    if (!isAuthenticated && onShowSignupPrompt) {
+      onShowSignupPrompt();
+      return;
+    }
+
+    onTextToImageGenerate(prompt);
+  }, [isAuthenticated, onShowSignupPrompt, onTextToImageGenerate, singleTextPrompt]);
+
   return (
     <div className="flex flex-col items-center gap-6 animate-fade-in w-full max-w-5xl mx-auto">
       <h1 className="text-5xl font-extrabold tracking-tight text-gray-100 sm:text-6xl md:text-7xl text-center">
@@ -145,8 +159,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               label="Upload a Photo"
               showWebcam={true}
               onWebcamClick={onUseWebcamClick}
-              showTextToImage={true}
-              onTextToImageGenerate={onTextToImageGenerate}
+              showTextToImage={false}
               isAuthenticated={isAuthenticated}
               onShowSignupPrompt={onShowSignupPrompt}
               isGeneratingImage={isGeneratingImage}
@@ -228,6 +241,33 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
           </div>
         )}
       </div>
+
+      {activeMode === 'single' && onTextToImageGenerate && (
+        <form
+          onSubmit={handleSingleTextToImageSubmit}
+          className="w-full flex flex-col gap-3 animate-fade-in"
+        >
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-semibold text-gray-300">Describe your image</label>
+            <textarea
+              value={singleTextPrompt}
+              onChange={(event) => setSingleTextPrompt(event.target.value)}
+              placeholder="Describe the image you want to generate..."
+              className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              rows={3}
+              disabled={isGeneratingImage}
+              maxLength={5000}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={!singleTextPrompt.trim() || isGeneratingImage}
+            className="w-full rounded-lg bg-gradient-to-br from-blue-600 to-blue-500 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-500/20 transition-all duration-300 ease-in-out hover:-translate-y-px hover:shadow-xl hover:shadow-blue-500/40 active:scale-95 active:shadow-inner disabled:cursor-not-allowed disabled:from-blue-800 disabled:to-blue-700 disabled:transform-none disabled:shadow-none"
+          >
+            {isGeneratingImage ? 'Generating Image...' : 'Generate Image'}
+          </button>
+        </form>
+      )}
 
       {/* Gallery Section */}
       {onSelectGalleryImage && (
