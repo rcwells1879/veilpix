@@ -16,6 +16,10 @@ const faqData: FAQItem[] = [
     answer: "VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, and reference-to-video clips with models including Nano Banana 2, Nano Banana Pro, SeeDream 4.5, Wan 2.7, and Wan 2.6 Flash."
   },
   {
+    question: "What is VeilPix After Dark?",
+    answer: "VeilPix After Dark is an age-verified mode for users who want more direct, privacy-focused access to supported AI image and video APIs. When available from the underlying provider, After Dark can allow mild not safe for work (NSFW) prompts, uncensored creative workflows, adult content generation, mature image editing, sensual or suggestive AI art, and 18+ private AI generation. VeilPix does not store your images, videos, or prompts as a user library; media is sent to the selected API only for the requested generation or edit. Abuse is never permitted: underage sexual exploitation, child sexual abuse material (CSAM), sexualized minor imagery, non-consensual intimate imagery, non-consensual adult images involving real people or celebrities, coercive content, or attempts to misuse the service are strictly prohibited and may result in an immediate ban."
+  },
+  {
     question: "Can VeilPix generate videos?",
     answer: "Yes. VeilPix supports Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, Wan 2.7 reference-to-video, Seedance 2.0 multimodal video generation, and reference workflows that can use images, video, and audio as creative guidance."
   },
@@ -112,7 +116,7 @@ const FAQ: React.FC = () => {
 
             <div
               className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                openItems.has(index) ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+                openItems.has(index) ? 'max-h-[34rem] opacity-100' : 'max-h-0 opacity-0'
               }`}
             >
               <div className="px-6 pb-5 pt-0">

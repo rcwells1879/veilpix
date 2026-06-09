@@ -22,6 +22,9 @@ VeilPix is a free, privacy-focused AI image and video generator for photo editin
 7. Seedance 2.0 - Planned future video generation support
 8. Complete Privacy - Media is processed for the requested action without persistent user libraries
 
+## Age-Verified After Dark
+VeilPix includes an age-verified After Dark mode for 18+ creative workflows, including nsfw, uncensored, and adult content generation where allowed by model/provider policies and applicable law.
+
 ## AI Models
 - Nano Banana 2: Gemini-powered fast image editing and generation
 - Nano Banana Pro: Gemini-powered premium image editing and generation
