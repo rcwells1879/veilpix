@@ -146,6 +146,24 @@ function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1',
 }
 
 /**
+ * Build SeeDream 4.5 Text-to-Image API request.
+ *
+ * @param {string} prompt - The image generation prompt
+ * @param {string} resolution - '1K', '2K', or '4K'
+ * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
+ * @param {boolean} nsfwFilterEnabled - Whether to enable NSFW filter
+ * @returns {object} SeeDream text-to-image request body
+ */
+function buildTextToImageRequest(prompt, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = true) {
+    return {
+        prompt,
+        aspect_ratio: aspectRatio,
+        quality: mapQuality(resolution),
+        nsfw_checker: nsfwFilterEnabled
+    };
+}
+
+/**
  * Normalize SeeDream API response to match Gemini response format
  *
  * @param {object} seedreamResponse - The raw SeeDream API response
@@ -257,6 +275,7 @@ module.exports = {
     buildFilterRequest,
     buildAdjustRequest,
     buildCombineRequest,
+    buildTextToImageRequest,
     normalizeResponse,
     urlToBase64
 };

@@ -11,6 +11,7 @@ import FAQ from './FAQ';
 import BeforeAfterShowcase from './BeforeAfterShowcase';
 import Gallery from './Gallery';
 import VideoControlsPanel from './VideoControlsPanel';
+import Spinner from './Spinner';
 import type { GalleryVideoDetails } from '../src/utils/workflowStorage';
 
 type VideoProvider = 'wan' | 'seedance';
@@ -57,6 +58,7 @@ interface StartScreenProps {
   isAuthenticated?: boolean;
   onShowSignupPrompt?: () => void;
   isGeneratingImage?: boolean;
+  imageCreditCost?: number;
   onSelectGalleryImage?: (file: File) => void;
   onSelectGalleryVideo?: (details: GalleryVideoDetails) => void;
   onMakeGalleryImageReference?: (file: File) => void;
@@ -65,10 +67,11 @@ interface StartScreenProps {
   videoError?: string | null;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost = 2, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
   const [singleTextPrompt, setSingleTextPrompt] = useState('');
+  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
 
   // Update composite file when prop changes
   useEffect(() => {
@@ -144,7 +147,15 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
 
         {/* Single Photo Content */}
         {activeMode === 'single' && (
-          <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <div className="relative flex w-full flex-col items-center gap-4 animate-fade-in">
+            {isGeneratingImage && (
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded-lg bg-black/70 animate-fade-in">
+                <div className="[&>svg]:text-blue-400">
+                  <Spinner />
+                </div>
+                <p className="text-gray-300">AI is working its magic... ({imageCreditLabel})</p>
+              </div>
+            )}
             <ImageDropzone
               file={null}
               onFileSelect={(file) => {
@@ -169,24 +180,21 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 onSubmit={handleSingleTextToImageSubmit}
                 className="w-full flex flex-col gap-3"
               >
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-semibold text-gray-300">Describe your image</label>
-                  <textarea
-                    value={singleTextPrompt}
-                    onChange={(event) => setSingleTextPrompt(event.target.value)}
-                    placeholder="Describe the image you want to generate..."
-                    className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                    rows={3}
-                    disabled={isGeneratingImage}
-                    maxLength={5000}
-                  />
-                </div>
+                <textarea
+                  value={singleTextPrompt}
+                  onChange={(event) => setSingleTextPrompt(event.target.value)}
+                  placeholder="Describe the image you want to generate..."
+                  className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  rows={3}
+                  disabled={isGeneratingImage}
+                  maxLength={5000}
+                />
                 <button
                   type="submit"
                   disabled={!singleTextPrompt.trim() || isGeneratingImage}
                   className="w-full rounded-lg bg-gradient-to-br from-blue-600 to-blue-500 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-500/20 transition-all duration-300 ease-in-out hover:-translate-y-px hover:shadow-xl hover:shadow-blue-500/40 active:scale-95 active:shadow-inner disabled:cursor-not-allowed disabled:from-blue-800 disabled:to-blue-700 disabled:transform-none disabled:shadow-none"
                 >
-                  {isGeneratingImage ? 'Generating Image...' : 'Generate Image'}
+                  {isGeneratingImage ? `Generating Image... (${imageCreditLabel})` : `Generate Image - ${imageCreditLabel}`}
                 </button>
               </form>
             )}
@@ -208,6 +216,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
+                    imageCreditCost={imageCreditCost}
                   />
                   <ImageDropzone
                     file={compositeFile2}
@@ -220,6 +229,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
+                    imageCreditCost={imageCreditCost}
                   />
               </div>
                <button

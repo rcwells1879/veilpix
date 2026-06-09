@@ -406,6 +406,33 @@ export function useGenerateCompositeSeeDream() {
   })
 }
 
+// Custom hook for text-to-image generation with SeeDream 4.5
+export function useGenerateTextToImageSeeDream() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateTextToImageRequest): Promise<ImageGenerationResponse> => {
+      return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-text-to-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: data.prompt,
+          resolution: data.resolution,
+          aspectRatio: data.aspectRatio,
+          nsfwFilterEnabled: data.nsfwFilterEnabled !== false
+        }),
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
 // ============================================================================
 // Nano Banana Pro (Google Gemini 3 Pro Image) API Hooks
 // These hooks use the Nano Banana Pro API (via Kie.ai) for image generation
@@ -535,6 +562,32 @@ export function useGenerateCompositeNanoBananaPro() {
         method: 'POST',
         body: formData,
         headers: {},
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
+// Custom hook for text-to-image generation with Nano Banana Pro
+export function useGenerateTextToImageNanoBananaPro() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateTextToImageRequest): Promise<ImageGenerationResponse> => {
+      return await apiRequest<ImageGenerationResponse>('/api/nanobananapro/generate-text-to-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: data.prompt,
+          resolution: data.resolution,
+          aspectRatio: data.aspectRatio
+        }),
         requiresAuth: true
       })
     },

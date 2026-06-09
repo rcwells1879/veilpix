@@ -19,6 +19,7 @@ const {
     buildFilterRequest,
     buildAdjustRequest,
     buildCombineRequest,
+    buildTextToImageRequest,
     normalizeResponse,
     urlToBase64,
     mapAspectRatioFileToSeedreamSize
@@ -63,14 +64,14 @@ const SEEDREAM_API_KEY = process.env.SEEDREAM_API_KEY;
 const SEEDREAM_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
 
 // Helper function to create SeeDream task
-async function createSeedreamTask(requestBody) {
+async function createSeedreamTask(requestBody, model = 'seedream/4.5-edit') {
     try {
         console.log('🌐 Creating SeeDream task');
         console.log('📝 Input parameters:', JSON.stringify(requestBody, null, 2));
 
         // Kie.ai expects parameters nested inside "input" object
         const payload = {
-            model: 'seedream/4.5-edit',
+            model,
             input: requestBody
         };
 
@@ -162,10 +163,10 @@ async function pollSeedreamJob(taskId, maxAttempts = 120, intervalMs = 1000) {
 }
 
 // Helper function to call SeeDream API with full async flow
-async function callSeedreamAPI(requestBody) {
+async function callSeedreamAPI(requestBody, model = 'seedream/4.5-edit') {
     try {
         // Step 1: Create task
-        const taskResponse = await createSeedreamTask(requestBody);
+        const taskResponse = await createSeedreamTask(requestBody, model);
 
         // Extract taskId from Kie.ai response
         const taskId = taskResponse.data.taskId;
@@ -652,6 +653,89 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
 
         res.status(500).json({
             error: 'Failed to generate combined image',
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Text-to-image generation endpoint
+router.post('/generate-text-to-image', express.json(), checkUserCredits, async (req, res) => {
+    const startTime = Date.now();
+    let usageLogged = false;
+
+    try {
+        const {
+            prompt,
+            resolution = '2K',
+            aspectRatio = '1:1',
+            nsfwFilterEnabled = true
+        } = req.body;
+        const nsfwFilter = nsfwFilterEnabled === true || nsfwFilterEnabled === 'true';
+
+        if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+            return res.status(400).json({
+                error: 'Prompt is required and must be a non-empty string'
+            });
+        }
+
+        if (prompt.length > 2000) {
+            return res.status(400).json({
+                error: 'Prompt must be 2000 characters or less'
+            });
+        }
+
+        const seedreamRequest = buildTextToImageRequest(
+            prompt.trim(),
+            resolution,
+            aspectRatio,
+            nsfwFilter
+        );
+
+        const seedreamResponse = await callSeedreamAPI(
+            seedreamRequest,
+            'seedream/4.5-text-to-image'
+        );
+
+        const normalizedResponse = normalizeResponse(seedreamResponse);
+
+        if (!normalizedResponse.success) {
+            throw new Error(normalizedResponse.error || 'Failed to process SeeDream response');
+        }
+
+        if (normalizedResponse.needsConversion && normalizedResponse.imageUrl) {
+            const conversionResult = await urlToBase64(normalizedResponse.imageUrl);
+
+            if (!conversionResult.success) {
+                throw new Error(`Failed to convert image: ${conversionResult.error}`);
+            }
+
+            normalizedResponse.image = {
+                data: conversionResult.data,
+                mimeType: conversionResult.mimeType
+            };
+            delete normalizedResponse.imageUrl;
+            delete normalizedResponse.needsConversion;
+        }
+
+        usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-image', seedreamResponse);
+
+        res.json({
+            success: true,
+            image: normalizedResponse.image,
+            processingTime: Date.now() - startTime,
+            creditsRemaining: req.creditsInfo?.remaining || 0
+        });
+
+    } catch (error) {
+        console.error('Error generating text-to-image with SeeDream:', error);
+
+        if (!usageLogged) {
+            await deductCreditAndTrack(req, startTime, 'text-to-image', null, false, error.message);
+        }
+
+        res.status(500).json({
+            error: 'Failed to generate image from text',
             message: error.message,
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });

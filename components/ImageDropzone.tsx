@@ -19,15 +19,17 @@ export interface ImageDropzoneProps {
   isAuthenticated?: boolean;
   onShowSignupPrompt?: () => void;
   isGeneratingImage?: boolean;
+  imageCreditCost?: number;
 }
 
-const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick, showTextToImage = false, onTextToImageGenerate, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false }) => {
+const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick, showTextToImage = false, onTextToImageGenerate, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost = 2 }) => {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isTextToImageMode, setIsTextToImageMode] = useState(false);
   const [textPrompt, setTextPrompt] = useState('');
   const [wasGenerating, setWasGenerating] = useState(false);
+  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
 
   useEffect(() => {
     if (file) {
@@ -126,7 +128,7 @@ const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label
           {isGeneratingImage && (
             <div className="absolute inset-0 bg-black/70 z-30 flex flex-col items-center justify-center gap-4 animate-fade-in rounded-lg">
               <Spinner />
-              <p className="text-gray-300">AI is generating your image...</p>
+              <p className="text-gray-300">AI is generating your image... ({imageCreditLabel})</p>
             </div>
           )}
           <div className="w-full h-full flex flex-col gap-4">
@@ -155,7 +157,7 @@ const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label
               disabled={!textPrompt.trim() || isGeneratingImage}
               className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
             >
-              Generate Image
+              {isGeneratingImage ? `Generating Image... (${imageCreditLabel})` : `Generate Image - ${imageCreditLabel}`}
             </button>
           </div>
         </div>

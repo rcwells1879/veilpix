@@ -30,10 +30,12 @@ import {
   useGenerateFilterNanoBananaPro,
   useGenerateAdjustNanoBananaPro,
   useGenerateCompositeNanoBananaPro,
+  useGenerateTextToImageNanoBananaPro,
   useGenerateEditWanImage,
   useGenerateFilterWanImage,
   useGenerateAdjustWanImage,
   useGenerateCompositeWanImage,
+  useGenerateTextToImageSeeDream,
   useGenerateTextToImageWanImage,
   useGenerateVideo,
   useGenerateReferenceToVideo,
@@ -228,6 +230,13 @@ const DEFAULT_SETTINGS: SettingsState = {
   nsfwFilterEnabled: true
 };
 
+const IMAGE_CREDIT_COST_BY_PROVIDER: Record<SettingsState['apiProvider'], number> = {
+  nanobanana2: 2,
+  seedream: 1,
+  nanobananapro: 2,
+  wanimage: 1
+};
+
 const App: React.FC = () => {
   const { isSignedIn, isLoaded } = useUser();
   const clerk = useClerk();
@@ -257,6 +266,7 @@ const App: React.FC = () => {
     }
     return DEFAULT_SETTINGS;
   });
+  const imageCreditCost = IMAGE_CREDIT_COST_BY_PROVIDER[settings.apiProvider] ?? 2;
 
   // Persist settings to localStorage whenever they change
   useEffect(() => {
@@ -382,6 +392,8 @@ const App: React.FC = () => {
   const compositeWan = useGenerateCompositeWanImage();
 
   const textToImageNB2 = useGenerateTextToImage();
+  const textToImageSeeDream = useGenerateTextToImageSeeDream();
+  const textToImagePro = useGenerateTextToImageNanoBananaPro();
   const textToImageWan = useGenerateTextToImageWanImage();
 
   // Select active mutation based on provider
@@ -390,8 +402,12 @@ const App: React.FC = () => {
   const adjustMutation = { nanobanana2: adjustNB2, seedream: adjustSeeDream, nanobananapro: adjustPro, wanimage: adjustWan }[settings.apiProvider] ?? adjustNB2;
   const compositeMutation = { nanobanana2: compositeNB2, seedream: compositeSeeDream, nanobananapro: compositePro, wanimage: compositeWan }[settings.apiProvider] ?? compositeNB2;
 
-  // When After Dark is ON (nsfw filter disabled), default to Wan for text-to-image
-  const textToImageMutation = !settings.nsfwFilterEnabled ? textToImageWan : textToImageNB2;
+  const textToImageMutation = {
+    nanobanana2: textToImageNB2,
+    seedream: textToImageSeeDream,
+    nanobananapro: textToImagePro,
+    wanimage: textToImageWan
+  }[settings.apiProvider] ?? textToImageNB2;
 
   const videoMutation = useGenerateVideo();
   const referenceVideoMutation = useGenerateReferenceToVideo();
@@ -421,7 +437,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageWan.isPending || textToImageNB2.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImagePro.isPending || textToImageWan.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -804,7 +820,7 @@ const App: React.FC = () => {
         prompt,
         x: editHotspot.x,
         y: editHotspot.y,
-        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+        resolution: settings.resolution,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -824,7 +840,7 @@ const App: React.FC = () => {
       setError(`Failed to generate the image. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory]);
+  }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
 
   const handleGenerateComposite = useCallback(async (compositePrompt: string) => {
     console.log('🎯 handleGenerateComposite called with prompt:', compositePrompt)
@@ -845,7 +861,7 @@ const App: React.FC = () => {
             image1: sourceImage1,
             image2: sourceImage2,
             prompt: compositePrompt,
-            ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+            resolution: settings.resolution,
             nsfwFilterEnabled: settings.nsfwFilterEnabled
         });
         console.log('✅ compositeMutation.mutateAsync returned:', response)
@@ -872,7 +888,7 @@ const App: React.FC = () => {
         setError(`Failed to generate the composite image. ${errorMessage}`);
         console.error(err);
     }
-  }, [sourceImage1, sourceImage2, compositeMutation, isLoaded, isSignedIn]);
+  }, [sourceImage1, sourceImage2, compositeMutation, isLoaded, isSignedIn, settings.resolution, settings.nsfwFilterEnabled]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -892,7 +908,7 @@ const App: React.FC = () => {
       const response = await filterMutation.mutateAsync({
         image: currentImage,
         filterType: filterPrompt,
-        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+        resolution: settings.resolution,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -908,7 +924,7 @@ const App: React.FC = () => {
       setError(`Failed to apply the filter. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory]);
+  }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
   
   const handleApplyAdjustment = useCallback(async (adjustmentPrompt: string) => {
     if (!currentImage) {
@@ -929,7 +945,7 @@ const App: React.FC = () => {
       const response = await adjustMutation.mutateAsync({
         image: currentImage,
         prompt: adjustmentPrompt,
-        ...((settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'seedream' || settings.apiProvider === 'nanobananapro') && { resolution: settings.resolution }),
+        resolution: settings.resolution,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -945,7 +961,7 @@ const App: React.FC = () => {
       setError(`Failed to apply the adjustment. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory]);
+  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
 
   // Handle aspect ratio changes - supports PNG filename (SeeDream) or direct ratio string (Nano Banana 2/Pro)
   const handleApplyAspectRatio = useCallback(async (aspectRatioInput: string, customPrompt: string) => {
@@ -1006,10 +1022,10 @@ const App: React.FC = () => {
       setError(`Failed to apply the aspect ratio change. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.apiProvider, settings.resolution]);
+  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.apiProvider, settings.resolution, settings.nsfwFilterEnabled]);
 
   const handleTextToImageGenerate = useCallback(async (textPrompt: string, onSuccess?: (file: File) => void) => {
-    console.log('🎨 Starting text-to-image generation with prompt:', textPrompt);
+    console.log('🎨 Starting text-to-image generation with provider:', settings.apiProvider, 'prompt:', textPrompt);
 
     setError(null);
 
@@ -1054,7 +1070,7 @@ const App: React.FC = () => {
       setError(`Failed to generate image from text. ${errorMessage}`);
       console.error('💥 Text-to-image generation failed:', err);
     }
-  }, [addImageToHistory, textToImageMutation, setOptimisticHistory]);
+  }, [addImageToHistory, textToImageMutation, setOptimisticHistory, settings.apiProvider, settings.resolution, settings.nsfwFilterEnabled]);
 
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
@@ -1611,6 +1627,7 @@ const App: React.FC = () => {
         isAuthenticated={isLoaded && isSignedIn}
         onShowSignupPrompt={() => setShowSignupPrompt(true)}
         isGeneratingImage={isLoading}
+        imageCreditCost={imageCreditCost}
         onSelectGalleryImage={handleSelectGalleryImage}
         onSelectGalleryVideo={handleSelectGalleryVideo}
         onMakeGalleryImageReference={handleMakeGalleryImageReference}
@@ -1935,6 +1952,7 @@ const App: React.FC = () => {
                 isAuthenticated={!!(isLoaded && isSignedIn)}
                 onShowSignupPrompt={() => setShowSignupPrompt(true)}
                 isGeneratingImage={isLoading}
+                imageCreditCost={imageCreditCost}
               />
             </Suspense>
           )}
@@ -2013,6 +2031,7 @@ const App: React.FC = () => {
       isAuthenticated={isLoaded && isSignedIn}
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
       isGeneratingImage={isLoading}
+      imageCreditCost={imageCreditCost}
       onSelectGalleryImage={handleSelectGalleryImage}
       onSelectGalleryVideo={handleSelectGalleryVideo}
       onMakeGalleryImageReference={handleMakeGalleryImageReference}

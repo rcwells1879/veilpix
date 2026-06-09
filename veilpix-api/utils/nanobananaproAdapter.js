@@ -126,6 +126,25 @@ function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1')
 }
 
 /**
+ * Build Nano Banana Pro API request for text-to-image generation.
+ * Kie.ai accepts text-only generation through the same model with an empty image_input array.
+ *
+ * @param {string} prompt - The image generation prompt
+ * @param {string} resolution - '1K', '2K', or '4K'
+ * @param {string} aspectRatio - Aspect ratio string (optional, defaults to '1:1')
+ * @returns {object} Nano Banana Pro API request body (input parameters)
+ */
+function buildTextToImageRequest(prompt, resolution = '2K', aspectRatio = '1:1') {
+    return {
+        prompt,
+        image_input: [],
+        aspect_ratio: mapAspectRatio(aspectRatio),
+        resolution: mapResolution(resolution),
+        output_format: 'png'
+    };
+}
+
+/**
  * Normalize Nano Banana Pro API response to match standard VeilPix format
  *
  * @param {object} nanoBananaProResponse - The raw API response (parsed resultJson)
@@ -212,6 +231,7 @@ module.exports = {
     buildFilterRequest,
     buildAdjustRequest,
     buildCombineRequest,
+    buildTextToImageRequest,
     normalizeResponse,
     urlToBase64
 };

@@ -94,6 +94,8 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
 
   // Non-purchasers always see the filter as ON (After Dark OFF), regardless of stored state
   const effectiveNsfwFilterEnabled = hasPurchasedCredits ? settings.nsfwFilterEnabled : true;
+  const imageCreditCost = settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'nanobananapro' ? 2 : 1;
+  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
 
   return (
     <>
@@ -244,7 +246,7 @@ export const SettingsMenu: React.FC<SettingsMenuProps> = ({ isOpen, onClose, set
           {/* Info Footer */}
           <div className="mt-4 pt-3 border-t border-gray-700">
             <p className="text-xs text-gray-400">
-              {settings.apiProvider === 'wanimage' ? '1 credit' : '2 credits'} per image &bull; Changes are saved automatically.
+              {imageCreditLabel} per image &bull; Changes are saved automatically.
             </p>
           </div>
 

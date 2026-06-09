@@ -15,6 +15,7 @@ interface CompositeEditorOverlayProps {
   isAuthenticated: boolean;
   onShowSignupPrompt: () => void;
   isGeneratingImage: boolean;
+  imageCreditCost?: number;
 }
 
 const CompositeEditorOverlay: React.FC<CompositeEditorOverlayProps> = ({
@@ -26,6 +27,7 @@ const CompositeEditorOverlay: React.FC<CompositeEditorOverlayProps> = ({
   isAuthenticated,
   onShowSignupPrompt,
   isGeneratingImage,
+  imageCreditCost = 2,
 }) => {
   const [secondFile, setSecondFile] = useState<File | null>(null);
 
@@ -80,6 +82,7 @@ const CompositeEditorOverlay: React.FC<CompositeEditorOverlayProps> = ({
             isAuthenticated={isAuthenticated}
             onShowSignupPrompt={onShowSignupPrompt}
             isGeneratingImage={isGeneratingImage}
+            imageCreditCost={imageCreditCost}
           />
         </div>
       </div>

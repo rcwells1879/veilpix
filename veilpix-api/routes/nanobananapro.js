@@ -26,6 +26,7 @@ const {
     buildFilterRequest,
     buildAdjustRequest,
     buildCombineRequest,
+    buildTextToImageRequest,
     normalizeResponse,
     urlToBase64
 } = require('../utils/nanobananaproAdapter');
@@ -651,6 +652,74 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
 
         res.status(500).json({
             error: 'Failed to generate combined image',
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Text-to-image generation endpoint
+router.post('/generate-text-to-image', express.json(), checkUserCredits, async (req, res) => {
+    const startTime = Date.now();
+    let usageLogged = false;
+
+    try {
+        const { prompt, resolution = '2K', aspectRatio = '1:1' } = req.body;
+
+        if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+            return res.status(400).json({
+                error: 'Prompt is required and must be a non-empty string'
+            });
+        }
+
+        if (prompt.length > 2000) {
+            return res.status(400).json({
+                error: 'Prompt must be 2000 characters or less'
+            });
+        }
+
+        const apiRequest = buildTextToImageRequest(prompt.trim(), resolution, aspectRatio);
+        const apiResponse = await callNanoBananaProAPI(apiRequest);
+        const normalizedResponse = normalizeResponse(apiResponse);
+
+        if (!normalizedResponse.success) {
+            throw new Error(normalizedResponse.error || 'Failed to process response');
+        }
+
+        if (normalizedResponse.needsConversion && normalizedResponse.imageUrl) {
+            const conversionResult = await urlToBase64(normalizedResponse.imageUrl);
+
+            if (!conversionResult.success) {
+                throw new Error(`Failed to convert image: ${conversionResult.error}`);
+            }
+
+            normalizedResponse.image = {
+                data: conversionResult.data,
+                mimeType: conversionResult.mimeType
+            };
+            delete normalizedResponse.imageUrl;
+            delete normalizedResponse.needsConversion;
+        }
+
+        usageLogged = await deductCreditsAndTrack(req, startTime, 'text-to-image', apiResponse);
+
+        res.json({
+            success: true,
+            image: normalizedResponse.image,
+            processingTime: Date.now() - startTime,
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: CREDITS_PER_GENERATION
+        });
+
+    } catch (error) {
+        console.error('Error generating text-to-image with Nano Banana Pro:', error);
+
+        if (!usageLogged) {
+            await deductCreditsAndTrack(req, startTime, 'text-to-image', null, false, error.message);
+        }
+
+        res.status(500).json({
+            error: 'Failed to generate image from text',
             message: error.message,
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
