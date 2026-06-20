@@ -17,7 +17,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "What is VeilPix After Dark?",
-    answer: "VeilPix After Dark is an age-verified mode for users who want more direct, privacy-focused access to supported AI image and video APIs. When available from the underlying provider, After Dark can allow mild not safe for work (NSFW) prompts, uncensored creative workflows, adult content generation, mature image editing, sensual or suggestive AI art, and 18+ private AI generation. VeilPix does not store your images, videos, or prompts as a user library; media is sent to the selected API only for the requested generation or edit. Abuse is never permitted: underage sexual exploitation, child sexual abuse material (CSAM), sexualized minor imagery, non-consensual intimate imagery, non-consensual adult images involving real people or celebrities, coercive content, or attempts to misuse the service are strictly prohibited and may result in an immediate ban."
+    answer: "VeilPix After Dark is an age-verified 18+ mode for private NSFW and adult creative workflows where supported by the selected model provider. Uploaded media is sent only for the requested generation or edit and is not stored as a user library. VeilPix still applies account controls, provider safety systems, and misuse prevention."
   },
   {
     question: "Can VeilPix generate videos?",

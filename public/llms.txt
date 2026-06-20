@@ -23,7 +23,7 @@ VeilPix is a free, privacy-focused AI image and video generator for photo editin
 8. Complete Privacy - Media is processed for the requested action without persistent user libraries
 
 ## Age-Verified After Dark
-VeilPix includes an age-verified After Dark mode for 18+ creative workflows, including nsfw, uncensored, and adult content generation where allowed by model/provider policies and applicable law.
+VeilPix includes an age-verified 18+ mode for private NSFW and adult creative workflows where supported by the selected model provider. VeilPix still applies account controls, provider safety systems, and misuse prevention.
 
 ## AI Models
 - Nano Banana 2: Gemini-powered fast image editing and generation

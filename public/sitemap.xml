@@ -3,7 +3,7 @@
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://veilstudio.io/veilpix/</loc>
-    <lastmod>2026-06-06</lastmod>
+    <lastmod>2026-06-20</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
@@ -26,13 +26,13 @@
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/</loc>
-    <lastmod>2025-12-06</lastmod>
+    <lastmod>2026-06-20</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/seedream-4-5-vs-nano-banana-pro/</loc>
-    <lastmod>2025-12-06</lastmod>
+    <lastmod>2026-06-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -62,7 +62,7 @@
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/ai-model-pricing-comparison/</loc>
-    <lastmod>2025-12-03</lastmod>
+    <lastmod>2026-06-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
