@@ -12,13 +12,18 @@ const KIE_CREDIT_USD = 0.005;
 
 const SEEDANCE_MODELS = {
     regular: 'bytedance/seedance-2',
-    fast: 'bytedance/seedance-2-fast'
+    fast: 'bytedance/seedance-2-fast',
+    mini: 'bytedance/seedance-2-mini'
 };
 
 const SEEDANCE_PRICING = {
     fast: {
         '480p': { noVideo: 15.5, withVideo: 9 },
         '720p': { noVideo: 33, withVideo: 20 }
+    },
+    mini: {
+        '480p': { noVideo: 9.5, withVideo: 6 },
+        '720p': { noVideo: 20.5, withVideo: 12.5 }
     },
     regular: {
         '480p': { noVideo: 19, withVideo: 11.5 },
@@ -27,10 +32,16 @@ const SEEDANCE_PRICING = {
     }
 };
 
-const ASPECT_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'];
+const ASPECT_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'];
+
+const SEEDANCE_DURATION_LIMITS = {
+    regular: { min: 4, max: 15, defaultValue: 5 },
+    fast: { min: 4, max: 15, defaultValue: 5 },
+    mini: { min: 4, max: 15, defaultValue: 5 }
+};
 
 function normalizeVariant(variant) {
-    return variant === 'fast' ? 'fast' : 'regular';
+    return ['regular', 'fast', 'mini'].includes(variant) ? variant : 'regular';
 }
 
 function normalizeResolution(variant, resolution) {
@@ -39,10 +50,12 @@ function normalizeResolution(variant, resolution) {
     return allowed.includes(resolution) ? resolution : allowed[allowed.length - 1];
 }
 
-function clampDuration(duration) {
+function clampDuration(duration, variant = 'regular') {
+    const selectedVariant = normalizeVariant(variant);
+    const limits = SEEDANCE_DURATION_LIMITS[selectedVariant];
     const parsed = Number.parseInt(duration, 10);
-    if (Number.isNaN(parsed)) return 5;
-    return Math.max(4, Math.min(15, parsed));
+    if (Number.isNaN(parsed)) return limits.defaultValue;
+    return Math.max(limits.min, Math.min(limits.max, parsed));
 }
 
 function normalizeAspectRatio(aspectRatio) {
@@ -66,10 +79,11 @@ function estimateSeedanceKieCredits({
 }) {
     const selectedVariant = normalizeVariant(variant);
     const selectedResolution = normalizeResolution(selectedVariant, resolution);
-    const selectedDuration = clampDuration(duration);
+    const selectedDuration = clampDuration(duration, selectedVariant);
     const pricing = SEEDANCE_PRICING[selectedVariant][selectedResolution];
+    const inputDurationLimit = SEEDANCE_DURATION_LIMITS[selectedVariant].max;
     const billableSeconds = hasVideoReference
-        ? selectedDuration + Math.max(0, Math.min(15, Number(referenceVideoDuration) || 0))
+        ? selectedDuration + Math.max(0, Math.min(inputDurationLimit, Number(referenceVideoDuration) || 0))
         : selectedDuration;
     const rate = hasVideoReference ? pricing.withVideo : pricing.noVideo;
 
@@ -99,7 +113,7 @@ function buildSeedanceRequest(prompt, options = {}) {
     const selectedVariant = normalizeVariant(variant);
     const request = {
         prompt,
-        duration: clampDuration(duration),
+        duration: clampDuration(duration, selectedVariant),
         resolution: normalizeResolution(selectedVariant, resolution),
         aspect_ratio: normalizeAspectRatio(aspectRatio),
         generate_audio: Boolean(generateAudio),
@@ -160,6 +174,7 @@ module.exports = {
     KIE_CREDIT_USD,
     SEEDANCE_MODELS,
     SEEDANCE_PRICING,
+    SEEDANCE_DURATION_LIMITS,
     buildSeedanceRequest,
     clampDuration,
     estimateSeedanceKieCredits,

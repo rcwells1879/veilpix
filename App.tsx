@@ -59,7 +59,7 @@ import Gallery from './components/Gallery';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
 
 type VideoProvider = 'wan' | 'seedance';
-type SeedanceVariant = 'regular' | 'fast';
+type SeedanceVariant = 'regular' | 'fast' | 'mini';
 
 interface VideoGenerateOptions {
   provider: VideoProvider;

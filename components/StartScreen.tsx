@@ -15,7 +15,7 @@ import Spinner from './Spinner';
 import type { GalleryVideoDetails } from '../src/utils/workflowStorage';
 
 type VideoProvider = 'wan' | 'seedance';
-type SeedanceVariant = 'regular' | 'fast';
+type SeedanceVariant = 'regular' | 'fast' | 'mini';
 
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;

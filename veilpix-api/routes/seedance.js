@@ -9,6 +9,8 @@ const {
     deleteTemporaryImage
 } = require('../utils/imageUpload');
 const {
+    ASPECT_RATIOS,
+    SEEDANCE_DURATION_LIMITS,
     SEEDANCE_PRICING,
     buildSeedanceRequest,
     clampDuration,
@@ -314,7 +316,7 @@ router.post('/generate-video', upload.fields([
 
         const selectedVariant = normalizeVariant(variant);
         const selectedResolution = normalizeResolution(selectedVariant, resolution);
-        const selectedDuration = clampDuration(duration);
+        const selectedDuration = clampDuration(duration, selectedVariant);
         const imageFiles = req.files?.referenceImages || [];
         const videoFile = req.files?.referenceVideo?.[0];
         const audioFile = req.files?.referenceAudio?.[0];
@@ -487,7 +489,9 @@ router.post('/generate-video', upload.fields([
 router.get('/pricing', (req, res) => {
     res.json({
         success: true,
-        pricing: SEEDANCE_PRICING
+        pricing: SEEDANCE_PRICING,
+        aspectRatios: ASPECT_RATIOS,
+        durationLimits: SEEDANCE_DURATION_LIMITS
     });
 });
 

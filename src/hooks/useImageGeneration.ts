@@ -882,7 +882,7 @@ export interface GenerateSeedanceVideoRequest {
   referenceVideoDuration?: number | null
   referenceAudio?: File | null
   prompt: string
-  variant?: 'regular' | 'fast'
+  variant?: 'regular' | 'fast' | 'mini'
   duration?: number
   resolution?: string
   aspectRatio?: string
