@@ -23,6 +23,11 @@ const {
     normalizeResponse,
     urlToBase64
 } = require('../utils/wanImageAdapter');
+const {
+    IMAGE_WORKFLOWS,
+    getImageCreditDetails,
+    getWanImageModel
+} = require('../utils/imageCreditPricing');
 
 const router = express.Router();
 
@@ -61,6 +66,16 @@ const uploadMultiple = multer({
 // Wan Image API configuration (same kie.ai key as other models)
 const WAN_API_KEY = process.env.SEEDREAM_API_KEY;
 const WAN_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
+const IMAGE_PROVIDER = 'wanimage';
+
+function getWorkflowForRequest(req) {
+    return req.path === '/generate-text-to-image' ? IMAGE_WORKFLOWS.TEXT_TO_IMAGE : IMAGE_WORKFLOWS.IMAGE_TO_IMAGE;
+}
+
+function getCreditDetailsForRequest(req) {
+    const details = getImageCreditDetails(IMAGE_PROVIDER, req.body?.resolution, getWorkflowForRequest(req));
+    return { ...details, required: details.credits };
+}
 
 // Helper function to create Wan Image task
 async function createWanImageTask(requestBody) {
@@ -68,8 +83,12 @@ async function createWanImageTask(requestBody) {
         console.log('🌐 Creating Wan Image task');
         console.log('📝 Input parameters:', JSON.stringify(requestBody, null, 2));
 
+        const selectedWorkflow = Array.isArray(requestBody.input_urls) && requestBody.input_urls.length > 0
+            ? IMAGE_WORKFLOWS.IMAGE_TO_IMAGE
+            : IMAGE_WORKFLOWS.TEXT_TO_IMAGE;
+        const selectedModel = getWanImageModel(requestBody.resolution, selectedWorkflow);
         const payload = {
-            model: 'wan/2-7-image',
+            model: selectedModel,
             input: requestBody
         };
 
@@ -171,15 +190,19 @@ async function callWanImageAPI(requestBody) {
     }
 }
 
-// Helper function to deduct credit and track usage (1 credit per generation)
+// Helper function to deduct the selected image credits and track usage
 async function deductCreditAndTrack(req, startTime, requestType, result, success = true, errorMessage = null) {
     const { user } = req;
+    const creditDetails = req.creditsInfo || getCreditDetailsForRequest(req);
+    const creditsToDeduct = creditDetails.required || creditDetails.credits || 1;
 
     try {
         await db.logUsage({
             userId: user.id,
             clerkUserId: user.userId,
             requestType,
+            costUsd: success ? creditDetails.costUsd : 0,
+            chargedAmountUsd: success ? creditDetails.chargedAmountUsd : 0,
             geminiRequestId: 'wanimage-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
@@ -188,21 +211,23 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
         });
 
         if (success) {
-            const deductResult = await db.deductUserCredit(user.userId);
+            for (let index = 0; index < creditsToDeduct; index += 1) {
+                const deductResult = await db.deductUserCredit(user.userId);
 
-            if (!deductResult.success) {
-                console.error('🚨 Failed to deduct credit:', deductResult.error);
-                return false;
+                if (!deductResult.success) {
+                    console.error('Failed to deduct image credit:', deductResult.error);
+                    return false;
+                }
             }
 
             if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - 1);
+                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
             }
         }
 
         return true;
     } catch (error) {
-        console.error('🚨 Exception in credit deduction and tracking:', error);
+        console.error('Exception in image credit deduction and tracking:', error);
         return false;
     }
 }
@@ -211,6 +236,7 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
 async function checkUserCredits(req, res, next) {
     try {
         const { user } = req;
+        const creditDetails = getCreditDetailsForRequest(req);
         const { credits, error } = await db.getUserCredits(user.userId);
 
         if (error) {
@@ -220,16 +246,20 @@ async function checkUserCredits(req, res, next) {
             });
         }
 
-        if (credits <= 0) {
+        if (credits < creditDetails.required) {
             return res.status(402).json({
-                error: 'No credits remaining',
-                message: 'You have used all your credits. Please purchase more credits to continue.',
-                creditsRemaining: 0,
+                error: 'Insufficient credits',
+                message: `${creditDetails.required} credit(s) required for this image generation. You have ${credits} credit(s) remaining.`,
+                creditsRemaining: credits,
+                creditsRequired: creditDetails.required,
                 requiresPayment: true
             });
         }
 
-        req.creditsInfo = { remaining: credits };
+        if (req.body) {
+            req.body.resolution = creditDetails.resolution;
+        }
+        req.creditsInfo = { remaining: credits, ...creditDetails };
         next();
     } catch (error) {
         res.status(500).json({
@@ -312,7 +342,8 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
     } catch (error) {
         console.error('Error generating edit with Wan Image:', error);
@@ -391,7 +422,8 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
     } catch (error) {
         console.error('Error generating filter with Wan Image:', error);
@@ -476,7 +508,8 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
     } catch (error) {
         console.error('Error generating adjustment with Wan Image:', error);
@@ -563,7 +596,8 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
     } catch (error) {
         console.error('Error generating combined image with Wan Image:', error);
@@ -624,7 +658,8 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
     } catch (error) {
         console.error('Error generating text-to-image with Wan Image:', error);

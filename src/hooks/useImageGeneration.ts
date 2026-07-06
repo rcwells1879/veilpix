@@ -99,7 +99,7 @@ export function useUsageStats() {
 // ============================================================================
 // Nano Banana 2 (Google Gemini 3.1 Flash) API Hooks
 // These hooks use the Nano Banana 2 API (via Kie.ai) for image generation
-// Costs 2 credits per generation
+// Credit cost varies by selected Kie resolution and backend pricing.
 // ============================================================================
 
 // Custom hook for localized editing with Nano Banana 2
@@ -443,7 +443,7 @@ export function useGenerateTextToImageSeeDream() {
 // ============================================================================
 // Wan 2.7 Image API Hooks
 // These hooks use the Wan 2.7 Image API (via Kie.ai) for image generation
-// Costs 1 credit per generation
+// Credit cost varies by selected Kie resolution and backend pricing.
 // ============================================================================
 
 // Custom hook for localized editing with Wan Image

@@ -10,11 +10,13 @@ interface AdjustmentPanelProps {
   onApplyAspectRatio: (aspectRatio: string, customPrompt: string) => void;
   isLoading: boolean;
   apiProvider?: string;
+  imageCreditCost?: number;
 }
 
-const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, onApplyAspectRatio, isLoading, apiProvider = 'gemini' }) => {
+const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, onApplyAspectRatio, isLoading, apiProvider = 'gemini', imageCreditCost = 1 }) => {
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<string | null>(null);
+  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
 
   // All PNG-based aspect ratios (for Gemini and SeeDream)
   const pngAspectRatios = [
@@ -111,7 +113,7 @@ const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, on
         className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
         disabled={isLoading || (!customPrompt.trim() && !selectedAspectRatio)}
       >
-        Apply Adjustment
+        {isLoading ? `Applying... (${imageCreditLabel})` : `Apply Adjustment - ${imageCreditLabel}`}
       </button>
 
       {/* Always-Visible Aspect Ratio Selector */}

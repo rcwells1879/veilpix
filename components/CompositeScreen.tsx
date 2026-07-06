@@ -7,8 +7,10 @@ import React, { useState, useEffect } from 'react';
 import Spinner from './Spinner';
 import { ChevronLeftIcon } from './icons';
 import {
+    getImageCreditCost,
     ImageModelSelector,
     ImageModelSettings,
+    normalizeImageGenerationOptions,
     type ImageGenerationOptions,
 } from './ImageModelControlsPanel';
 
@@ -28,7 +30,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
     sourceImage2,
     imageOptions,
     onImageOptionsChange,
-    imageCreditCost = 2,
+    imageCreditCost,
     onGenerate,
     isLoading,
     onBack
@@ -36,7 +38,9 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
     const [prompt, setPrompt] = useState('');
     const [img1Url, setImg1Url] = useState<string | null>(null);
     const [img2Url, setImg2Url] = useState<string | null>(null);
-    const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
+    const normalizedImageOptions = normalizeImageGenerationOptions(imageOptions, 'image-to-image');
+    const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedImageOptions.provider, normalizedImageOptions.resolution, 'image-to-image');
+    const imageCreditLabel = `${activeImageCreditCost} ${activeImageCreditCost === 1 ? 'credit' : 'credits'}`;
 
     useEffect(() => {
         const url1 = URL.createObjectURL(sourceImage1);
@@ -53,7 +57,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onGenerate(prompt, imageOptions);
+        onGenerate(prompt, normalizedImageOptions);
     }
     
     return (
@@ -84,6 +88,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
                     value={imageOptions}
                     onChange={onImageOptionsChange}
                     isLoading={isLoading}
+                    workflow="image-to-image"
                 />
                 <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
                     <label className="text-sm font-semibold text-gray-300">Describe the Combination</label>
@@ -100,6 +105,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
                         value={imageOptions}
                         onChange={onImageOptionsChange}
                         isLoading={isLoading}
+                        workflow="image-to-image"
                     />
                     <div className="flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                         <button

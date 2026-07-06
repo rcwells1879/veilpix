@@ -277,7 +277,9 @@ const App: React.FC = () => {
     resolution: settings.resolution,
     aspectRatio: settings.imageAspectRatio,
   });
-  const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider);
+  const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'text-to-image');
+  const imageEditCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image');
+  const imageEditCreditLabel = `${imageEditCreditCost} ${imageEditCreditCost === 1 ? 'credit' : 'credits'}`;
 
   // Persist settings to localStorage whenever they change
   useEffect(() => {
@@ -798,7 +800,7 @@ const App: React.FC = () => {
         return;
     }
 
-    const normalizedImageOptions = normalizeImageGenerationOptions(options);
+    const normalizedImageOptions = normalizeImageGenerationOptions(options, 'image-to-image');
     const selectedCompositeMutation = imageMutationsByProvider[normalizedImageOptions.provider].composite;
 
     setError(null);
@@ -1136,7 +1138,7 @@ const App: React.FC = () => {
     onSuccess?: (file: File) => void,
     options: ImageGenerationOptions = imageGenerationOptions
   ) => {
-    const normalizedImageOptions = normalizeImageGenerationOptions(options);
+    const normalizedImageOptions = normalizeImageGenerationOptions(options, 'text-to-image');
     const selectedTextToImageMutation = imageMutationsByProvider[normalizedImageOptions.provider].textToImage;
 
     console.log('🎨 Starting text-to-image generation with provider:', normalizedImageOptions.provider, 'prompt:', textPrompt);
@@ -1744,7 +1746,11 @@ const App: React.FC = () => {
         isAuthenticated={isLoaded && isSignedIn}
         onShowSignupPrompt={() => setShowSignupPrompt(true)}
         isGeneratingImage={isLoading}
-        imageCreditCost={imageCreditCost}
+        imageCreditCost={getImageCreditCost(
+          imageGenerationOptions.provider,
+          imageGenerationOptions.resolution,
+          creativeMode === 'composite' ? 'image-to-image' : 'text-to-image'
+        )}
         onSelectGalleryImage={handleSelectGalleryImage}
         onSelectGalleryVideo={handleSelectGalleryVideo}
         onMakeGalleryImageReference={handleMakeGalleryImageReference}
@@ -1770,7 +1776,7 @@ const App: React.FC = () => {
             sourceImage2={sourceImage2}
             imageOptions={imageGenerationOptions}
             onImageOptionsChange={handleImageOptionsChange}
-            imageCreditCost={imageCreditCost}
+            imageCreditCost={getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image')}
             onGenerate={handleGenerateComposite}
             isLoading={isLoading}
             onBack={handleUploadNew}
@@ -2035,7 +2041,7 @@ const App: React.FC = () => {
                           <p className="text-md text-gray-400">
                               {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
                           </p>
-                          <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex items-center gap-2">
+                          <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex flex-col gap-2 sm:flex-row sm:items-center">
                               <input
                                   type="text"
                                   value={prompt}
@@ -2046,17 +2052,17 @@ const App: React.FC = () => {
                               />
                               <button
                                   type="submit"
-                                  className="bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
+                                  className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-6 text-base rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none sm:w-auto sm:px-8 sm:text-lg"
                                   disabled={isLoading || !prompt.trim() || !editHotspot}
                               >
-                                  Generate
+                                  {isLoading ? `Generating... (${imageEditCreditLabel})` : `Generate - ${imageEditCreditLabel}`}
                               </button>
                           </form>
                       </div>
                   )}
                   {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-                  {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} apiProvider={settings.apiProvider} />}
-                  {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} />}
+                  {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} apiProvider={settings.apiProvider} imageCreditCost={imageEditCreditCost} />}
+                  {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} />}
               </div>
             </>
           )}
@@ -2154,7 +2160,11 @@ const App: React.FC = () => {
       isAuthenticated={isLoaded && isSignedIn}
       onShowSignupPrompt={() => setShowSignupPrompt(true)}
       isGeneratingImage={isLoading}
-      imageCreditCost={imageCreditCost}
+      imageCreditCost={getImageCreditCost(
+        imageGenerationOptions.provider,
+        imageGenerationOptions.resolution,
+        creativeMode === 'composite' ? 'image-to-image' : 'text-to-image'
+      )}
       onSelectGalleryImage={handleSelectGalleryImage}
       onSelectGalleryVideo={handleSelectGalleryVideo}
       onMakeGalleryImageReference={handleMakeGalleryImageReference}

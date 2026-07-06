@@ -24,6 +24,10 @@ const {
     urlToBase64,
     mapAspectRatioFileToSeedreamSize
 } = require('../utils/seedreamAdapter');
+const {
+    IMAGE_WORKFLOWS,
+    getImageCreditDetails
+} = require('../utils/imageCreditPricing');
 
 const router = express.Router();
 
@@ -62,6 +66,16 @@ const uploadMultiple = multer({
 // SeeDream API configuration
 const SEEDREAM_API_KEY = process.env.SEEDREAM_API_KEY;
 const SEEDREAM_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
+const IMAGE_PROVIDER = 'seedream';
+
+function getWorkflowForRequest(req) {
+    return req.path === '/generate-text-to-image' ? IMAGE_WORKFLOWS.TEXT_TO_IMAGE : IMAGE_WORKFLOWS.IMAGE_TO_IMAGE;
+}
+
+function getCreditDetailsForRequest(req) {
+    const details = getImageCreditDetails(IMAGE_PROVIDER, req.body?.resolution, getWorkflowForRequest(req));
+    return { ...details, required: details.credits };
+}
 
 // Helper function to create SeeDream task
 async function createSeedreamTask(requestBody, model = 'seedream/4.5-edit') {
@@ -184,21 +198,19 @@ async function callSeedreamAPI(requestBody, model = 'seedream/4.5-edit') {
     }
 }
 
-// Helper function to deduct credit and track usage (same as Gemini)
+// Helper function to deduct the selected image credits and track usage
 async function deductCreditAndTrack(req, startTime, requestType, result, success = true, errorMessage = null) {
     const { user } = req;
-
-    console.log('🔍 CREDIT DEDUCT: Starting credit deduction and tracking', {
-        userId: user?.userId,
-        requestType,
-        success
-    });
+    const creditDetails = req.creditsInfo || getCreditDetailsForRequest(req);
+    const creditsToDeduct = creditDetails.required || creditDetails.credits || 1;
 
     try {
-        const usageResult = await db.logUsage({
+        await db.logUsage({
             userId: user.id,
             clerkUserId: user.userId,
             requestType,
+            costUsd: success ? creditDetails.costUsd : 0,
+            chargedAmountUsd: success ? creditDetails.chargedAmountUsd : 0,
             geminiRequestId: 'seedream-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
@@ -206,68 +218,58 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
             errorMessage
         });
 
-        console.log('✅ CREDIT DEDUCT: Successfully logged usage');
-
         if (success) {
-            console.log('🔍 CREDIT DEDUCT: Deducting 1 credit for user:', user.userId);
-            const deductResult = await db.deductUserCredit(user.userId);
+            for (let index = 0; index < creditsToDeduct; index += 1) {
+                const deductResult = await db.deductUserCredit(user.userId);
 
-            if (!deductResult.success) {
-                console.error('🚨 CREDIT DEDUCT: Failed to deduct credit:', deductResult.error);
-                return false;
+                if (!deductResult.success) {
+                    console.error('Failed to deduct image credit:', deductResult.error);
+                    return false;
+                }
             }
 
-            console.log('✅ CREDIT DEDUCT: Successfully deducted 1 credit');
-
             if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - 1);
+                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
             }
         }
 
-        console.log('✅ CREDIT DEDUCT: Credit deduction and tracking completed successfully');
         return true;
     } catch (error) {
-        console.error('🚨 CREDIT DEDUCT: Exception in credit deduction and tracking:', error);
+        console.error('Exception in image credit deduction and tracking:', error);
         return false;
     }
 }
 
-// Check user credits (same as Gemini)
+// Check user credits
 async function checkUserCredits(req, res, next) {
     try {
         const { user } = req;
-
-        console.log('🔍 CREDITS: Checking user credits for:', user.userId);
-
+        const creditDetails = getCreditDetailsForRequest(req);
         const { credits, error } = await db.getUserCredits(user.userId);
 
         if (error) {
-            console.error('🚨 CREDITS: Database error getting user credits:', error);
             return res.status(500).json({
                 error: 'Failed to check credits',
                 message: 'Please try again in a moment.'
             });
         }
 
-        console.log('🔍 CREDITS: User has credits:', credits);
-
-        if (credits <= 0) {
-            console.log('🚨 CREDITS: User has no credits remaining');
+        if (credits < creditDetails.required) {
             return res.status(402).json({
-                error: 'No credits remaining',
-                message: 'You have used all your credits. Please purchase more credits to continue.',
-                creditsRemaining: 0,
+                error: 'Insufficient credits',
+                message: `${creditDetails.required} credit(s) required for this image generation. You have ${credits} credit(s) remaining.`,
+                creditsRemaining: credits,
+                creditsRequired: creditDetails.required,
                 requiresPayment: true
             });
         }
 
-        req.creditsInfo = { remaining: credits };
-        console.log('✅ CREDITS: User has sufficient credits:', credits);
-
+        if (req.body) {
+            req.body.resolution = creditDetails.resolution;
+        }
+        req.creditsInfo = { remaining: credits, ...creditDetails };
         next();
     } catch (error) {
-        console.error('🚨 CREDITS: Unexpected error checking credits:', error);
-
         res.status(500).json({
             error: 'Failed to check credits',
             message: 'Please try again in a moment.',
@@ -358,7 +360,8 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
 
     } catch (error) {
@@ -447,7 +450,8 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
 
     } catch (error) {
@@ -542,7 +546,8 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
 
     } catch (error) {
@@ -638,7 +643,8 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
 
     } catch (error) {
@@ -725,7 +731,8 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining || 0,
+            creditsUsed: req.creditsInfo?.required || 1
         });
 
     } catch (error) {

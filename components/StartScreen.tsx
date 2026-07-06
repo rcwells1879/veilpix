@@ -13,8 +13,10 @@ import Gallery from './Gallery';
 import VideoControlsPanel from './VideoControlsPanel';
 import Spinner from './Spinner';
 import {
+  getImageCreditCost,
   ImageModelSelector,
   ImageModelSettings,
+  normalizeImageGenerationOptions,
   type ImageGenerationOptions,
 } from './ImageModelControlsPanel';
 import type { GalleryVideoDetails } from '../src/utils/workflowStorage';
@@ -74,12 +76,15 @@ interface StartScreenProps {
   videoError?: string | null;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, imageOptions, onImageOptionsChange, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost = 2, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, imageOptions, onImageOptionsChange, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
   const [compositePrompt, setCompositePrompt] = useState('');
   const [singleTextPrompt, setSingleTextPrompt] = useState('');
-  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
+  const activeImageWorkflow = activeMode === 'composite' ? 'image-to-image' : 'text-to-image';
+  const normalizedActiveImageOptions = normalizeImageGenerationOptions(imageOptions, activeImageWorkflow);
+  const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedActiveImageOptions.provider, normalizedActiveImageOptions.resolution, activeImageWorkflow);
+  const imageCreditLabel = `${activeImageCreditCost} ${activeImageCreditCost === 1 ? 'credit' : 'credits'}`;
 
   // Update composite file when prop changes
   useEffect(() => {
@@ -95,7 +100,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
       return;
     }
 
-    onCompositeSelect(compositeFile1, compositeFile2, prompt, imageOptions);
+    onCompositeSelect(compositeFile1, compositeFile2, prompt, normalizeImageGenerationOptions(imageOptions, 'image-to-image'));
   }, [compositeFile1, compositeFile2, compositePrompt, imageOptions, isAuthenticated, onCompositeSelect, onShowSignupPrompt]);
 
   // Authentication check wrapper for composite file uploads
@@ -120,7 +125,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     if (onTextToImageGenerate) {
       onTextToImageGenerate(prompt, (file: File) => {
         setCompositeFile1(file);
-      }, imageOptions);
+      }, normalizeImageGenerationOptions(imageOptions, 'text-to-image'));
     }
   }, [imageOptions, onTextToImageGenerate]);
 
@@ -128,7 +133,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     if (onTextToImageGenerate) {
       onTextToImageGenerate(prompt, (file: File) => {
         setCompositeFile2(file);
-      }, imageOptions);
+      }, normalizeImageGenerationOptions(imageOptions, 'text-to-image'));
     }
   }, [imageOptions, onTextToImageGenerate]);
 
@@ -142,7 +147,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
       return;
     }
 
-    onTextToImageGenerate(prompt, undefined, imageOptions);
+    onTextToImageGenerate(prompt, undefined, normalizeImageGenerationOptions(imageOptions, 'text-to-image'));
   }, [imageOptions, isAuthenticated, onShowSignupPrompt, onTextToImageGenerate, singleTextPrompt]);
 
   const handleGalleryImageReference = useCallback((file: File) => {
@@ -198,6 +203,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               value={imageOptions}
               onChange={onImageOptionsChange}
               isLoading={isGeneratingImage}
+              workflow="text-to-image"
             />
             <ImageDropzone
               file={null}
@@ -237,6 +243,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                   value={imageOptions}
                   onChange={onImageOptionsChange}
                   isLoading={isGeneratingImage}
+                  workflow="text-to-image"
                 />
                 <button
                   type="submit"
@@ -266,6 +273,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 value={imageOptions}
                 onChange={onImageOptionsChange}
                 isLoading={isGeneratingImage}
+                workflow="image-to-image"
               />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                   <ImageDropzone
@@ -279,7 +287,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
-                    imageCreditCost={imageCreditCost}
+                    imageCreditCost={activeImageCreditCost}
                   />
                   <ImageDropzone
                     file={compositeFile2}
@@ -292,7 +300,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
-                    imageCreditCost={imageCreditCost}
+                    imageCreditCost={activeImageCreditCost}
                   />
               </div>
               <div className="flex w-full flex-col gap-3">
@@ -310,6 +318,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                   value={imageOptions}
                   onChange={onImageOptionsChange}
                   isLoading={isGeneratingImage}
+                  workflow="image-to-image"
                 />
               </div>
                <button

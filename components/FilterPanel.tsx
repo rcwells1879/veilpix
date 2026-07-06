@@ -8,11 +8,13 @@ import React, { useState } from 'react';
 interface FilterPanelProps {
   onApplyFilter: (prompt: string) => void;
   isLoading: boolean;
+  imageCreditCost?: number;
 }
 
-const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading }) => {
+const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading, imageCreditCost = 1 }) => {
   const [selectedPresetPrompt, setSelectedPresetPrompt] = useState<string | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
+  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
 
   const presets = [
     { name: 'Synthwave', prompt: 'Apply a vibrant 80s synthwave aesthetic with neon magenta and cyan glows, and subtle scan lines.' },
@@ -72,7 +74,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading }) =
             className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-6 rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner text-base disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
             disabled={isLoading || !activePrompt.trim()}
           >
-            Apply Filter
+            {isLoading ? `Applying... (${imageCreditLabel})` : `Apply Filter - ${imageCreditLabel}`}
           </button>
         </div>
       )}

@@ -8,6 +8,7 @@ import { PhotoIcon } from './icons';
 
 export type ImageProvider = 'nanobanana2' | 'seedream' | 'wanimage';
 export type ImageResolution = '1K' | '2K' | '4K';
+export type ImageWorkflow = 'text-to-image' | 'image-to-image';
 
 export interface ImageGenerationOptions {
   provider: ImageProvider;
@@ -23,6 +24,7 @@ interface RatioOption {
 interface ResolutionOption {
   value: ImageResolution;
   label: string;
+  workflows?: ImageWorkflow[];
 }
 
 interface ImageModelConfig {
@@ -31,12 +33,33 @@ interface ImageModelConfig {
   shortLabel: string;
   sublabel: string;
   settingsLabel: string;
-  creditCost: number;
   defaultResolution: ImageResolution;
   defaultAspectRatio: string;
   aspectRatios: RatioOption[];
   resolutions: ResolutionOption[];
 }
+
+const VEILPIX_CREDIT_USD = 0.0699;
+const TARGET_MARGIN = 0.12;
+const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
+const KIE_CREDIT_USD = 0.005;
+
+export const IMAGE_KIE_CREDIT_PRICING: Record<ImageProvider, Partial<Record<ImageResolution, number>>> = {
+  nanobanana2: {
+    '1K': 8,
+    '2K': 12,
+    '4K': 18,
+  },
+  seedream: {
+    '2K': 6.5,
+    '4K': 6.5,
+  },
+  wanimage: {
+    '1K': 4.8,
+    '2K': 4.8,
+    '4K': 12,
+  },
+};
 
 export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
   nanobanana2: {
@@ -45,7 +68,6 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
     shortLabel: 'Nano 2',
     sublabel: 'Gemini 3.1 Flash',
     settingsLabel: 'Resolution',
-    creditCost: 2,
     defaultResolution: '2K',
     defaultAspectRatio: '1:1',
     aspectRatios: [
@@ -77,7 +99,6 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
     shortLabel: 'Seedream',
     sublabel: 'ByteDance',
     settingsLabel: 'Quality',
-    creditCost: 1,
     defaultResolution: '2K',
     defaultAspectRatio: '1:1',
     aspectRatios: [
@@ -86,6 +107,9 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
       { value: '9:16', label: '9:16' },
       { value: '4:3', label: '4:3' },
       { value: '3:4', label: '3:4' },
+      { value: '3:2', label: '3:2' },
+      { value: '2:3', label: '2:3' },
+      { value: '21:9', label: '21:9' },
     ],
     resolutions: [
       { value: '2K', label: 'Basic' },
@@ -98,7 +122,6 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
     shortLabel: 'Wan 2.7',
     sublabel: 'Kie image',
     settingsLabel: 'Resolution',
-    creditCost: 1,
     defaultResolution: '2K',
     defaultAspectRatio: '1:1',
     aspectRatios: [
@@ -114,7 +137,7 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
     resolutions: [
       { value: '1K', label: '1K' },
       { value: '2K', label: '2K' },
-      { value: '4K', label: '4K' },
+      { value: '4K', label: 'Pro 4K', workflows: ['text-to-image'] },
     ],
   },
 };
@@ -129,14 +152,34 @@ function isImageResolution(value: unknown): value is ImageResolution {
   return value === '1K' || value === '2K' || value === '4K';
 }
 
-export function getImageCreditCost(provider: ImageProvider): number {
-  return IMAGE_MODEL_CONFIGS[provider]?.creditCost ?? IMAGE_MODEL_CONFIGS.seedream.creditCost;
+export function getImageModelResolutions(provider: ImageProvider, workflow?: ImageWorkflow): ResolutionOption[] {
+  const config = IMAGE_MODEL_CONFIGS[provider] ?? IMAGE_MODEL_CONFIGS.seedream;
+  if (!workflow) return config.resolutions;
+  return config.resolutions.filter((resolution) => !resolution.workflows || resolution.workflows.includes(workflow));
 }
 
-export function normalizeImageGenerationOptions(options?: Partial<ImageGenerationOptions>): ImageGenerationOptions {
+function veilpixCreditsFromKieCredits(kieCredits: number): number {
+  return Math.max(1, Math.ceil((kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
+}
+
+export function getImageKieCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow): number {
+  const config = IMAGE_MODEL_CONFIGS[provider] ?? IMAGE_MODEL_CONFIGS.seedream;
+  const availableResolutions = getImageModelResolutions(config.id, workflow);
+  const selectedResolution = resolution && availableResolutions.some((item) => item.value === resolution)
+    ? resolution
+    : config.defaultResolution;
+  return IMAGE_KIE_CREDIT_PRICING[config.id][selectedResolution] ?? IMAGE_KIE_CREDIT_PRICING.seedream['2K'] ?? 6.5;
+}
+
+export function getImageCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow): number {
+  return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow));
+}
+
+export function normalizeImageGenerationOptions(options?: Partial<ImageGenerationOptions>, workflow?: ImageWorkflow): ImageGenerationOptions {
   const provider = isImageProvider(options?.provider) ? options.provider : 'seedream';
   const config = IMAGE_MODEL_CONFIGS[provider];
-  const resolution = isImageResolution(options?.resolution) && config.resolutions.some((item) => item.value === options.resolution)
+  const availableResolutions = getImageModelResolutions(provider, workflow);
+  const resolution = isImageResolution(options?.resolution) && availableResolutions.some((item) => item.value === options.resolution)
     ? options.resolution
     : config.defaultResolution;
   const aspectRatio = typeof options?.aspectRatio === 'string' && config.aspectRatios.some((item) => item.value === options.aspectRatio)
@@ -185,13 +228,14 @@ interface ImageModelSelectorProps {
   value: ImageGenerationOptions;
   onChange: (options: ImageGenerationOptions) => void;
   isLoading?: boolean;
+  workflow?: ImageWorkflow;
 }
 
-export const ImageModelSelector: React.FC<ImageModelSelectorProps> = ({ title, value, onChange, isLoading = false }) => {
-  const normalizedValue = normalizeImageGenerationOptions(value);
+export const ImageModelSelector: React.FC<ImageModelSelectorProps> = ({ title, value, onChange, isLoading = false, workflow }) => {
+  const normalizedValue = normalizeImageGenerationOptions(value, workflow);
 
   const handleProviderChange = (provider: ImageProvider) => {
-    onChange(normalizeImageGenerationOptions({ ...normalizedValue, provider }));
+    onChange(normalizeImageGenerationOptions({ ...normalizedValue, provider }, workflow));
   };
 
   return (
@@ -227,16 +271,27 @@ interface ImageModelSettingsProps {
   value: ImageGenerationOptions;
   onChange: (options: ImageGenerationOptions) => void;
   isLoading?: boolean;
+  workflow?: ImageWorkflow;
 }
 
-export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, onChange, isLoading = false }) => {
-  const normalizedValue = normalizeImageGenerationOptions(value);
+export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, onChange, isLoading = false, workflow }) => {
+  const normalizedValue = normalizeImageGenerationOptions(value, workflow);
   const config = IMAGE_MODEL_CONFIGS[normalizedValue.provider];
+  const availableResolutions = getImageModelResolutions(normalizedValue.provider, workflow);
+
+  React.useEffect(() => {
+    if (
+      normalizedValue.provider !== value.provider ||
+      normalizedValue.resolution !== value.resolution ||
+      normalizedValue.aspectRatio !== value.aspectRatio
+    ) {
+      onChange(normalizedValue);
+    }
+  }, [normalizedValue, onChange, value.aspectRatio, value.provider, value.resolution]);
 
   const updateOption = (partial: Partial<ImageGenerationOptions>) => {
-    onChange(normalizeImageGenerationOptions({ ...normalizedValue, ...partial }));
+    onChange(normalizeImageGenerationOptions({ ...normalizedValue, ...partial }, workflow));
   };
-
   return (
     <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 [&_button:focus-visible]:outline-none [&_button:focus-visible]:ring-2 ${focusRingClass(normalizedValue.provider)}`}>
       <div className="flex flex-col gap-2 sm:col-span-2">
@@ -258,21 +313,24 @@ export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, o
 
       <div className="flex flex-col gap-2 sm:max-w-md">
         <label className="text-sm font-semibold text-gray-300">{config.settingsLabel}</label>
-        <div className={`grid gap-2 ${config.resolutions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          {config.resolutions.map((resolution) => (
-            <button
-              key={resolution.value}
-              type="button"
-              onClick={() => updateOption({ resolution: resolution.value })}
-              className={`rounded-md border px-3 py-2.5 text-sm font-semibold transition ${settingButtonClass(normalizedValue.provider, normalizedValue.resolution === resolution.value)}`}
-              disabled={isLoading}
-            >
-              {resolution.label}
-            </button>
-          ))}
+        <div className={`grid gap-2 ${availableResolutions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+          {availableResolutions.map((resolution) => {
+            const creditCost = getImageCreditCost(normalizedValue.provider, resolution.value, workflow);
+            return (
+              <button
+                key={resolution.value}
+                type="button"
+                onClick={() => updateOption({ resolution: resolution.value })}
+                className={`min-w-0 rounded-md border px-2 py-2 text-sm font-semibold transition sm:px-3 ${settingButtonClass(normalizedValue.provider, normalizedValue.resolution === resolution.value)}`}
+                disabled={isLoading}
+              >
+                <span className="block truncate">{resolution.label}</span>
+                <span className="block text-[10px] font-medium opacity-75">{creditCost} cr</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
   );
 };
-
