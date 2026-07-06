@@ -12,6 +12,11 @@ import BeforeAfterShowcase from './BeforeAfterShowcase';
 import Gallery from './Gallery';
 import VideoControlsPanel from './VideoControlsPanel';
 import Spinner from './Spinner';
+import {
+  ImageModelSelector,
+  ImageModelSettings,
+  type ImageGenerationOptions,
+} from './ImageModelControlsPanel';
 import type { GalleryVideoDetails } from '../src/utils/workflowStorage';
 
 type VideoProvider = 'wan' | 'seedance';
@@ -19,10 +24,12 @@ type SeedanceVariant = 'regular' | 'fast' | 'mini';
 
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;
-  onCompositeSelect: (file1: File, file2: File) => void;
+  onCompositeSelect: (file1: File, file2: File, prompt: string, options: ImageGenerationOptions) => void;
   onUseWebcamClick: () => void;
   onUseWebcamForCompositeClick: () => void;
-  onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void) => void;
+  onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void, options?: ImageGenerationOptions) => void;
+  imageOptions: ImageGenerationOptions;
+  onImageOptionsChange: (options: ImageGenerationOptions) => void;
   onVideoGenerate?: (options: {
     provider: VideoProvider;
     prompt: string;
@@ -67,9 +74,10 @@ interface StartScreenProps {
   videoError?: string | null;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost = 2, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, imageOptions, onImageOptionsChange, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost = 2, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
+  const [compositePrompt, setCompositePrompt] = useState('');
   const [singleTextPrompt, setSingleTextPrompt] = useState('');
   const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
 
@@ -79,10 +87,16 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
   }, [initialCompositeFile1]);
 
   const handleComposite = useCallback(() => {
-    if (compositeFile1 && compositeFile2) {
-      onCompositeSelect(compositeFile1, compositeFile2);
+    const prompt = compositePrompt.trim();
+    if (!compositeFile1 || !compositeFile2 || !prompt) return;
+
+    if (!isAuthenticated && onShowSignupPrompt) {
+      onShowSignupPrompt();
+      return;
     }
-  }, [compositeFile1, compositeFile2, onCompositeSelect]);
+
+    onCompositeSelect(compositeFile1, compositeFile2, prompt, imageOptions);
+  }, [compositeFile1, compositeFile2, compositePrompt, imageOptions, isAuthenticated, onCompositeSelect, onShowSignupPrompt]);
 
   // Authentication check wrapper for composite file uploads
   const handleCompositeFile1Upload = useCallback((file: File) => {
@@ -106,17 +120,17 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     if (onTextToImageGenerate) {
       onTextToImageGenerate(prompt, (file: File) => {
         setCompositeFile1(file);
-      });
+      }, imageOptions);
     }
-  }, [onTextToImageGenerate]);
+  }, [imageOptions, onTextToImageGenerate]);
 
   const handleTextToImageForComposite2 = useCallback((prompt: string) => {
     if (onTextToImageGenerate) {
       onTextToImageGenerate(prompt, (file: File) => {
         setCompositeFile2(file);
-      });
+      }, imageOptions);
     }
-  }, [onTextToImageGenerate]);
+  }, [imageOptions, onTextToImageGenerate]);
 
   const handleSingleTextToImageSubmit = useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -128,8 +142,31 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
       return;
     }
 
-    onTextToImageGenerate(prompt);
-  }, [isAuthenticated, onShowSignupPrompt, onTextToImageGenerate, singleTextPrompt]);
+    onTextToImageGenerate(prompt, undefined, imageOptions);
+  }, [imageOptions, isAuthenticated, onShowSignupPrompt, onTextToImageGenerate, singleTextPrompt]);
+
+  const handleGalleryImageReference = useCallback((file: File) => {
+    if (activeMode === 'composite') {
+      if (!isAuthenticated && onShowSignupPrompt) {
+        onShowSignupPrompt();
+        return;
+      }
+      if (!compositeFile1) {
+        setCompositeFile1(file);
+        return;
+      }
+      setCompositeFile2(file);
+      return;
+    }
+
+    onMakeGalleryImageReference?.(file);
+  }, [activeMode, compositeFile1, isAuthenticated, onMakeGalleryImageReference, onShowSignupPrompt]);
+
+  const galleryImageReferenceLabel = activeMode === 'composite'
+    ? !compositeFile1 ? 'Use Base' : !compositeFile2 ? 'Add Reference' : 'Replace Reference'
+    : activeMode === 'single'
+      ? 'Use Photo'
+      : 'Make Reference';
 
   return (
     <div className="flex flex-col items-center gap-6 animate-fade-in w-full max-w-5xl mx-auto">
@@ -147,7 +184,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
 
         {/* Single Photo Content */}
         {activeMode === 'single' && (
-          <div className="relative flex w-full flex-col items-center gap-4 animate-fade-in">
+          <div className="relative flex w-full flex-col items-stretch gap-4 animate-fade-in">
             {isGeneratingImage && (
               <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded-lg bg-black/70 animate-fade-in">
                 <div className="[&>svg]:text-blue-400">
@@ -156,6 +193,12 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 <p className="text-gray-300">AI is working its magic... ({imageCreditLabel})</p>
               </div>
             )}
+            <ImageModelSelector
+              title="Single Photo"
+              value={imageOptions}
+              onChange={onImageOptionsChange}
+              isLoading={isGeneratingImage}
+            />
             <ImageDropzone
               file={null}
               onFileSelect={(file) => {
@@ -180,6 +223,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                 onSubmit={handleSingleTextToImageSubmit}
                 className="w-full flex flex-col gap-3"
               >
+                <label className="text-sm font-semibold text-gray-300">Describe your image</label>
                 <textarea
                   value={singleTextPrompt}
                   onChange={(event) => setSingleTextPrompt(event.target.value)}
@@ -188,6 +232,11 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                   rows={3}
                   disabled={isGeneratingImage}
                   maxLength={5000}
+                />
+                <ImageModelSettings
+                  value={imageOptions}
+                  onChange={onImageOptionsChange}
+                  isLoading={isGeneratingImage}
                 />
                 <button
                   type="submit"
@@ -203,7 +252,21 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
 
         {/* Composite Photos Content */}
         {activeMode === 'composite' && (
-          <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <div className="relative flex flex-col items-stretch gap-4 animate-fade-in">
+              {isGeneratingImage && (
+                <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 rounded-lg bg-black/70 animate-fade-in">
+                  <div className="[&>svg]:text-blue-400">
+                    <Spinner />
+                  </div>
+                  <p className="text-gray-300">AI is combining your images... ({imageCreditLabel})</p>
+                </div>
+              )}
+              <ImageModelSelector
+                title="Combined Photos"
+                value={imageOptions}
+                onChange={onImageOptionsChange}
+                isLoading={isGeneratingImage}
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                   <ImageDropzone
                     file={compositeFile1}
@@ -232,12 +295,29 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     imageCreditCost={imageCreditCost}
                   />
               </div>
+              <div className="flex w-full flex-col gap-3">
+                <label className="text-sm font-semibold text-gray-300">Describe the Combination</label>
+                <textarea
+                  value={compositePrompt}
+                  onChange={(event) => setCompositePrompt(event.target.value)}
+                  placeholder="e.g., 'Place the product from the second image into the room from the base image'"
+                  className="w-full resize-none rounded-lg border border-gray-700 bg-gray-800 p-4 text-base text-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  rows={3}
+                  disabled={isGeneratingImage}
+                  maxLength={5000}
+                />
+                <ImageModelSettings
+                  value={imageOptions}
+                  onChange={onImageOptionsChange}
+                  isLoading={isGeneratingImage}
+                />
+              </div>
                <button
                 onClick={handleComposite}
-                disabled={!compositeFile1 || !compositeFile2}
+                disabled={!compositeFile1 || !compositeFile2 || !compositePrompt.trim() || isGeneratingImage}
                 className="w-full mt-4 bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
               >
-                  Combine Images
+                  {isGeneratingImage ? `Combining Images... (${imageCreditLabel})` : `Combine Images - ${imageCreditLabel}`}
               </button>
           </div>
         )}
@@ -283,8 +363,9 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
         <Gallery
           onSelectImage={onSelectGalleryImage}
           onSelectVideo={onSelectGalleryVideo}
-          onMakeImageReference={activeMode === 'video' ? onMakeGalleryImageReference : undefined}
+          onMakeImageReference={activeMode === 'video' || activeMode === 'composite' || activeMode === 'single' ? handleGalleryImageReference : undefined}
           onMakeVideoReference={activeMode === 'video' ? onMakeGalleryVideoReference : undefined}
+          imageReferenceActionLabel={galleryImageReferenceLabel}
           refreshTrigger={galleryRefreshTrigger}
         />
       )}
@@ -306,7 +387,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                      <PaletteIcon className="w-6 h-6 text-blue-400" />
                   </div>
                   <h3 className="text-xl font-bold text-gray-100">Text-to-Image</h3>
-                  <p className="mt-2 text-gray-400">Describe a scene, style, or product concept and generate new images with Nano Banana, SeeDream, and Wan image models.</p>
+                  <p className="mt-2 text-gray-400">Describe a scene, style, or product concept and generate new images with Nano Banana 2, Seedream 4.5, and Wan image models.</p>
               </div>
               <div className="bg-black/20 p-6 rounded-lg border border-gray-700/50 flex flex-col items-center text-center">
                   <div className="flex items-center justify-center w-12 h-12 bg-gray-700 rounded-full mb-4">

@@ -19,6 +19,8 @@ interface GalleryProps {
   onSelectVideo?: (details: GalleryVideoDetails) => void;
   onMakeImageReference?: (file: File) => void;
   onMakeVideoReference?: (details: GalleryVideoDetails) => void;
+  imageReferenceActionLabel?: string;
+  videoReferenceActionLabel?: string;
   refreshTrigger?: number;
 }
 
@@ -36,7 +38,15 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString();
 }
 
-const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeImageReference, onMakeVideoReference, refreshTrigger }) => {
+const Gallery: React.FC<GalleryProps> = ({
+  onSelectImage,
+  onSelectVideo,
+  onMakeImageReference,
+  onMakeVideoReference,
+  imageReferenceActionLabel = 'Make Reference',
+  videoReferenceActionLabel = 'Make Reference',
+  refreshTrigger
+}) => {
   const [images, setImages] = useState<GalleryThumbnail[]>([]);
   const [loading, setLoading] = useState(true);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
@@ -146,7 +156,16 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeI
   }
 
   if (images.length === 0) {
-    return null; // Don't show empty gallery
+    return (
+      <div className="w-full mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-200">My Creations</h2>
+        </div>
+        <div className="rounded-lg border border-dashed border-gray-700 bg-gray-800/30 p-6 text-center text-sm text-gray-500">
+          No creations yet
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -228,7 +247,7 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeI
                 }}
                 className="absolute top-2 left-2 bg-cyan-600/90 hover:bg-cyan-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg"
               >
-                Make Reference
+                {videoReferenceActionLabel}
               </button>
             )}
 
@@ -242,7 +261,7 @@ const Gallery: React.FC<GalleryProps> = ({ onSelectImage, onSelectVideo, onMakeI
                 }}
                 className="absolute top-2 left-2 bg-cyan-600/90 hover:bg-cyan-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-md opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg"
               >
-                Make Reference
+                {imageReferenceActionLabel}
               </button>
             )}
 

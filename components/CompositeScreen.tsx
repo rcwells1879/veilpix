@@ -6,19 +6,37 @@
 import React, { useState, useEffect } from 'react';
 import Spinner from './Spinner';
 import { ChevronLeftIcon } from './icons';
+import {
+    ImageModelSelector,
+    ImageModelSettings,
+    type ImageGenerationOptions,
+} from './ImageModelControlsPanel';
 
 interface CompositeScreenProps {
     sourceImage1: File;
     sourceImage2: File;
-    onGenerate: (prompt: string) => void;
+    imageOptions: ImageGenerationOptions;
+    onImageOptionsChange: (options: ImageGenerationOptions) => void;
+    imageCreditCost?: number;
+    onGenerate: (prompt: string, options: ImageGenerationOptions) => void;
     isLoading: boolean;
     onBack: () => void;
 }
 
-const CompositeScreen: React.FC<CompositeScreenProps> = ({ sourceImage1, sourceImage2, onGenerate, isLoading, onBack }) => {
+const CompositeScreen: React.FC<CompositeScreenProps> = ({
+    sourceImage1,
+    sourceImage2,
+    imageOptions,
+    onImageOptionsChange,
+    imageCreditCost = 2,
+    onGenerate,
+    isLoading,
+    onBack
+}) => {
     const [prompt, setPrompt] = useState('');
     const [img1Url, setImg1Url] = useState<string | null>(null);
     const [img2Url, setImg2Url] = useState<string | null>(null);
+    const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
 
     useEffect(() => {
         const url1 = URL.createObjectURL(sourceImage1);
@@ -35,7 +53,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({ sourceImage1, sourceI
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onGenerate(prompt);
+        onGenerate(prompt, imageOptions);
     }
     
     return (
@@ -60,20 +78,30 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({ sourceImage1, sourceI
                 </div>
             </div>
 
-            <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-6 flex flex-col items-center gap-4 backdrop-blur-sm">
-                <h2 className="text-2xl font-bold text-gray-100">Describe the Combination</h2>
-                <p className="text-md text-gray-400 text-center max-w-xl">
-                    Explain how to combine the images. For example, "Use the starry night sky from the style image as the background for the person in the base image."
-                </p>
-                <form onSubmit={handleSubmit} className="w-full flex flex-col items-center gap-4">
+            <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-4 sm:p-6 flex flex-col gap-5 backdrop-blur-sm">
+                <ImageModelSelector
+                    title="Combined Photos"
+                    value={imageOptions}
+                    onChange={onImageOptionsChange}
+                    isLoading={isLoading}
+                />
+                <form onSubmit={handleSubmit} className="w-full flex flex-col gap-4">
+                    <label className="text-sm font-semibold text-gray-300">Describe the Combination</label>
                     <textarea
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         placeholder="e.g., 'Place the cat from the style image onto the sofa in the base image'"
-                        className="flex-grow bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60 min-h-[100px]"
+                        className="w-full resize-none bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-4 text-base focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={isLoading}
+                        rows={3}
+                        maxLength={5000}
                     />
-                    <div className="flex items-center justify-center gap-4 w-full">
+                    <ImageModelSettings
+                        value={imageOptions}
+                        onChange={onImageOptionsChange}
+                        isLoading={isLoading}
+                    />
+                    <div className="flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                         <button
                             type="button"
                             onClick={onBack}
@@ -88,7 +116,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({ sourceImage1, sourceI
                             className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-4 px-8 text-lg rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none"
                             disabled={isLoading || !prompt.trim()}
                         >
-                            Generate
+                            {isLoading ? `Generating... (${imageCreditLabel})` : `Generate - ${imageCreditLabel}`}
                         </button>
                     </div>
                 </form>

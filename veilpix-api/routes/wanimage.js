@@ -506,6 +506,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
     try {
         const prompt = req.body?.prompt;
         const resolution = req.body?.resolution || '2K';
+        const aspectRatio = req.body?.aspectRatio || '1:1';
         const nsfwFilterRaw = req.body?.nsfwFilterEnabled ?? 'false';
         const nsfwFilter = nsfwFilterRaw === 'true' || nsfwFilterRaw === true;
         const imageFiles = req.files?.images || [];
@@ -533,7 +534,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
 
         uploadedFilenames = uploadResult.filenames;
 
-        const wanRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, '1:1', nsfwFilter);
+        const wanRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio, nsfwFilter);
         const wanResponse = await callWanImageAPI(wanRequest);
         const normalizedResponse = normalizeResponse(wanResponse);
 

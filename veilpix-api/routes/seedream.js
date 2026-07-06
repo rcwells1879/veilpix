@@ -573,6 +573,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
     try {
         const prompt = req.body?.prompt;
         const resolution = req.body?.resolution || '2K';
+        const aspectRatio = req.body?.aspectRatio || '1:1';
         const nsfwFilterRaw = req.body?.nsfwFilterEnabled ?? 'true';
         const nsfwFilter = nsfwFilterRaw === 'true' || nsfwFilterRaw === true;
         const imageFiles = req.files?.images || [];
@@ -602,7 +603,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         uploadedFilenames = uploadResult.filenames;
 
         // Build and call SeeDream API
-        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, '1:1', nsfwFilter);
+        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio, nsfwFilter);
         const seedreamResponse = await callSeedreamAPI(seedreamRequest);
 
         // Normalize response

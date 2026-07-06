@@ -10,7 +10,7 @@
  * - History-based undo/redo system with File objects
  * - Optimistic UI updates for perceived performance
  * - Authentication-gated features via Clerk
- * - Backend API for all AI operations (Nano Banana 2, SeeDream 4.5, Nano Banana Pro, Wan 2.7 Image)
+ * - Backend API for all AI operations (Nano Banana 2, SeeDream 4.5, Wan 2.7 Image)
  */
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
@@ -26,11 +26,6 @@ import {
   useGenerateFilterSeeDream,
   useGenerateAdjustSeeDream,
   useGenerateCompositeSeeDream,
-  useGenerateEditNanoBananaPro,
-  useGenerateFilterNanoBananaPro,
-  useGenerateAdjustNanoBananaPro,
-  useGenerateCompositeNanoBananaPro,
-  useGenerateTextToImageNanoBananaPro,
   useGenerateEditWanImage,
   useGenerateFilterWanImage,
   useGenerateAdjustWanImage,
@@ -55,6 +50,12 @@ import BeforeAfterSlider from './components/BeforeAfterSlider';
 import SignupPromptModal from './components/SignupPromptModal';
 import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import { SettingsState } from './components/SettingsMenu';
+import {
+  getImageCreditCost,
+  normalizeImageGenerationOptions,
+  type ImageGenerationOptions,
+  type ImageProvider,
+} from './components/ImageModelControlsPanel';
 import Gallery from './components/Gallery';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
 
@@ -227,14 +228,8 @@ const SETTINGS_STORAGE_KEY = 'veilpix-settings';
 const DEFAULT_SETTINGS: SettingsState = {
   apiProvider: 'seedream',
   resolution: '2K',
+  imageAspectRatio: '1:1',
   nsfwFilterEnabled: true
-};
-
-const IMAGE_CREDIT_COST_BY_PROVIDER: Record<SettingsState['apiProvider'], number> = {
-  nanobanana2: 2,
-  seedream: 1,
-  nanobananapro: 2,
-  wanimage: 1
 };
 
 const App: React.FC = () => {
@@ -259,14 +254,30 @@ const App: React.FC = () => {
       if (stored) {
         const parsed = JSON.parse(stored);
         console.log('📋 Loaded settings from localStorage:', parsed);
-        return { ...DEFAULT_SETTINGS, ...parsed };
+        const normalizedImageOptions = normalizeImageGenerationOptions({
+          provider: parsed.apiProvider,
+          resolution: parsed.resolution,
+          aspectRatio: parsed.imageAspectRatio,
+        });
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          apiProvider: normalizedImageOptions.provider,
+          resolution: normalizedImageOptions.resolution,
+          imageAspectRatio: normalizedImageOptions.aspectRatio,
+        };
       }
     } catch (error) {
       console.error('Failed to load settings from localStorage:', error);
     }
     return DEFAULT_SETTINGS;
   });
-  const imageCreditCost = IMAGE_CREDIT_COST_BY_PROVIDER[settings.apiProvider] ?? 2;
+  const imageGenerationOptions = normalizeImageGenerationOptions({
+    provider: settings.apiProvider,
+    resolution: settings.resolution,
+    aspectRatio: settings.imageAspectRatio,
+  });
+  const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider);
 
   // Persist settings to localStorage whenever they change
   useEffect(() => {
@@ -313,8 +324,29 @@ const App: React.FC = () => {
   }, [history, historyIndex]);
 
   const handleSettingsChange = useCallback((newSettings: SettingsState) => {
-    setSettings(newSettings);
+    const normalizedImageOptions = normalizeImageGenerationOptions({
+      provider: newSettings.apiProvider,
+      resolution: newSettings.resolution,
+      aspectRatio: newSettings.imageAspectRatio,
+    });
+    const normalizedSettings = {
+      ...newSettings,
+      apiProvider: normalizedImageOptions.provider,
+      resolution: normalizedImageOptions.resolution,
+      imageAspectRatio: normalizedImageOptions.aspectRatio,
+    };
+    setSettings(normalizedSettings);
     console.log('⚙️ Settings updated:', newSettings);
+  }, []);
+
+  const handleImageOptionsChange = useCallback((options: ImageGenerationOptions) => {
+    const normalizedImageOptions = normalizeImageGenerationOptions(options);
+    setSettings(prev => ({
+      ...prev,
+      apiProvider: normalizedImageOptions.provider,
+      resolution: normalizedImageOptions.resolution,
+      imageAspectRatio: normalizedImageOptions.aspectRatio,
+    }));
   }, []);
 
   // Smart preloading for lazy components
@@ -373,41 +405,60 @@ const App: React.FC = () => {
   // then select the active one based on the chosen provider
   const editNB2 = useGenerateEditNanoBanana2();
   const editSeeDream = useGenerateEditSeeDream();
-  const editPro = useGenerateEditNanoBananaPro();
   const editWan = useGenerateEditWanImage();
 
   const filterNB2 = useGenerateFilterNanoBanana2();
   const filterSeeDream = useGenerateFilterSeeDream();
-  const filterPro = useGenerateFilterNanoBananaPro();
   const filterWan = useGenerateFilterWanImage();
 
   const adjustNB2 = useGenerateAdjustNanoBanana2();
   const adjustSeeDream = useGenerateAdjustSeeDream();
-  const adjustPro = useGenerateAdjustNanoBananaPro();
   const adjustWan = useGenerateAdjustWanImage();
 
   const compositeNB2 = useGenerateCompositeNanoBanana2();
   const compositeSeeDream = useGenerateCompositeSeeDream();
-  const compositePro = useGenerateCompositeNanoBananaPro();
   const compositeWan = useGenerateCompositeWanImage();
 
   const textToImageNB2 = useGenerateTextToImage();
   const textToImageSeeDream = useGenerateTextToImageSeeDream();
-  const textToImagePro = useGenerateTextToImageNanoBananaPro();
   const textToImageWan = useGenerateTextToImageWanImage();
 
-  // Select active mutation based on provider
-  const editMutation = { nanobanana2: editNB2, seedream: editSeeDream, nanobananapro: editPro, wanimage: editWan }[settings.apiProvider] ?? editNB2;
-  const filterMutation = { nanobanana2: filterNB2, seedream: filterSeeDream, nanobananapro: filterPro, wanimage: filterWan }[settings.apiProvider] ?? filterNB2;
-  const adjustMutation = { nanobanana2: adjustNB2, seedream: adjustSeeDream, nanobananapro: adjustPro, wanimage: adjustWan }[settings.apiProvider] ?? adjustNB2;
-  const compositeMutation = { nanobanana2: compositeNB2, seedream: compositeSeeDream, nanobananapro: compositePro, wanimage: compositeWan }[settings.apiProvider] ?? compositeNB2;
+  const imageMutationsByProvider = {
+    nanobanana2: {
+      edit: editNB2,
+      filter: filterNB2,
+      adjust: adjustNB2,
+      composite: compositeNB2,
+      textToImage: textToImageNB2,
+    },
+    seedream: {
+      edit: editSeeDream,
+      filter: filterSeeDream,
+      adjust: adjustSeeDream,
+      composite: compositeSeeDream,
+      textToImage: textToImageSeeDream,
+    },
+    wanimage: {
+      edit: editWan,
+      filter: filterWan,
+      adjust: adjustWan,
+      composite: compositeWan,
+      textToImage: textToImageWan,
+    },
+  } satisfies Record<ImageProvider, {
+    edit: typeof editNB2;
+    filter: typeof filterNB2;
+    adjust: typeof adjustNB2;
+    composite: typeof compositeNB2;
+    textToImage: typeof textToImageNB2;
+  }>;
 
-  const textToImageMutation = {
-    nanobanana2: textToImageNB2,
-    seedream: textToImageSeeDream,
-    nanobananapro: textToImagePro,
-    wanimage: textToImageWan
-  }[settings.apiProvider] ?? textToImageNB2;
+  // Select active mutation based on provider
+  const activeImageMutations = imageMutationsByProvider[imageGenerationOptions.provider] ?? imageMutationsByProvider.seedream;
+  const editMutation = activeImageMutations.edit;
+  const filterMutation = activeImageMutations.filter;
+  const adjustMutation = activeImageMutations.adjust;
+  const compositeMutation = activeImageMutations.composite;
 
   const videoMutation = useGenerateVideo();
   const referenceVideoMutation = useGenerateReferenceToVideo();
@@ -437,7 +488,7 @@ const App: React.FC = () => {
   );
 
   // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageMutation.isPending || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImagePro.isPending || textToImageWan.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending || isProcessingFile;
+  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending || isProcessingFile;
 
   const [sourceImage1, setSourceImage1] = useState<File | null>(null);
   const [sourceImage2, setSourceImage2] = useState<File | null>(null);
@@ -629,6 +680,32 @@ const App: React.FC = () => {
   }, [clearVideoResult]);
 
   const handleMakeGalleryImageReference = useCallback((file: File) => {
+    if (creativeMode === 'single') {
+      clearVideoResult();
+      setHistory([file]);
+      setHistoryIndex(0);
+      setEditHotspot(null);
+      setDisplayHotspot(null);
+      setActiveTab('adjust');
+      setCrop(undefined);
+      setCompletedCrop(undefined);
+      setView('editor');
+      return;
+    }
+
+    if (creativeMode === 'composite') {
+      const baseImage = sourceImage1 ?? currentImage;
+      if (!baseImage) {
+        setSourceImage1(file);
+        setView('start');
+        return;
+      }
+      setSourceImage1(baseImage);
+      setSourceImage2(file);
+      setView('composite');
+      return;
+    }
+
     setCreativeMode('video');
     if (videoProvider === 'seedance') {
       setSeedanceReferenceImages(prev => [...prev, file].slice(0, 4));
@@ -639,7 +716,7 @@ const App: React.FC = () => {
     clearVideoResult();
     setVideoError(null);
     setView('editor');
-  }, [clearVideoResult, referenceVideoFile, referenceVideoUrl, videoProvider]);
+  }, [clearVideoResult, creativeMode, currentImage, referenceVideoFile, referenceVideoUrl, sourceImage1, videoProvider]);
 
   // Handle selecting a generated video from the gallery for viewing/reuse
   const handleSelectGalleryVideo = useCallback((details: GalleryVideoDetails) => {
@@ -701,7 +778,70 @@ const App: React.FC = () => {
     setView('editor');
   }, [clearVideoResult, videoProvider]);
 
-  const handleCompositeSelect = useCallback(async (file1: File, file2: File) => {
+  const generateCompositeFromFiles = useCallback(async (
+    image1: File | null,
+    image2: File | null,
+    compositePrompt: string,
+    options: ImageGenerationOptions = imageGenerationOptions
+  ) => {
+    console.log('ðŸŽ¯ generateCompositeFromFiles called with prompt:', compositePrompt);
+    console.log('ðŸ–¼ï¸ Source image 1:', image1?.name, image1?.size);
+    console.log('ðŸ–¼ï¸ Source image 2:', image2?.name, image2?.size);
+
+    if (isLoaded && !isSignedIn) {
+      setShowSignupPrompt(true);
+      return;
+    }
+
+    if (!image1 || !image2) {
+        setError('Two source images are required to generate a composite.');
+        return;
+    }
+
+    const normalizedImageOptions = normalizeImageGenerationOptions(options);
+    const selectedCompositeMutation = imageMutationsByProvider[normalizedImageOptions.provider].composite;
+
+    setError(null);
+
+    try {
+        console.log('ðŸš€ About to call composite mutation...');
+        const response = await selectedCompositeMutation.mutateAsync({
+            image1,
+            image2,
+            prompt: compositePrompt,
+            resolution: normalizedImageOptions.resolution,
+            aspectRatio: normalizedImageOptions.aspectRatio,
+            nsfwFilterEnabled: settings.nsfwFilterEnabled
+        });
+        console.log('âœ… composite mutation returned:', response);
+
+        if (response.success && response.image) {
+            const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
+            const newImageFile = new File([imageBlob], `composite-${Date.now()}.png`, { type: 'image/png' });
+
+            setHistory([newImageFile]);
+            setHistoryIndex(0);
+            setCreativeMode('single');
+            setView('editor');
+            setSourceImage1(null);
+            setSourceImage2(null);
+            saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
+        } else {
+            throw new Error(response.message || 'Failed to generate composite image');
+        }
+    } catch (err: any) {
+        const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
+        setError(`Failed to generate the composite image. ${errorMessage}`);
+        console.error(err);
+    }
+  }, [imageGenerationOptions, imageMutationsByProvider, isLoaded, isSignedIn, settings.nsfwFilterEnabled]);
+
+  const handleCompositeSelect = useCallback(async (
+    file1: File,
+    file2: File,
+    compositePrompt = '',
+    options: ImageGenerationOptions = imageGenerationOptions
+  ) => {
     // Check if user is authenticated, if not show signup prompt
     if (isLoaded && !isSignedIn) {
       setShowSignupPrompt(true);
@@ -728,7 +868,11 @@ const App: React.FC = () => {
         setSourceImage2(processedFile2);
         setHistory([]);
         setHistoryIndex(-1);
-        setView('composite');
+        if (compositePrompt.trim()) {
+          await generateCompositeFromFiles(processedFile1, processedFile2, compositePrompt.trim(), options);
+        } else {
+          setView('composite');
+        }
       } catch (error) {
         console.error('Failed to process composite files:', error);
         setError(`Failed to process images: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -741,9 +885,13 @@ const App: React.FC = () => {
       setSourceImage2(file2);
       setHistory([]);
       setHistoryIndex(-1);
-      setView('composite');
+      if (compositePrompt.trim()) {
+        await generateCompositeFromFiles(file1, file2, compositePrompt.trim(), options);
+      } else {
+        setView('composite');
+      }
     }
-  }, []);
+  }, [generateCompositeFromFiles, imageGenerationOptions, isLoaded, isSignedIn]);
 
   const handleWebcamCapture = useCallback((file: File) => {
     if (isWebcamForCompositeSecond) {
@@ -842,53 +990,12 @@ const App: React.FC = () => {
     }
   }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
 
-  const handleGenerateComposite = useCallback(async (compositePrompt: string) => {
-    console.log('🎯 handleGenerateComposite called with prompt:', compositePrompt)
-    console.log('🖼️ Source image 1:', sourceImage1?.name, sourceImage1?.size)
-    console.log('🖼️ Source image 2:', sourceImage2?.name, sourceImage2?.size)
-    console.log('🔧 compositeMutation object:', compositeMutation)
-    
-    if (!sourceImage1 || !sourceImage2) {
-        setError('Two source images are required to generate a composite.');
-        return;
-    }
-
-    setError(null);
-
-    try {
-        console.log('🚀 About to call compositeMutation.mutateAsync...')
-        const response = await compositeMutation.mutateAsync({
-            image1: sourceImage1,
-            image2: sourceImage2,
-            prompt: compositePrompt,
-            resolution: settings.resolution,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-        console.log('✅ compositeMutation.mutateAsync returned:', response)
-
-        if (response.success && response.image) {
-            // Convert the base64 image data to a File  
-            const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-            const newImageFile = new File([imageBlob], `composite-${Date.now()}.png`, { type: 'image/png' });
-            
-            // The new composite image becomes the start of our editing history
-            setHistory([newImageFile]);
-            setHistoryIndex(0);
-            setCreativeMode('single'); // Return to single edit mode
-            setView('editor'); // Transition to the editor
-            setSourceImage1(null); // Clear the source images
-            setSourceImage2(null);
-            // Save composite result to gallery
-            saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } else {
-            throw new Error(response.message || 'Failed to generate composite image');
-        }
-    } catch (err: any) {
-        const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-        setError(`Failed to generate the composite image. ${errorMessage}`);
-        console.error(err);
-    }
-  }, [sourceImage1, sourceImage2, compositeMutation, isLoaded, isSignedIn, settings.resolution, settings.nsfwFilterEnabled]);
+  const handleGenerateComposite = useCallback(async (
+    compositePrompt: string,
+    options: ImageGenerationOptions = imageGenerationOptions
+  ) => {
+    await generateCompositeFromFiles(sourceImage1, sourceImage2, compositePrompt, options);
+  }, [generateCompositeFromFiles, imageGenerationOptions, sourceImage1, sourceImage2]);
   
   const handleApplyFilter = useCallback(async (filterPrompt: string) => {
     if (!currentImage) {
@@ -963,7 +1070,7 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
 
-  // Handle aspect ratio changes - supports PNG filename (SeeDream) or direct ratio string (Nano Banana 2/Pro)
+  // Handle aspect ratio changes - supports PNG filename (SeeDream) or direct ratio string (Nano Banana 2/Wan)
   const handleApplyAspectRatio = useCallback(async (aspectRatioInput: string, customPrompt: string) => {
     if (!currentImage) {
       setError('No image loaded to apply aspect ratio change to.');
@@ -981,8 +1088,8 @@ const App: React.FC = () => {
 
       const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
 
-      // Nano Banana 2, Nano Banana Pro, and Wan Image: Use native aspect ratio support with direct ratio strings
-      if (settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'nanobananapro' || settings.apiProvider === 'wanimage') {
+      // Nano Banana 2 and Wan Image: Use native aspect ratio support with direct ratio strings
+      if (settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'wanimage') {
         const response = await adjustMutation.mutateAsync({
           image: currentImage,
           prompt: basePrompt,
@@ -1024,8 +1131,15 @@ const App: React.FC = () => {
     }
   }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.apiProvider, settings.resolution, settings.nsfwFilterEnabled]);
 
-  const handleTextToImageGenerate = useCallback(async (textPrompt: string, onSuccess?: (file: File) => void) => {
-    console.log('🎨 Starting text-to-image generation with provider:', settings.apiProvider, 'prompt:', textPrompt);
+  const handleTextToImageGenerate = useCallback(async (
+    textPrompt: string,
+    onSuccess?: (file: File) => void,
+    options: ImageGenerationOptions = imageGenerationOptions
+  ) => {
+    const normalizedImageOptions = normalizeImageGenerationOptions(options);
+    const selectedTextToImageMutation = imageMutationsByProvider[normalizedImageOptions.provider].textToImage;
+
+    console.log('🎨 Starting text-to-image generation with provider:', normalizedImageOptions.provider, 'prompt:', textPrompt);
 
     setError(null);
 
@@ -1038,9 +1152,10 @@ const App: React.FC = () => {
     }
 
     try {
-      const response = await textToImageMutation.mutateAsync({
+      const response = await selectedTextToImageMutation.mutateAsync({
         prompt: textPrompt,
-        resolution: settings.resolution,
+        resolution: normalizedImageOptions.resolution,
+        aspectRatio: normalizedImageOptions.aspectRatio,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1070,7 +1185,7 @@ const App: React.FC = () => {
       setError(`Failed to generate image from text. ${errorMessage}`);
       console.error('💥 Text-to-image generation failed:', err);
     }
-  }, [addImageToHistory, textToImageMutation, setOptimisticHistory, settings.apiProvider, settings.resolution, settings.nsfwFilterEnabled]);
+  }, [imageGenerationOptions, imageMutationsByProvider, setOptimisticHistory, settings.nsfwFilterEnabled]);
 
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
@@ -1603,6 +1718,8 @@ const App: React.FC = () => {
         onUseWebcamClick={handleUseWebcamClick}
         onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
         onTextToImageGenerate={handleTextToImageGenerate}
+        imageOptions={imageGenerationOptions}
+        onImageOptionsChange={handleImageOptionsChange}
         onVideoGenerate={handleStartScreenVideoGenerate}
         onReferenceVideoSelect={handleReferenceVideoSelect}
         onWanReferenceImagesChange={handleWanReferenceImagesChange}
@@ -1651,6 +1768,9 @@ const App: React.FC = () => {
           <CompositeScreen
             sourceImage1={sourceImage1}
             sourceImage2={sourceImage2}
+            imageOptions={imageGenerationOptions}
+            onImageOptionsChange={handleImageOptionsChange}
+            imageCreditCost={imageCreditCost}
             onGenerate={handleGenerateComposite}
             isLoading={isLoading}
             onBack={handleUploadNew}
@@ -1988,12 +2108,13 @@ const App: React.FC = () => {
             </Suspense>
           )}
 
-          {creativeMode === 'video' && (
+          {(creativeMode === 'single' || creativeMode === 'composite' || creativeMode === 'video') && (
             <Gallery
               onSelectImage={handleSelectGalleryImage}
               onSelectVideo={handleSelectGalleryVideo}
               onMakeImageReference={handleMakeGalleryImageReference}
-              onMakeVideoReference={handleMakeGalleryVideoReference}
+              onMakeVideoReference={creativeMode === 'video' ? handleMakeGalleryVideoReference : undefined}
+              imageReferenceActionLabel={creativeMode === 'composite' ? 'Add Reference' : creativeMode === 'single' ? 'Use Photo' : 'Make Reference'}
               refreshTrigger={galleryRefreshTrigger}
             />
           )}
@@ -2008,6 +2129,8 @@ const App: React.FC = () => {
       onUseWebcamClick={handleUseWebcamClick}
       onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
       onTextToImageGenerate={handleTextToImageGenerate}
+      imageOptions={imageGenerationOptions}
+      onImageOptionsChange={handleImageOptionsChange}
       onVideoGenerate={handleStartScreenVideoGenerate}
       onReferenceVideoSelect={handleReferenceVideoSelect}
       onWanReferenceImagesChange={handleWanReferenceImagesChange}
