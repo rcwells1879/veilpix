@@ -280,7 +280,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
     let uploadedFilename = null;
 
     try {
-        const { prompt, x, y, resolution = '2K', nsfwFilterEnabled = 'false' } = req.body;
+        const { prompt, x, y, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'false' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -308,7 +308,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             resolution,
             x ? parseInt(x) : null,
             y ? parseInt(y) : null,
-            '1:1',
+            aspectRatio,
             nsfwFilter
         );
 
@@ -371,7 +371,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { filterType, resolution = '2K', nsfwFilterEnabled = 'false' } = req.body;
+        const { filterType, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'false' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -393,7 +393,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
 
         uploadedFilename = uploadResult.filename;
 
-        const wanRequest = buildFilterRequest([uploadResult.url], filterType, resolution, '1:1', nsfwFilter);
+        const wanRequest = buildFilterRequest([uploadResult.url], filterType, resolution, aspectRatio, nsfwFilter);
         const wanResponse = await callWanImageAPI(wanRequest);
         const normalizedResponse = normalizeResponse(wanResponse);
 

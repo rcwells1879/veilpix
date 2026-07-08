@@ -288,7 +288,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
     let uploadedFilename = null;
 
     try {
-        const { prompt, x, y, resolution = '2K', nsfwFilterEnabled = 'true' } = req.body;
+        const { prompt, x, y, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'true' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -319,7 +319,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             resolution,
             x ? parseInt(x) : null,
             y ? parseInt(y) : null,
-            '1:1',
+            aspectRatio,
             nsfwFilter
         );
 
@@ -391,7 +391,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { filterType, resolution = '2K', nsfwFilterEnabled = 'true' } = req.body;
+        const { filterType, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'true' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -415,7 +415,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
         uploadedFilename = uploadResult.filename;
 
         // Build and call SeeDream API
-        const seedreamRequest = buildFilterRequest([uploadResult.url], filterType, resolution, '1:1', nsfwFilter);
+        const seedreamRequest = buildFilterRequest([uploadResult.url], filterType, resolution, aspectRatio, nsfwFilter);
         const seedreamResponse = await callSeedreamAPI(seedreamRequest);
 
         // Normalize response
@@ -480,7 +480,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { adjustment, resolution = '2K', aspectRatioFile, nsfwFilterEnabled = 'true' } = req.body;
+        const { adjustment, resolution = '2K', aspectRatio, aspectRatioFile, nsfwFilterEnabled = 'true' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -504,10 +504,12 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
         uploadedFilename = uploadResult.filename;
 
         // Map aspect ratio if provided (SeeDream 4.5 uses '1:1', '16:9', etc.)
-        let imageSize = '1:1'; // Default for SeeDream 4.5
-        if (aspectRatioFile) {
+        let imageSize = aspectRatio || '1:1'; // Default for SeeDream 4.5
+        if (aspectRatioFile && !aspectRatio) {
             imageSize = mapAspectRatioFileToSeedreamSize(aspectRatioFile);
             console.log(`📐 Aspect ratio requested: ${aspectRatioFile} → ${imageSize}`);
+        } else if (aspectRatio) {
+            console.log(`📐 Aspect ratio requested: ${aspectRatio}`);
         }
 
         // Build and call SeeDream API

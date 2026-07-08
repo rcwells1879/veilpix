@@ -61,9 +61,16 @@
     {
       "@context": "https://schema.org",
       "@type": "WebApplication",
+      "@id": "https://veilstudio.io/veilpix/#webapplication",
       "name": "VeilPix",
       "alternateName": ["VeilPix AI", "VeilPix Editor", "VeilPix Video"],
-      "url": "https://veilstudio.io/veilpix",
+      "url": "https://veilstudio.io/veilpix/",
+      "mainEntityOfPage": {
+        "@id": "https://veilstudio.io/veilpix/#webpage"
+      },
+      "isPartOf": {
+        "@id": "https://veilstudio.io/veilpix/#website"
+      },
       "description": "AI image and video generator featuring Nano Banana 2, Seedream 4.5, Wan 2.7 Image, Wan 2.6 Flash image-to-video, Wan 2.7 text-to-video, reference-to-video workflows, and Seedance 2.0 multimodal video generation. Create images, edit photos, combine references, and generate videos in a privacy-focused web app.",
       "keywords": [
         "AI image editor",
@@ -80,6 +87,13 @@
       ],
       "applicationCategory": "MultimediaApplication",
       "operatingSystem": "Web Browser",
+      "image": "https://veilstudio.io/veilpix/og-image.webp",
+      "publisher": {
+        "@id": "https://veilstudio.io/veilpix/#organization"
+      },
+      "provider": {
+        "@id": "https://veilstudio.io/veilpix/#organization"
+      },
       "offers": {
         "@type": "Offer",
         "price": "0",
@@ -87,8 +101,7 @@
         "description": "Free AI image and video generation trial - 30 credits, no payment required"
       },
       "creator": {
-        "@type": "Organization",
-        "name": "VeilPix"
+        "@id": "https://veilstudio.io/veilpix/#organization"
       },
       "featureList": [
         "Text-to-image generation from natural language prompts",
@@ -113,11 +126,23 @@
     {
       "@context": "https://schema.org",
       "@type": "Organization",
+      "@id": "https://veilstudio.io/veilpix/#organization",
       "name": "VeilPix",
       "url": "https://veilstudio.io/veilpix/",
-      "logo": "https://veilstudio.io/veilpix/og-image.webp",
+      "logo": {
+        "@type": "ImageObject",
+        "@id": "https://veilstudio.io/veilpix/#logo",
+        "url": "https://veilstudio.io/veilpix/og-image.webp",
+        "width": 1200,
+        "height": 630
+      },
       "description": "Privacy-focused AI image and video generation with Nano Banana 2, Seedream 4.5, Wan 2.7 Image, Wan 2.6 Flash, Wan 2.7, and Seedance 2.0.",
       "foundingDate": "2025",
+      "sameAs": [
+        "https://github.com/rcwells1879/",
+        "https://www.facebook.com/profile.php?id=61580840610800",
+        "https://www.linkedin.com/company/veilstudio1/"
+      ],
       "knowsAbout": [
         "AI image editing",
         "AI video generation",
@@ -135,11 +160,38 @@
     }
     </script>
 
+    <!-- Structured Data - WebSite -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "@id": "https://veilstudio.io/veilpix/#website",
+      "name": "VeilPix",
+      "alternateName": ["VeilPix AI", "VeilPix Editor"],
+      "url": "https://veilstudio.io/veilpix/",
+      "description": "VeilPix is a privacy-focused AI image and video generation website for text-to-image, image editing, multi-image composition, text-to-video, image-to-video, and reference-to-video workflows.",
+      "publisher": {
+        "@id": "https://veilstudio.io/veilpix/#organization"
+      },
+      "inLanguage": "en-US"
+    }
+    </script>
+
     <!-- FAQ Structured Data - Synced with FAQ.tsx -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "FAQPage",
+      "@id": "https://veilstudio.io/veilpix/#faq",
+      "mainEntityOfPage": {
+        "@id": "https://veilstudio.io/veilpix/#webpage"
+      },
+      "isPartOf": {
+        "@id": "https://veilstudio.io/veilpix/#website"
+      },
+      "publisher": {
+        "@id": "https://veilstudio.io/veilpix/#organization"
+      },
       "mainEntity": [
         {
           "@type": "Question",
@@ -238,7 +290,27 @@
     {
       "@context": "https://schema.org",
       "@type": "WebPage",
+      "@id": "https://veilstudio.io/veilpix/#webpage",
       "name": "VeilPix - AI Image and Video Generator",
+      "url": "https://veilstudio.io/veilpix/",
+      "description": "Create and edit AI images and videos with VeilPix. Generate images from text, edit photos, combine references, and make Wan 2.7 or Seedance 2.0 videos.",
+      "isPartOf": {
+        "@id": "https://veilstudio.io/veilpix/#website"
+      },
+      "about": {
+        "@id": "https://veilstudio.io/veilpix/#webapplication"
+      },
+      "publisher": {
+        "@id": "https://veilstudio.io/veilpix/#organization"
+      },
+      "primaryImageOfPage": {
+        "@type": "ImageObject",
+        "@id": "https://veilstudio.io/veilpix/#primaryimage",
+        "url": "https://veilstudio.io/veilpix/og-image.webp",
+        "width": 1200,
+        "height": 630
+      },
+      "inLanguage": "en-US",
       "speakable": {
         "@type": "SpeakableSpecification",
         "cssSelector": ["#root main section[aria-label='What is VeilPix']"]

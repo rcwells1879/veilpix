@@ -10,6 +10,7 @@ interface CompositeEditorOverlayProps {
   baseImageUrl: string;
   onCombine: (file2: File) => void;
   onCancel: () => void;
+  onHomeGallery: () => void;
   onWebcamClick: () => void;
   onTextToImageGenerate?: (prompt: string, onSuccess?: (file: File) => void) => void;
   isAuthenticated: boolean;
@@ -22,6 +23,7 @@ const CompositeEditorOverlay: React.FC<CompositeEditorOverlayProps> = ({
   baseImageUrl,
   onCombine,
   onCancel,
+  onHomeGallery,
   onWebcamClick,
   onTextToImageGenerate,
   isAuthenticated,
@@ -88,12 +90,18 @@ const CompositeEditorOverlay: React.FC<CompositeEditorOverlayProps> = ({
       </div>
 
       {/* Action buttons */}
-      <div className="flex gap-3 w-full">
+      <div className="flex w-full flex-col gap-3 sm:flex-row">
         <button
           onClick={onCancel}
-          className="flex-shrink-0 bg-white/10 border border-white/20 text-gray-200 font-semibold py-4 px-6 rounded-lg transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95"
+          className="bg-white/10 border border-white/20 text-gray-200 font-semibold py-4 px-6 rounded-lg transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 sm:flex-shrink-0"
         >
           Cancel
+        </button>
+        <button
+          onClick={onHomeGallery}
+          className="bg-white/10 border border-white/20 text-gray-200 font-semibold py-4 px-6 rounded-lg transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 sm:flex-shrink-0"
+        >
+          Home/Gallery
         </button>
         <button
           onClick={handleCombine}

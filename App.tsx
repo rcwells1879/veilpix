@@ -967,12 +967,14 @@ const App: React.FC = () => {
     });
 
     try {
+      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
       const response = await editMutation.mutateAsync({
         image: currentImage,
         prompt,
         x: editHotspot.x,
         y: editHotspot.y,
-        resolution: settings.resolution,
+        resolution: normalizedImageOptions.resolution,
+        aspectRatio: normalizedImageOptions.aspectRatio,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -992,7 +994,7 @@ const App: React.FC = () => {
       setError(`Failed to generate the image. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
+  }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
 
   const handleGenerateComposite = useCallback(async (
     compositePrompt: string,
@@ -1016,10 +1018,12 @@ const App: React.FC = () => {
     });
 
     try {
+      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
       const response = await filterMutation.mutateAsync({
         image: currentImage,
         filterType: filterPrompt,
-        resolution: settings.resolution,
+        resolution: normalizedImageOptions.resolution,
+        aspectRatio: normalizedImageOptions.aspectRatio,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1035,7 +1039,7 @@ const App: React.FC = () => {
       setError(`Failed to apply the filter. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
+  }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
   
   const handleApplyAdjustment = useCallback(async (adjustmentPrompt: string) => {
     if (!currentImage) {
@@ -1052,11 +1056,13 @@ const App: React.FC = () => {
     });
 
     try {
+      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
       // Send the prompt directly to the API
       const response = await adjustMutation.mutateAsync({
         image: currentImage,
         prompt: adjustmentPrompt,
-        resolution: settings.resolution,
+        resolution: normalizedImageOptions.resolution,
+        aspectRatio: normalizedImageOptions.aspectRatio,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1072,68 +1078,7 @@ const App: React.FC = () => {
       setError(`Failed to apply the adjustment. ${errorMessage}`);
       console.error(err);
     }
-  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.resolution, settings.nsfwFilterEnabled]);
-
-  // Handle aspect ratio changes - supports PNG filename (SeeDream) or direct ratio string (Nano Banana 2/Wan)
-  const handleApplyAspectRatio = useCallback(async (aspectRatioInput: string, customPrompt: string) => {
-    if (!currentImage) {
-      setError('No image loaded to apply aspect ratio change to.');
-      return;
-    }
-
-    setError(null);
-
-    try {
-      // Add optimistic update for immediate feedback
-      const optimisticFile = new File([currentImage], `optimistic-aspect-${Date.now()}.png`, { type: currentImage.type });
-      startTransition(() => {
-        setOptimisticHistory(optimisticFile);
-      });
-
-      const basePrompt = customPrompt.trim() || 'Adjust the image to match the new aspect ratio while preserving the main subject';
-
-      // Nano Banana 2 and Wan Image: Use native aspect ratio support with direct ratio strings
-      if (settings.apiProvider === 'nanobanana2' || settings.apiProvider === 'wanimage') {
-        const response = await adjustMutation.mutateAsync({
-          image: currentImage,
-          prompt: basePrompt,
-          aspectRatio: aspectRatioInput, // Direct ratio string like '1:1', '16:9', 'auto'
-          resolution: settings.resolution,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-
-        if (response.success && response.image) {
-          const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-          const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
-          addImageToHistory(newImageFile);
-        } else {
-          throw new Error(response.message || 'Failed to apply aspect ratio change');
-        }
-      }
-      // SeeDream: Use native aspect ratio support with PNG filename mapping
-      else {
-        const response = await adjustMutation.mutateAsync({
-          image: currentImage,
-          prompt: basePrompt,
-          aspectRatioFile: aspectRatioInput, // Backend will map PNG filename to SeeDream format
-          resolution: settings.resolution,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-
-        if (response.success && response.image) {
-          const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-          const newImageFile = new File([imageBlob], `aspect-ratio-${Date.now()}.png`, { type: 'image/png' });
-          addImageToHistory(newImageFile);
-        } else {
-          throw new Error(response.message || 'Failed to apply aspect ratio change');
-        }
-      }
-    } catch (err: any) {
-      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      setError(`Failed to apply the aspect ratio change. ${errorMessage}`);
-      console.error(err);
-    }
-  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, settings.apiProvider, settings.resolution, settings.nsfwFilterEnabled]);
+  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
 
   const handleTextToImageGenerate = useCallback(async (
     textPrompt: string,
@@ -1765,7 +1710,7 @@ const App: React.FC = () => {
     if (view === 'webcam') {
         return (
           <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Spinner /></div>}>
-            <WebcamCapture onCapture={handleWebcamCapture} onBack={() => setView('start')} />
+            <WebcamCapture onCapture={handleWebcamCapture} onBack={handleUploadNew} />
           </Suspense>
         );
     }
@@ -2081,7 +2026,7 @@ const App: React.FC = () => {
                       </div>
                   )}
                   {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-                  {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} onApplyAspectRatio={handleApplyAspectRatio} isLoading={isLoading} apiProvider={settings.apiProvider} imageCreditCost={imageEditCreditCost} />}
+                  {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} imageCreditCost={imageEditCreditCost} />}
                   {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} />}
               </div>
             </>
@@ -2093,6 +2038,7 @@ const App: React.FC = () => {
                 baseImageUrl={currentImageUrl}
                 onCombine={handleCompositeFromEditor}
                 onCancel={() => setCreativeMode('single')}
+                onHomeGallery={handleUploadNew}
                 onWebcamClick={handleWebcamForCompositeSecond}
                 onTextToImageGenerate={handleTextToImageGenerate}
                 isAuthenticated={!!(isLoaded && isSignedIn)}

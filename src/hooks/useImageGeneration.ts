@@ -33,6 +33,7 @@ export interface GenerateEditRequest {
   x: number
   y: number
   resolution?: string  // For SeeDream API
+  aspectRatio?: string  // Model-specific aspect ratio setting
   nsfwFilterEnabled?: boolean
 }
 
@@ -40,6 +41,7 @@ export interface GenerateFilterRequest {
   image: File
   filterType: string
   resolution?: string  // For SeeDream API
+  aspectRatio?: string  // Model-specific aspect ratio setting
   nsfwFilterEnabled?: boolean
 }
 
@@ -119,6 +121,9 @@ export function useGenerateEditNanoBanana2() {
       if (data.resolution) {
         formData.append('resolution', data.resolution)
       }
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
+      }
 
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-edit', {
         method: 'POST',
@@ -148,6 +153,9 @@ export function useGenerateFilterNanoBanana2() {
       formData.append('filterType', data.filterType)
       if (data.resolution) {
         formData.append('resolution', data.resolution)
+      }
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
       }
 
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-filter', {
@@ -325,6 +333,9 @@ export function useGenerateFilterSeeDream() {
       if (data.resolution) {
         formData.append('resolution', data.resolution)
       }
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
+      }
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-filter', {
@@ -355,6 +366,9 @@ export function useGenerateAdjustSeeDream() {
       formData.append('adjustment', data.prompt)
       if (data.resolution) {
         formData.append('resolution', data.resolution)
+      }
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
       }
       if (data.aspectRatioFile) {
         formData.append('aspectRatioFile', data.aspectRatioFile)
@@ -396,6 +410,9 @@ export function useGenerateCompositeSeeDream() {
       }
       if (data.resolution) {
         formData.append('resolution', data.resolution)
+      }
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
       }
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
@@ -495,6 +512,9 @@ export function useGenerateFilterWanImage() {
       if (data.resolution) {
         formData.append('resolution', data.resolution)
       }
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
+      }
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled === true).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-filter', {
@@ -565,6 +585,9 @@ export function useGenerateCompositeWanImage() {
       }
       if (data.resolution) {
         formData.append('resolution', data.resolution)
+      }
+      if (data.aspectRatio) {
+        formData.append('aspectRatio', data.aspectRatio)
       }
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled === true).toString())
 

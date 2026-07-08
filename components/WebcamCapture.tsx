@@ -94,7 +94,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onCapture, onBack }) => {
           onClick={onBack}
           className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-lg text-md transition-colors mt-4"
         >
-          Go Back
+          Home/Gallery
         </button>
       </div>
     );
@@ -124,10 +124,10 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onCapture, onBack }) => {
          <button
           onClick={onBack}
           className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-4 px-6 rounded-lg transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-          aria-label="Go back"
+          aria-label="Go to home and gallery"
         >
           <ChevronLeftIcon className="w-5 h-5 mr-2" />
-          Back
+          Home/Gallery
         </button>
         <button
           onClick={handleCapture}
