@@ -8,6 +8,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ClerkWrapper } from './src/clerk';
 import { QueryProvider } from './src/queryClient';
+import 'react-image-crop/dist/ReactCrop.css';
 import './index.css';
 
 const rootElement = document.getElementById('root');

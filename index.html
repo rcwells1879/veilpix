@@ -319,7 +319,6 @@
     </script>
 
     <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-5WKT3R1ZSM"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
@@ -342,28 +341,38 @@
           value: details.value || 1
         });
       };
+
+      function loadGoogleTag() {
+        if (window.__veilPixGtagLoaded) return;
+        window.__veilPixGtagLoaded = true;
+        var script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=G-5WKT3R1ZSM';
+        document.head.appendChild(script);
+      }
+
+      function scheduleGoogleTagLoad() {
+        if ('requestIdleCallback' in window) {
+          window.requestIdleCallback(loadGoogleTag, { timeout: 2500 });
+        } else {
+          window.setTimeout(loadGoogleTag, 1500);
+        }
+      }
+
+      if (document.readyState === 'complete') {
+        scheduleGoogleTagLoad();
+      } else {
+        window.addEventListener('load', scheduleGoogleTagLoad, { once: true });
+      }
     </script>
-  <script type="importmap">
-{
-  "imports": {
-    "react/": "https://esm.sh/react@^19.1.0/",
-    "react": "https://esm.sh/react@^19.1.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.10.0",
-    "react-image-crop": "https://esm.sh/react-image-crop@^11.0.6"
-  }
-}
-</script>
 <!-- Web App Manifest for PWA -->
 <link rel="manifest" href="/veilpix/manifest.json">
 
 <!-- Performance optimizations -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preconnect" href="https://esm.sh">
 <link rel="preconnect" href="https://api.veilstudio.io">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://esm.sh/react-image-crop@^11.0.6/dist/ReactCrop.css" />
 <style>
 body {
     font-family: 'Inter', sans-serif;
