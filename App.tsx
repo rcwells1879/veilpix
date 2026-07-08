@@ -52,6 +52,8 @@ import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import { SettingsState } from './components/SettingsMenu';
 import {
   getImageCreditCost,
+  ImageModelSelector,
+  ImageModelSettings,
   normalizeImageGenerationOptions,
   type ImageGenerationOptions,
   type ImageProvider,
@@ -2013,6 +2015,24 @@ const App: React.FC = () => {
               >
                   Home/Gallery
               </button>
+            </div>
+          )}
+
+          {(creativeMode === 'single' || creativeMode === 'composite') && (
+            <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-4 sm:p-5 flex flex-col gap-4 backdrop-blur-sm">
+              <ImageModelSelector
+                title={creativeMode === 'composite' ? 'Combined Photos' : 'Single Photo'}
+                value={imageGenerationOptions}
+                onChange={handleImageOptionsChange}
+                isLoading={isLoading}
+                workflow="image-to-image"
+              />
+              <ImageModelSettings
+                value={imageGenerationOptions}
+                onChange={handleImageOptionsChange}
+                isLoading={isLoading}
+                workflow="image-to-image"
+              />
             </div>
           )}
 
