@@ -26,7 +26,8 @@ const {
 } = require('../utils/seedreamAdapter');
 const {
     IMAGE_WORKFLOWS,
-    getImageCreditDetails
+    getImageCreditDetails,
+    normalizeSeedreamTier
 } = require('../utils/imageCreditPricing');
 
 const router = express.Router();
@@ -73,12 +74,25 @@ function getWorkflowForRequest(req) {
 }
 
 function getCreditDetailsForRequest(req) {
-    const details = getImageCreditDetails(IMAGE_PROVIDER, req.body?.resolution, getWorkflowForRequest(req));
+    const imageCount = req.files?.images?.length || (req.file ? 1 : 0);
+    const details = getImageCreditDetails(
+        IMAGE_PROVIDER,
+        req.body?.resolution,
+        getWorkflowForRequest(req),
+        req.body?.seedreamTier,
+        imageCount
+    );
     return { ...details, required: details.credits };
 }
 
+function getSeedreamModel(seedreamTier, workflow) {
+    const tier = normalizeSeedreamTier(seedreamTier);
+    const mode = workflow === IMAGE_WORKFLOWS.TEXT_TO_IMAGE ? 'text-to-image' : 'image-to-image';
+    return `seedream/5-${tier}-${mode}`;
+}
+
 // Helper function to create SeeDream task
-async function createSeedreamTask(requestBody, model = 'seedream/4.5-edit') {
+async function createSeedreamTask(requestBody, model) {
     try {
         console.log('🌐 Creating SeeDream task');
         console.log('📝 Input parameters:', JSON.stringify(requestBody, null, 2));
@@ -177,7 +191,7 @@ async function pollSeedreamJob(taskId, maxAttempts = 120, intervalMs = 1000) {
 }
 
 // Helper function to call SeeDream API with full async flow
-async function callSeedreamAPI(requestBody, model = 'seedream/4.5-edit') {
+async function callSeedreamAPI(requestBody, model) {
     try {
         // Step 1: Create task
         const taskResponse = await createSeedreamTask(requestBody, model);
@@ -266,6 +280,7 @@ async function checkUserCredits(req, res, next) {
 
         if (req.body) {
             req.body.resolution = creditDetails.resolution;
+            req.body.seedreamTier = creditDetails.seedreamTier;
         }
         req.creditsInfo = { remaining: credits, ...creditDetails };
         next();
@@ -288,7 +303,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
     let uploadedFilename = null;
 
     try {
-        const { prompt, x, y, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'true' } = req.body;
+        const { prompt, x, y, resolution = '2K', aspectRatio = '1:1', seedreamTier = 'lite', outputFormat = 'png', nsfwFilterEnabled = 'true' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -320,11 +335,16 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             x ? parseInt(x) : null,
             y ? parseInt(y) : null,
             aspectRatio,
-            nsfwFilter
+            nsfwFilter,
+            seedreamTier,
+            outputFormat
         );
 
-        // Call SeeDream API
-        const seedreamResponse = await callSeedreamAPI(seedreamRequest);
+        // Call Seedream 5 image-to-image API
+        const seedreamResponse = await callSeedreamAPI(
+            seedreamRequest,
+            getSeedreamModel(seedreamTier, IMAGE_WORKFLOWS.IMAGE_TO_IMAGE)
+        );
 
         // Normalize response to match Gemini format
         const normalizedResponse = normalizeResponse(seedreamResponse);
@@ -391,7 +411,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { filterType, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'true' } = req.body;
+        const { filterType, resolution = '2K', aspectRatio = '1:1', seedreamTier = 'lite', outputFormat = 'png', nsfwFilterEnabled = 'true' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -415,8 +435,8 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
         uploadedFilename = uploadResult.filename;
 
         // Build and call SeeDream API
-        const seedreamRequest = buildFilterRequest([uploadResult.url], filterType, resolution, aspectRatio, nsfwFilter);
-        const seedreamResponse = await callSeedreamAPI(seedreamRequest);
+        const seedreamRequest = buildFilterRequest([uploadResult.url], filterType, resolution, aspectRatio, nsfwFilter, seedreamTier, outputFormat);
+        const seedreamResponse = await callSeedreamAPI(seedreamRequest, getSeedreamModel(seedreamTier, IMAGE_WORKFLOWS.IMAGE_TO_IMAGE));
 
         // Normalize response
         const normalizedResponse = normalizeResponse(seedreamResponse);
@@ -480,7 +500,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { adjustment, resolution = '2K', aspectRatio, aspectRatioFile, nsfwFilterEnabled = 'true' } = req.body;
+        const { adjustment, resolution = '2K', aspectRatio, aspectRatioFile, seedreamTier = 'lite', outputFormat = 'png', nsfwFilterEnabled = 'true' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -503,8 +523,8 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
 
         uploadedFilename = uploadResult.filename;
 
-        // Map aspect ratio if provided (SeeDream 4.5 uses '1:1', '16:9', etc.)
-        let imageSize = aspectRatio || '1:1'; // Default for SeeDream 4.5
+        // Map an older template filename when a direct Seedream 5 ratio was not supplied.
+        let imageSize = aspectRatio || '1:1';
         if (aspectRatioFile && !aspectRatio) {
             imageSize = mapAspectRatioFileToSeedreamSize(aspectRatioFile);
             console.log(`📐 Aspect ratio requested: ${aspectRatioFile} → ${imageSize}`);
@@ -513,8 +533,8 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
         }
 
         // Build and call SeeDream API
-        const seedreamRequest = buildAdjustRequest([uploadResult.url], adjustment, resolution, imageSize, nsfwFilter);
-        const seedreamResponse = await callSeedreamAPI(seedreamRequest);
+        const seedreamRequest = buildAdjustRequest([uploadResult.url], adjustment, resolution, imageSize, nsfwFilter, seedreamTier, outputFormat);
+        const seedreamResponse = await callSeedreamAPI(seedreamRequest, getSeedreamModel(seedreamTier, IMAGE_WORKFLOWS.IMAGE_TO_IMAGE));
 
         // Normalize response
         const normalizedResponse = normalizeResponse(seedreamResponse);
@@ -581,6 +601,8 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         const prompt = req.body?.prompt;
         const resolution = req.body?.resolution || '2K';
         const aspectRatio = req.body?.aspectRatio || '1:1';
+        const seedreamTier = req.body?.seedreamTier || 'lite';
+        const outputFormat = req.body?.outputFormat || 'png';
         const nsfwFilterRaw = req.body?.nsfwFilterEnabled ?? 'true';
         const nsfwFilter = nsfwFilterRaw === 'true' || nsfwFilterRaw === true;
         const imageFiles = req.files?.images || [];
@@ -610,8 +632,11 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         uploadedFilenames = uploadResult.filenames;
 
         // Build and call SeeDream API
-        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio, nsfwFilter);
-        const seedreamResponse = await callSeedreamAPI(seedreamRequest);
+        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio, nsfwFilter, seedreamTier, outputFormat);
+        const seedreamResponse = await callSeedreamAPI(
+            seedreamRequest,
+            getSeedreamModel(seedreamTier, IMAGE_WORKFLOWS.IMAGE_TO_IMAGE)
+        );
 
         // Normalize response
         const normalizedResponse = normalizeResponse(seedreamResponse);
@@ -678,6 +703,8 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
             prompt,
             resolution = '2K',
             aspectRatio = '1:1',
+            seedreamTier = 'lite',
+            outputFormat = 'png',
             nsfwFilterEnabled = true
         } = req.body;
         const nsfwFilter = nsfwFilterEnabled === true || nsfwFilterEnabled === 'true';
@@ -698,12 +725,14 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
             prompt.trim(),
             resolution,
             aspectRatio,
-            nsfwFilter
+            nsfwFilter,
+            seedreamTier,
+            outputFormat
         );
 
         const seedreamResponse = await callSeedreamAPI(
             seedreamRequest,
-            'seedream/4.5-text-to-image'
+            getSeedreamModel(seedreamTier, IMAGE_WORKFLOWS.TEXT_TO_IMAGE)
         );
 
         const normalizedResponse = normalizeResponse(seedreamResponse);

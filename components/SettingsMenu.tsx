@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import type { ImageProvider, ImageResolution } from './ImageModelControlsPanel';
+import type { ImageOutputFormat, ImageProvider, ImageResolution, SeedreamTier } from './ImageModelControlsPanel';
 
 export type ApiProvider = ImageProvider;
 export type Resolution = ImageResolution;
@@ -14,6 +14,8 @@ export interface SettingsState {
   apiProvider: ApiProvider;
   resolution: Resolution;
   imageAspectRatio: string;
+  seedreamTier: SeedreamTier;
+  imageOutputFormat: ImageOutputFormat;
   nsfwFilterEnabled: boolean;
 }
 

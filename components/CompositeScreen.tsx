@@ -39,7 +39,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
     const [img1Url, setImg1Url] = useState<string | null>(null);
     const [img2Url, setImg2Url] = useState<string | null>(null);
     const normalizedImageOptions = normalizeImageGenerationOptions(imageOptions, 'image-to-image');
-    const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedImageOptions.provider, normalizedImageOptions.resolution, 'image-to-image');
+    const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedImageOptions.provider, normalizedImageOptions.resolution, 'image-to-image', normalizedImageOptions.seedreamTier);
     const imageCreditLabel = `${activeImageCreditCost} ${activeImageCreditCost === 1 ? 'credit' : 'credits'}`;
 
     useEffect(() => {

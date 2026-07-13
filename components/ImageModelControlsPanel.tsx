@@ -9,11 +9,15 @@ import { PhotoIcon } from './icons';
 export type ImageProvider = 'nanobanana2' | 'seedream' | 'wanimage';
 export type ImageResolution = '1K' | '2K' | '4K';
 export type ImageWorkflow = 'text-to-image' | 'image-to-image';
+export type SeedreamTier = 'lite' | 'pro';
+export type ImageOutputFormat = 'png' | 'jpeg';
 
 export interface ImageGenerationOptions {
   provider: ImageProvider;
   resolution: ImageResolution;
   aspectRatio: string;
+  seedreamTier: SeedreamTier;
+  outputFormat: ImageOutputFormat;
 }
 
 interface RatioOption {
@@ -51,13 +55,25 @@ export const IMAGE_KIE_CREDIT_PRICING: Record<ImageProvider, Partial<Record<Imag
     '4K': 18,
   },
   seedream: {
-    '2K': 6.5,
-    '4K': 6.5,
+    '1K': 7,
+    '2K': 5.5,
+    '4K': 5.5,
   },
   wanimage: {
     '1K': 4.8,
     '2K': 4.8,
     '4K': 12,
+  },
+};
+
+export const SEEDREAM_KIE_CREDIT_PRICING: Record<SeedreamTier, Partial<Record<ImageResolution, number>>> = {
+  lite: {
+    '2K': 5.5,
+    '4K': 5.5,
+  },
+  pro: {
+    '1K': 7,
+    '2K': 14,
   },
 };
 
@@ -95,10 +111,10 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
   },
   seedream: {
     id: 'seedream',
-    label: 'Seedream 4.5',
+    label: 'Seedream 5',
     shortLabel: 'Seedream',
     sublabel: 'ByteDance',
-    settingsLabel: 'Quality',
+    settingsLabel: 'Resolution',
     defaultResolution: '2K',
     defaultAspectRatio: '1:1',
     aspectRatios: [
@@ -112,8 +128,9 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
       { value: '21:9', label: '21:9' },
     ],
     resolutions: [
-      { value: '2K', label: 'Basic' },
-      { value: '4K', label: 'High' },
+      { value: '1K', label: '1K' },
+      { value: '2K', label: '2K' },
+      { value: '4K', label: '4K' },
     ],
   },
   wanimage: {
@@ -152,36 +169,54 @@ function isImageResolution(value: unknown): value is ImageResolution {
   return value === '1K' || value === '2K' || value === '4K';
 }
 
-export function getImageModelResolutions(provider: ImageProvider, workflow?: ImageWorkflow): ResolutionOption[] {
+function isSeedreamTier(value: unknown): value is SeedreamTier {
+  return value === 'lite' || value === 'pro';
+}
+
+function isImageOutputFormat(value: unknown): value is ImageOutputFormat {
+  return value === 'png' || value === 'jpeg';
+}
+
+export function getImageModelResolutions(provider: ImageProvider, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite'): ResolutionOption[] {
   const config = IMAGE_MODEL_CONFIGS[provider] ?? IMAGE_MODEL_CONFIGS.seedream;
-  if (!workflow) return config.resolutions;
-  return config.resolutions.filter((resolution) => !resolution.workflows || resolution.workflows.includes(workflow));
+  const workflowResolutions = workflow
+    ? config.resolutions.filter((resolution) => !resolution.workflows || resolution.workflows.includes(workflow))
+    : config.resolutions;
+
+  if (provider !== 'seedream') return workflowResolutions;
+  const allowed = seedreamTier === 'pro' ? ['1K', '2K'] : ['2K', '4K'];
+  return workflowResolutions.filter((resolution) => allowed.includes(resolution.value));
 }
 
 function veilpixCreditsFromKieCredits(kieCredits: number): number {
   return Math.max(1, Math.ceil((kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
 }
 
-export function getImageKieCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow): number {
+export function getImageKieCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite'): number {
   const config = IMAGE_MODEL_CONFIGS[provider] ?? IMAGE_MODEL_CONFIGS.seedream;
-  const availableResolutions = getImageModelResolutions(config.id, workflow);
+  const availableResolutions = getImageModelResolutions(config.id, workflow, seedreamTier);
   const selectedResolution = resolution && availableResolutions.some((item) => item.value === resolution)
     ? resolution
-    : config.defaultResolution;
-  return IMAGE_KIE_CREDIT_PRICING[config.id][selectedResolution] ?? IMAGE_KIE_CREDIT_PRICING.seedream['2K'] ?? 6.5;
+    : availableResolutions[0]?.value ?? config.defaultResolution;
+  if (config.id === 'seedream') {
+    return SEEDREAM_KIE_CREDIT_PRICING[seedreamTier][selectedResolution] ?? 5.5;
+  }
+  return IMAGE_KIE_CREDIT_PRICING[config.id][selectedResolution] ?? IMAGE_KIE_CREDIT_PRICING.seedream['2K'] ?? 5.5;
 }
 
-export function getImageCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow): number {
-  return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow));
+export function getImageCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite'): number {
+  return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow, seedreamTier));
 }
 
 export function normalizeImageGenerationOptions(options?: Partial<ImageGenerationOptions>, workflow?: ImageWorkflow): ImageGenerationOptions {
   const provider = isImageProvider(options?.provider) ? options.provider : 'seedream';
   const config = IMAGE_MODEL_CONFIGS[provider];
-  const availableResolutions = getImageModelResolutions(provider, workflow);
+  const seedreamTier = isSeedreamTier(options?.seedreamTier) ? options.seedreamTier : 'lite';
+  const outputFormat = isImageOutputFormat(options?.outputFormat) ? options.outputFormat : 'png';
+  const availableResolutions = getImageModelResolutions(provider, workflow, seedreamTier);
   const resolution = isImageResolution(options?.resolution) && availableResolutions.some((item) => item.value === options.resolution)
     ? options.resolution
-    : config.defaultResolution;
+    : availableResolutions[0]?.value ?? config.defaultResolution;
   const aspectRatio = typeof options?.aspectRatio === 'string' && config.aspectRatios.some((item) => item.value === options.aspectRatio)
     ? options.aspectRatio
     : config.defaultAspectRatio;
@@ -190,6 +225,8 @@ export function normalizeImageGenerationOptions(options?: Partial<ImageGeneratio
     provider,
     resolution,
     aspectRatio,
+    seedreamTier,
+    outputFormat,
   };
 }
 
@@ -277,17 +314,19 @@ interface ImageModelSettingsProps {
 export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, onChange, isLoading = false, workflow }) => {
   const normalizedValue = normalizeImageGenerationOptions(value, workflow);
   const config = IMAGE_MODEL_CONFIGS[normalizedValue.provider];
-  const availableResolutions = getImageModelResolutions(normalizedValue.provider, workflow);
+  const availableResolutions = getImageModelResolutions(normalizedValue.provider, workflow, normalizedValue.seedreamTier);
 
   React.useEffect(() => {
     if (
       normalizedValue.provider !== value.provider ||
       normalizedValue.resolution !== value.resolution ||
-      normalizedValue.aspectRatio !== value.aspectRatio
+      normalizedValue.aspectRatio !== value.aspectRatio ||
+      normalizedValue.seedreamTier !== value.seedreamTier ||
+      normalizedValue.outputFormat !== value.outputFormat
     ) {
       onChange(normalizedValue);
     }
-  }, [normalizedValue, onChange, value.aspectRatio, value.provider, value.resolution]);
+  }, [normalizedValue, onChange, value.aspectRatio, value.outputFormat, value.provider, value.resolution, value.seedreamTier]);
 
   const updateOption = (partial: Partial<ImageGenerationOptions>) => {
     onChange(normalizeImageGenerationOptions({ ...normalizedValue, ...partial }, workflow));
@@ -311,11 +350,30 @@ export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, o
         </div>
       </div>
 
+      {normalizedValue.provider === 'seedream' && (
+        <div className="flex flex-col gap-2 sm:max-w-md">
+          <label className="text-sm font-semibold text-gray-300">Model</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['lite', 'pro'] as SeedreamTier[]).map((tier) => (
+              <button
+                key={tier}
+                type="button"
+                onClick={() => updateOption({ seedreamTier: tier, resolution: tier === 'lite' ? '2K' : '1K' })}
+                className={`min-w-0 rounded-md border px-2 py-2 text-sm font-semibold transition sm:px-3 ${settingButtonClass(normalizedValue.provider, normalizedValue.seedreamTier === tier)}`}
+                disabled={isLoading}
+              >
+                {tier === 'lite' ? 'Lite' : 'Pro'}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2 sm:max-w-md">
         <label className="text-sm font-semibold text-gray-300">{config.settingsLabel}</label>
         <div className={`grid gap-2 ${availableResolutions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
           {availableResolutions.map((resolution) => {
-            const creditCost = getImageCreditCost(normalizedValue.provider, resolution.value, workflow);
+            const creditCost = getImageCreditCost(normalizedValue.provider, resolution.value, workflow, normalizedValue.seedreamTier);
             return (
               <button
                 key={resolution.value}
@@ -331,6 +389,25 @@ export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, o
           })}
         </div>
       </div>
+
+      {normalizedValue.provider === 'seedream' && (
+        <div className="flex flex-col gap-2 sm:max-w-md">
+          <label className="text-sm font-semibold text-gray-300">Format</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['png', 'jpeg'] as ImageOutputFormat[]).map((format) => (
+              <button
+                key={format}
+                type="button"
+                onClick={() => updateOption({ outputFormat: format })}
+                className={`min-w-0 rounded-md border px-2 py-2 text-sm font-semibold uppercase transition sm:px-3 ${settingButtonClass(normalizedValue.provider, normalizedValue.outputFormat === format)}`}
+                disabled={isLoading}
+              >
+                {format}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

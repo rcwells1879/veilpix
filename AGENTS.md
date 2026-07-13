@@ -83,7 +83,7 @@ All AI providers use Kie.ai through the backend and temporary Supabase Storage U
 
 Image providers:
 - `nanobanana2`: Nano Banana 2 / Gemini 3.1 Flash, 2 credits, routes under `/api/nanobanana2`.
-- `seedream`: SeeDream 4.5, 2 credits, routes under `/api/seedream`.
+- `seedream`: Seedream 5 Lite/Pro, 1-2 credits depending on tier/resolution, routes under `/api/seedream`.
 - `nanobananapro`: Nano Banana Pro / Gemini 3 Pro, 2 credits, routes under `/api/nanobananapro`.
 - `wanimage`: Wan 2.7 Image, 1 credit, routes under `/api/wanimage`.
 

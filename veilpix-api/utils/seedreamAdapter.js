@@ -1,27 +1,30 @@
 /**
  * SeeDream API Adapter
  *
- * Transforms VeilPix requests into SeeDream 4.5 Edit API format
+ * Transforms VeilPix requests into Seedream 5 Lite/Pro API format
  * and normalizes SeeDream responses to match Gemini response structure
  */
 
 /**
- * Map resolution setting to SeeDream 4.5 quality parameter
+ * Map resolution setting to the selected Seedream 5 tier's quality parameter.
  *
  * @param {string} resolution - '1K', '2K', or '4K'
- * @returns {string} SeeDream quality format ('basic' for 2K, 'high' for 4K)
+ * @param {string} seedreamTier - 'lite' or 'pro'
+ * @returns {string} Kie quality value for the tier/resolution combination
  */
-function mapQuality(resolution) {
-    const qualityMap = {
-        '1K': 'basic',  // 1K maps to basic (2K output)
-        '2K': 'basic',
-        '4K': 'high'
-    };
-    return qualityMap[resolution] || 'basic'; // Default to basic (2K)
+function mapQuality(resolution, seedreamTier = 'lite') {
+    if (seedreamTier === 'pro') {
+        return resolution === '2K' ? 'high' : 'basic';
+    }
+    return resolution === '4K' ? 'high' : 'basic';
+}
+
+function normalizeOutputFormat(outputFormat) {
+    return outputFormat === 'jpeg' ? 'jpeg' : 'png';
 }
 
 /**
- * Map image aspect to SeeDream 4.5 aspect_ratio parameter
+ * Map image aspect to Seedream's aspect_ratio parameter
  * Based on the uploaded image dimensions or user preference
  *
  * @param {number} width - Image width
@@ -45,7 +48,7 @@ function mapImageSize(width, height) {
 }
 
 /**
- * Map aspect ratio template filename to SeeDream 4.5 aspect_ratio parameter
+ * Map aspect ratio template filename to Seedream's aspect_ratio parameter
  * Used when user selects aspect ratio from UI buttons
  *
  * @param {string} aspectRatioFile - Template filename (e.g., 'transparent-1-1.png')
@@ -64,7 +67,7 @@ function mapAspectRatioFileToSeedreamSize(aspectRatioFile) {
 }
 
 /**
- * Build SeeDream 4.5 Edit API request for localized editing
+ * Build a Seedream 5 image-to-image request for localized editing
  *
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} prompt - The edit instruction
@@ -74,7 +77,7 @@ function mapAspectRatioFileToSeedreamSize(aspectRatioFile) {
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = '1:1', nsfwFilterEnabled = true) {
+function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
     const enhancedPrompt = x !== null && y !== null
         ? `${prompt}. Focus the edit on the area around coordinates (${x}, ${y}).`
         : prompt;
@@ -83,13 +86,14 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
         prompt: enhancedPrompt,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution),
+        quality: mapQuality(resolution, seedreamTier),
+        output_format: normalizeOutputFormat(outputFormat),
         nsfw_checker: nsfwFilterEnabled
     };
 }
 
 /**
- * Build SeeDream 4.5 Edit API request for filter application
+ * Build a Seedream 5 image-to-image request for filter application
  *
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} filterType - The filter description
@@ -97,18 +101,19 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true) {
+function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution),
+        quality: mapQuality(resolution, seedreamTier),
+        output_format: normalizeOutputFormat(outputFormat),
         nsfw_checker: nsfwFilterEnabled
     };
 }
 
 /**
- * Build SeeDream 4.5 Edit API request for global adjustments
+ * Build a Seedream 5 image-to-image request for global adjustments
  *
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} adjustmentPrompt - The adjustment instruction
@@ -116,18 +121,19 @@ function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true) {
+function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution),
+        quality: mapQuality(resolution, seedreamTier),
+        output_format: normalizeOutputFormat(outputFormat),
         nsfw_checker: nsfwFilterEnabled
     };
 }
 
 /**
- * Build SeeDream 4.5 Edit API request for combining multiple images
+ * Build a Seedream 5 image-to-image request for combining multiple images
  *
  * @param {string[]} imageUrls - Array of public image URLs (2-5 images)
  * @param {string} prompt - The combination instruction
@@ -135,18 +141,19 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true) {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
     return {
         prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution),
+        quality: mapQuality(resolution, seedreamTier),
+        output_format: normalizeOutputFormat(outputFormat),
         nsfw_checker: nsfwFilterEnabled
     };
 }
 
 /**
- * Build SeeDream 4.5 Text-to-Image API request.
+ * Build a Seedream 5 text-to-image request.
  *
  * @param {string} prompt - The image generation prompt
  * @param {string} resolution - '1K', '2K', or '4K'
@@ -154,11 +161,12 @@ function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1',
  * @param {boolean} nsfwFilterEnabled - Whether to enable NSFW filter
  * @returns {object} SeeDream text-to-image request body
  */
-function buildTextToImageRequest(prompt, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = true) {
+function buildTextToImageRequest(prompt, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
     return {
         prompt,
         aspect_ratio: aspectRatio,
-        quality: mapQuality(resolution),
+        quality: mapQuality(resolution, seedreamTier),
+        output_format: normalizeOutputFormat(outputFormat),
         nsfw_checker: nsfwFilterEnabled
     };
 }
@@ -269,6 +277,7 @@ async function urlToBase64(imageUrl) {
 
 module.exports = {
     mapQuality,
+    normalizeOutputFormat,
     mapImageSize,
     mapAspectRatioFileToSeedreamSize,
     buildEditRequest,

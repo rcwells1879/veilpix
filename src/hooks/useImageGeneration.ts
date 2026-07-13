@@ -34,6 +34,8 @@ export interface GenerateEditRequest {
   y: number
   resolution?: string  // For SeeDream API
   aspectRatio?: string  // Model-specific aspect ratio setting
+  seedreamTier?: 'lite' | 'pro'
+  outputFormat?: 'png' | 'jpeg'
   nsfwFilterEnabled?: boolean
 }
 
@@ -42,6 +44,8 @@ export interface GenerateFilterRequest {
   filterType: string
   resolution?: string  // For SeeDream API
   aspectRatio?: string  // Model-specific aspect ratio setting
+  seedreamTier?: 'lite' | 'pro'
+  outputFormat?: 'png' | 'jpeg'
   nsfwFilterEnabled?: boolean
 }
 
@@ -51,6 +55,8 @@ export interface GenerateAdjustRequest {
   resolution?: string  // For Kie image model APIs
   aspectRatioFile?: string  // For SeeDream aspect ratio changes (PNG filename)
   aspectRatio?: string  // For native aspect ratio support (direct string like '1:1', '16:9')
+  seedreamTier?: 'lite' | 'pro'
+  outputFormat?: 'png' | 'jpeg'
   nsfwFilterEnabled?: boolean
 }
 
@@ -61,6 +67,8 @@ export interface GenerateCompositeRequest {
   style?: string
   resolution?: string  // For SeeDream API
   aspectRatio?: string  // Model-specific aspect ratio setting
+  seedreamTier?: 'lite' | 'pro'
+  outputFormat?: 'png' | 'jpeg'
   nsfwFilterEnabled?: boolean
 }
 
@@ -68,6 +76,8 @@ export interface GenerateTextToImageRequest {
   prompt: string
   resolution?: string  // For Nano Banana 2 / Wan Image text-to-image
   aspectRatio?: string  // For Nano Banana 2 / Wan Image text-to-image
+  seedreamTier?: 'lite' | 'pro'
+  outputFormat?: 'png' | 'jpeg'
   nsfwFilterEnabled?: boolean  // For Wan Image text-to-image
 }
 
@@ -278,9 +288,14 @@ export function useGenerateTextToImage() {
 }
 
 // ============================================================================
-// SeeDream 4.5 API Hooks
-// These hooks use the SeeDream 4.5 Edit API instead of Gemini for image generation
+// Seedream 5 API Hooks
+// These hooks select the Lite or Pro Kie model for image generation.
 // ============================================================================
+
+function appendSeedreamOptions(formData: FormData, data: { seedreamTier?: 'lite' | 'pro'; outputFormat?: 'png' | 'jpeg' }) {
+  formData.append('seedreamTier', data.seedreamTier || 'lite')
+  formData.append('outputFormat', data.outputFormat || 'png')
+}
 
 // Custom hook for localized editing with SeeDream
 export function useGenerateEditSeeDream() {
@@ -302,6 +317,7 @@ export function useGenerateEditSeeDream() {
       if (data.aspectRatio) {
         formData.append('aspectRatio', data.aspectRatio)
       }
+      appendSeedreamOptions(formData, data)
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-edit', {
@@ -336,6 +352,7 @@ export function useGenerateFilterSeeDream() {
       if (data.aspectRatio) {
         formData.append('aspectRatio', data.aspectRatio)
       }
+      appendSeedreamOptions(formData, data)
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-filter', {
@@ -373,6 +390,7 @@ export function useGenerateAdjustSeeDream() {
       if (data.aspectRatioFile) {
         formData.append('aspectRatioFile', data.aspectRatioFile)
       }
+      appendSeedreamOptions(formData, data)
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-adjust', {
@@ -414,6 +432,7 @@ export function useGenerateCompositeSeeDream() {
       if (data.aspectRatio) {
         formData.append('aspectRatio', data.aspectRatio)
       }
+      appendSeedreamOptions(formData, data)
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<ImageGenerationResponse>('/api/seedream/combine-photos', {
@@ -430,7 +449,7 @@ export function useGenerateCompositeSeeDream() {
   })
 }
 
-// Custom hook for text-to-image generation with SeeDream 4.5
+// Custom hook for text-to-image generation with Seedream 5
 export function useGenerateTextToImageSeeDream() {
   const { apiRequest } = useApiClient()
 
@@ -445,6 +464,8 @@ export function useGenerateTextToImageSeeDream() {
           prompt: data.prompt,
           resolution: data.resolution,
           aspectRatio: data.aspectRatio,
+          seedreamTier: data.seedreamTier,
+          outputFormat: data.outputFormat,
           nsfwFilterEnabled: data.nsfwFilterEnabled !== false
         }),
         requiresAuth: true

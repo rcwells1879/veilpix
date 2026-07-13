@@ -10,7 +10,7 @@
  * - History-based undo/redo system with File objects
  * - Optimistic UI updates for perceived performance
  * - Authentication-gated features via Clerk
- * - Backend API for all AI operations (Nano Banana 2, SeeDream 4.5, Wan 2.7 Image)
+ * - Backend API for all AI operations (Nano Banana 2, Seedream 5, Wan 2.7 Image)
  */
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
@@ -231,6 +231,8 @@ const DEFAULT_SETTINGS: SettingsState = {
   apiProvider: 'seedream',
   resolution: '2K',
   imageAspectRatio: '1:1',
+  seedreamTier: 'lite',
+  imageOutputFormat: 'png',
   nsfwFilterEnabled: true
 };
 
@@ -260,6 +262,8 @@ const App: React.FC = () => {
           provider: parsed.apiProvider,
           resolution: parsed.resolution,
           aspectRatio: parsed.imageAspectRatio,
+          seedreamTier: parsed.seedreamTier,
+          outputFormat: parsed.imageOutputFormat,
         });
         return {
           ...DEFAULT_SETTINGS,
@@ -267,6 +271,8 @@ const App: React.FC = () => {
           apiProvider: normalizedImageOptions.provider,
           resolution: normalizedImageOptions.resolution,
           imageAspectRatio: normalizedImageOptions.aspectRatio,
+          seedreamTier: normalizedImageOptions.seedreamTier,
+          imageOutputFormat: normalizedImageOptions.outputFormat,
         };
       }
     } catch (error) {
@@ -278,9 +284,11 @@ const App: React.FC = () => {
     provider: settings.apiProvider,
     resolution: settings.resolution,
     aspectRatio: settings.imageAspectRatio,
+    seedreamTier: settings.seedreamTier,
+    outputFormat: settings.imageOutputFormat,
   });
-  const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'text-to-image');
-  const imageEditCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image');
+  const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'text-to-image', imageGenerationOptions.seedreamTier);
+  const imageEditCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier);
   const imageEditCreditLabel = `${imageEditCreditCost} ${imageEditCreditCost === 1 ? 'credit' : 'credits'}`;
 
   // Persist settings to localStorage whenever they change
@@ -332,12 +340,16 @@ const App: React.FC = () => {
       provider: newSettings.apiProvider,
       resolution: newSettings.resolution,
       aspectRatio: newSettings.imageAspectRatio,
+      seedreamTier: newSettings.seedreamTier,
+      outputFormat: newSettings.imageOutputFormat,
     });
     const normalizedSettings = {
       ...newSettings,
       apiProvider: normalizedImageOptions.provider,
       resolution: normalizedImageOptions.resolution,
       imageAspectRatio: normalizedImageOptions.aspectRatio,
+      seedreamTier: normalizedImageOptions.seedreamTier,
+      imageOutputFormat: normalizedImageOptions.outputFormat,
     };
     setSettings(normalizedSettings);
     console.log('⚙️ Settings updated:', newSettings);
@@ -350,6 +362,8 @@ const App: React.FC = () => {
       apiProvider: normalizedImageOptions.provider,
       resolution: normalizedImageOptions.resolution,
       imageAspectRatio: normalizedImageOptions.aspectRatio,
+      seedreamTier: normalizedImageOptions.seedreamTier,
+      imageOutputFormat: normalizedImageOptions.outputFormat,
     }));
   }, []);
 
@@ -815,6 +829,8 @@ const App: React.FC = () => {
             prompt: compositePrompt,
             resolution: normalizedImageOptions.resolution,
             aspectRatio: normalizedImageOptions.aspectRatio,
+            seedreamTier: normalizedImageOptions.seedreamTier,
+            outputFormat: normalizedImageOptions.outputFormat,
             nsfwFilterEnabled: settings.nsfwFilterEnabled
         });
         console.log('âœ… composite mutation returned:', response);
@@ -975,6 +991,8 @@ const App: React.FC = () => {
         y: editHotspot.y,
         resolution: normalizedImageOptions.resolution,
         aspectRatio: normalizedImageOptions.aspectRatio,
+        seedreamTier: normalizedImageOptions.seedreamTier,
+        outputFormat: normalizedImageOptions.outputFormat,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1024,6 +1042,8 @@ const App: React.FC = () => {
         filterType: filterPrompt,
         resolution: normalizedImageOptions.resolution,
         aspectRatio: normalizedImageOptions.aspectRatio,
+        seedreamTier: normalizedImageOptions.seedreamTier,
+        outputFormat: normalizedImageOptions.outputFormat,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1063,6 +1083,8 @@ const App: React.FC = () => {
         prompt: adjustmentPrompt,
         resolution: normalizedImageOptions.resolution,
         aspectRatio: normalizedImageOptions.aspectRatio,
+        seedreamTier: normalizedImageOptions.seedreamTier,
+        outputFormat: normalizedImageOptions.outputFormat,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1105,6 +1127,8 @@ const App: React.FC = () => {
         prompt: textPrompt,
         resolution: normalizedImageOptions.resolution,
         aspectRatio: normalizedImageOptions.aspectRatio,
+        seedreamTier: normalizedImageOptions.seedreamTier,
+        outputFormat: normalizedImageOptions.outputFormat,
         nsfwFilterEnabled: settings.nsfwFilterEnabled
       });
 
@@ -1696,7 +1720,8 @@ const App: React.FC = () => {
         imageCreditCost={getImageCreditCost(
           imageGenerationOptions.provider,
           imageGenerationOptions.resolution,
-          creativeMode === 'composite' ? 'image-to-image' : 'text-to-image'
+          creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
+          imageGenerationOptions.seedreamTier
         )}
         onSelectGalleryImage={handleSelectGalleryImage}
         onSelectGalleryVideo={handleSelectGalleryVideo}
@@ -1723,7 +1748,7 @@ const App: React.FC = () => {
             sourceImage2={sourceImage2}
             imageOptions={imageGenerationOptions}
             onImageOptionsChange={handleImageOptionsChange}
-            imageCreditCost={getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image')}
+            imageCreditCost={getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier)}
             onGenerate={handleGenerateComposite}
             isLoading={isLoading}
             onBack={handleUploadNew}
@@ -2129,7 +2154,8 @@ const App: React.FC = () => {
       imageCreditCost={getImageCreditCost(
         imageGenerationOptions.provider,
         imageGenerationOptions.resolution,
-        creativeMode === 'composite' ? 'image-to-image' : 'text-to-image'
+        creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
+        imageGenerationOptions.seedreamTier
       )}
       onSelectGalleryImage={handleSelectGalleryImage}
       onSelectGalleryVideo={handleSelectGalleryVideo}
