@@ -13,7 +13,7 @@ interface FAQItem {
 const faqData: FAQItem[] = [
   {
     question: "What is VeilPix and how does it work?",
-    answer: "VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, and reference-to-video clips with models including Nano Banana 2, Seedream 4.5, Wan 2.7, and Wan 2.6 Flash."
+    answer: "VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, and reference-to-video clips with models including Nano Banana 2, Seedream 5, Wan 2.7, and Wan 2.6 Flash."
   },
   {
     question: "What is VeilPix After Dark?",
@@ -45,7 +45,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "What AI models does VeilPix use?",
-    answer: "VeilPix uses Nano Banana 2, Seedream 4.5, and Wan 2.7 Image for image generation and editing, plus Wan 2.6, Wan 2.7, and Seedance 2.0 for video workflows."
+    answer: "VeilPix uses Nano Banana 2, Seedream 5 Lite/Pro, and Wan 2.7 Image for image generation and editing, plus Wan 2.6, Wan 2.7, and Seedance 2.0 for video workflows."
   },
   {
     question: "What file formats does VeilPix support?",

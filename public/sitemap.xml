@@ -3,12 +3,12 @@
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://veilstudio.io/veilpix/</loc>
-    <lastmod>2026-07-08</lastmod>
+    <lastmod>2026-07-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://veilstudio.io/veilpix/og-image.webp</image:loc>
-      <image:title>VeilPix AI Image and Video Generator - Wan 2.7, Seedance 2.0 planned, Nano Banana, and SeeDream</image:title>
+      <image:title>VeilPix AI Image and Video Generator - Seedream 5, Wan 2.7, Nano Banana 2, and Seedance</image:title>
       <image:caption>Private AI image editing, text-to-image, text-to-video, image-to-video, and reference-to-video generation</image:caption>
     </image:image>
   </url>
@@ -26,13 +26,13 @@
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/</loc>
-    <lastmod>2026-06-20</lastmod>
+    <lastmod>2026-07-13</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://veilstudio.io/veilpix/blog/seedream-4-5-vs-nano-banana-pro/</loc>
-    <lastmod>2026-06-20</lastmod>
+    <loc>https://veilstudio.io/veilpix/blog/seedream-5-vs-wan-2-7-vs-nano-banana-2/</loc>
+    <lastmod>2026-07-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
