@@ -118,24 +118,24 @@
             </div>
             <p class="text-sm">Speed labels describe model positioning, not a guaranteed render time. Queue load, prompt complexity, reference count and resolution can materially change latency.</p>
 
-            <h2>Pricing: official APIs versus VeilPix</h2>
-            <p>Official direct API prices are not directly comparable across every model because vendors use different regional pricing, token billing and batch discounts. The table below uses standard on-demand prices published on July 13, 2026, then compares them with VeilPix's 100-credit pack at <strong>$6.99, or $0.0699 per credit</strong>.</p>
+            <h2>Pricing: official APIs and Fal.ai versus VeilPix</h2>
+            <p>Official direct API prices are not directly comparable across every model because vendors use different regional pricing, token billing and batch discounts. The table below uses first-party standard on-demand prices where available and Fal.ai for Seedream 5, then compares them with VeilPix's 100-credit pack at <strong>$6.99, or $0.0699 per credit</strong>. VeilPix now supports fractional image credits, so lower-cost tiers are no longer rounded up to a full credit.</p>
             <div class="mt-5 overflow-x-auto border border-white/15 rounded-lg">
                 <table class="w-full min-w-[680px] text-left text-sm">
-                    <thead class="bg-white/10"><tr><th class="p-4">Model and output</th><th class="p-4">Official standard price</th><th class="p-4">VeilPix credits</th><th class="p-4">VeilPix at 100-credit rate</th></tr></thead>
+                    <thead class="bg-white/10"><tr><th class="p-4">Model and output</th><th class="p-4">Comparison API rate</th><th class="p-4">VeilPix credits</th><th class="p-4">VeilPix at 100-credit rate</th></tr></thead>
                     <tbody class="divide-y divide-white/10 text-gray-300">
-                        <tr><td class="p-4 text-white">Nano Banana 2 1K</td><td class="p-4">$0.067</td><td class="p-4">1</td><td class="p-4">$0.0699</td></tr>
-                        <tr><td class="p-4 text-white">Nano Banana 2 2K</td><td class="p-4">$0.101</td><td class="p-4">1</td><td class="p-4"><strong>$0.0699, about 31% lower</strong></td></tr>
+                        <tr><td class="p-4 text-white">Nano Banana 2 1K</td><td class="p-4">$0.067 official</td><td class="p-4">0.66</td><td class="p-4"><strong>$0.0461, about 31% lower</strong></td></tr>
+                        <tr><td class="p-4 text-white">Nano Banana 2 2K</td><td class="p-4">$0.101 official</td><td class="p-4">0.98</td><td class="p-4"><strong>$0.0685, about 32% lower</strong></td></tr>
                         <tr><td class="p-4 text-white">Nano Banana 2 4K</td><td class="p-4">$0.151</td><td class="p-4">2</td><td class="p-4"><strong>$0.1398, about 7% lower</strong></td></tr>
-                        <tr><td class="p-4 text-white">Seedream 5 Lite 2K/4K</td><td class="p-4">No comparable first-party public rate used</td><td class="p-4">1</td><td class="p-4">$0.0699</td></tr>
-                        <tr><td class="p-4 text-white">Seedream 5 Pro 1K</td><td class="p-4">No comparable first-party public rate used</td><td class="p-4">1</td><td class="p-4">$0.0699</td></tr>
-                        <tr><td class="p-4 text-white">Seedream 5 Pro 2K</td><td class="p-4">No comparable first-party public rate used</td><td class="p-4">2</td><td class="p-4">$0.1398</td></tr>
-                        <tr><td class="p-4 text-white">Wan 2.7 standard</td><td class="p-4">$0.03</td><td class="p-4">1</td><td class="p-4">$0.0699</td></tr>
-                        <tr><td class="p-4 text-white">Wan 2.7 Pro 4K</td><td class="p-4">$0.075</td><td class="p-4">1</td><td class="p-4"><strong>$0.0699, about 7% lower</strong></td></tr>
+                        <tr><td class="p-4 text-white">Seedream 5 Lite 2K/4K</td><td class="p-4">$0.035 on Fal.ai</td><td class="p-4">0.45</td><td class="p-4"><strong>$0.0315, about 10% lower</strong></td></tr>
+                        <tr><td class="p-4 text-white">Seedream 5 Pro 1K</td><td class="p-4">$0.0675 on Fal.ai</td><td class="p-4">0.57</td><td class="p-4"><strong>$0.0398, about 41% lower</strong></td></tr>
+                        <tr><td class="p-4 text-white">Seedream 5 Pro 2K</td><td class="p-4">$0.135 on Fal.ai</td><td class="p-4">2</td><td class="p-4">$0.1398</td></tr>
+                        <tr><td class="p-4 text-white">Wan 2.7 standard</td><td class="p-4">$0.03 official</td><td class="p-4">0.40</td><td class="p-4"><strong>$0.0280, about 7% lower</strong></td></tr>
+                        <tr><td class="p-4 text-white">Wan 2.7 Pro 4K</td><td class="p-4">$0.075 official</td><td class="p-4">0.98</td><td class="p-4"><strong>$0.0685, about 9% lower</strong></td></tr>
                     </tbody>
                 </table>
             </div>
-            <p>VeilPix is therefore cheaper than the official standard API on specific high-value tiers, not universally. The 200-credit pack lowers the effective price to about six cents per credit, widening the savings on Nano Banana 2 2K and Wan Pro 4K. The benefit is also operational: one balance and one interface cover all three model families, with no separate API accounts or infrastructure.</p>
+            <p>VeilPix prices each low-cost image tier to preserve its standard margin, then rounds up only to the nearest hundredth of a credit. Tiers whose underlying cost is above the fractional threshold keep whole-credit pricing. Multi-image Seedream edits can cost slightly more because additional reference images are billed separately. The benefit is also operational: one balance and one interface cover all three model families, with no separate API accounts or infrastructure.</p>
 
             <aside class="mt-8 bg-blue-500/15 border border-blue-300/25 rounded-lg p-6">
                 <h3 class="!mt-0">Compare them with the same prompt</h3>
@@ -183,6 +183,10 @@
                 <li><a href="https://seed.bytedance.com/en/blog/deeper-thinking-more-accurate-generation-introducing-seedream-5-0-lite" target="_blank" rel="noopener">ByteDance Seedream 5.0 Lite announcement</a></li>
                 <li><a href="https://www.alibabacloud.com/help/en/model-studio/image-model" target="_blank" rel="noopener">Alibaba Cloud image-model guide</a></li>
                 <li><a href="https://www.alibabacloud.com/help/en/model-studio/model-pricing" target="_blank" rel="noopener">Alibaba Cloud model pricing</a></li>
+                <li><a href="https://fal.ai/models/bytedance/seedream/v5/lite/text-to-image" target="_blank" rel="noopener">Fal.ai Seedream 5 Lite pricing</a></li>
+                <li><a href="https://fal.ai/models/bytedance/seedream/v5/pro/text-to-image" target="_blank" rel="noopener">Fal.ai Seedream 5 Pro pricing</a></li>
+                <li><a href="https://fal.ai/models/fal-ai/wan/v2.7/text-to-image" target="_blank" rel="noopener">Fal.ai Wan 2.7 pricing</a></li>
+                <li><a href="https://fal.ai/models/fal-ai/nano-banana-2" target="_blank" rel="noopener">Fal.ai Nano Banana 2 pricing</a></li>
             </ul>
 
             <footer class="mt-12 border-t border-white/15 pt-8 text-center">
