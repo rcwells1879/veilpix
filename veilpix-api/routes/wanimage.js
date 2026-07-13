@@ -197,7 +197,19 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
     const creditsToDeduct = creditDetails.required || creditDetails.credits || 1;
 
     try {
-        await db.logUsage({
+        if (success) {
+            const deductResult = await db.deductUserCredits(user.userId, creditsToDeduct);
+            if (!deductResult.success) {
+                throw new Error('Unable to deduct image credits');
+            }
+
+            if (req.creditsInfo) {
+                req.creditsInfo.remaining = Math.max(0, Math.round((req.creditsInfo.remaining - creditsToDeduct) * 100) / 100);
+            }
+        }
+
+        try {
+            await db.logUsage({
             userId: user.id,
             clerkUserId: user.userId,
             requestType,
@@ -208,27 +220,15 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
             processingTimeMs: Date.now() - startTime,
             success,
             errorMessage
-        });
-
-        if (success) {
-            for (let index = 0; index < creditsToDeduct; index += 1) {
-                const deductResult = await db.deductUserCredit(user.userId);
-
-                if (!deductResult.success) {
-                    console.error('Failed to deduct image credit:', deductResult.error);
-                    return false;
-                }
-            }
-
-            if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
-            }
+            });
+        } catch (logError) {
+            console.error('Failed to log Wan Image usage:', logError);
         }
 
         return true;
     } catch (error) {
         console.error('Exception in image credit deduction and tracking:', error);
-        return false;
+        throw error;
     }
 }
 

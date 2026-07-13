@@ -4,6 +4,7 @@
 */
 
 import React, { useState } from 'react';
+import { formatCreditLabel } from '../src/utils/creditFormatting';
 
 interface FilterPanelProps {
   onApplyFilter: (prompt: string) => void;
@@ -14,7 +15,7 @@ interface FilterPanelProps {
 const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading, imageCreditCost = 1 }) => {
   const [selectedPresetPrompt, setSelectedPresetPrompt] = useState<string | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
-  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
+  const imageCreditLabel = formatCreditLabel(imageCreditCost);
 
   const presets = [
     { name: 'Synthwave', prompt: 'Apply a vibrant 80s synthwave aesthetic with neon magenta and cyan glows, and subtle scan lines.' },

@@ -34,7 +34,7 @@ npm audit
 node --check server.js
 ```
 
-There is no real backend test suite currently: `npm test` is a placeholder that exits nonzero.
+Backend pricing tests use Node's built-in test runner through `npm test`.
 
 ## Local Environment
 
@@ -114,6 +114,7 @@ Provider implementation notes:
 - `utils/database.js` exports `{ db, supabase }`, where `supabase` is a function. When importing it, call `supabase()` before `.from(...)`.
 - `routes/webhooks.js` currently creates its own service-role Supabase client for Stripe webhook updates.
 - Credit purchase writes happen server-side in `db.logCreditPurchase()` and Stripe webhook handlers.
+- Image balances support hundredth-credit precision through `schema-migration-fractional-credits.sql` and the atomic `deduct_user_credits` RPC. Credit purchases remain whole-number packages.
 - Keep RLS enabled on exposed public tables such as `credit_purchases`; backend service-role operations should continue to work.
 - Supabase CLI is installed through Scoop. The repo is linked to project ref `hjmkvroztbzmivrjzjod`.
 - `supabase/.temp/` is local CLI state and must stay ignored.

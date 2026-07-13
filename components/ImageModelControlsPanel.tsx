@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { formatCreditAmount } from '../src/utils/creditFormatting';
 import { PhotoIcon } from './icons';
 
 export type ImageProvider = 'nanobanana2' | 'seedream' | 'wanimage';
@@ -189,23 +190,28 @@ export function getImageModelResolutions(provider: ImageProvider, workflow?: Ima
 }
 
 function veilpixCreditsFromKieCredits(kieCredits: number): number {
-  return Math.max(1, Math.ceil((kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
+  const rawCredits = Math.max(0, (kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT);
+  if (rawCredits <= 0) return 0;
+  if (rawCredits < 1) return Math.ceil(rawCredits * 100) / 100;
+  return Math.ceil(rawCredits);
 }
 
-export function getImageKieCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite'): number {
+export function getImageKieCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite', imageCount = 0): number {
   const config = IMAGE_MODEL_CONFIGS[provider] ?? IMAGE_MODEL_CONFIGS.seedream;
   const availableResolutions = getImageModelResolutions(config.id, workflow, seedreamTier);
   const selectedResolution = resolution && availableResolutions.some((item) => item.value === resolution)
     ? resolution
     : availableResolutions[0]?.value ?? config.defaultResolution;
   if (config.id === 'seedream') {
-    return SEEDREAM_KIE_CREDIT_PRICING[seedreamTier][selectedResolution] ?? 5.5;
+    const baseCost = SEEDREAM_KIE_CREDIT_PRICING[seedreamTier][selectedResolution] ?? 5.5;
+    const extraInputCost = workflow === 'image-to-image' ? Math.max(0, imageCount - 1) * 0.5 : 0;
+    return baseCost + extraInputCost;
   }
   return IMAGE_KIE_CREDIT_PRICING[config.id][selectedResolution] ?? IMAGE_KIE_CREDIT_PRICING.seedream['2K'] ?? 5.5;
 }
 
-export function getImageCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite'): number {
-  return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow, seedreamTier));
+export function getImageCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite', imageCount = 0): number {
+  return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow, seedreamTier, imageCount));
 }
 
 export function normalizeImageGenerationOptions(options?: Partial<ImageGenerationOptions>, workflow?: ImageWorkflow): ImageGenerationOptions {
@@ -309,9 +315,10 @@ interface ImageModelSettingsProps {
   onChange: (options: ImageGenerationOptions) => void;
   isLoading?: boolean;
   workflow?: ImageWorkflow;
+  imageCount?: number;
 }
 
-export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, onChange, isLoading = false, workflow }) => {
+export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, onChange, isLoading = false, workflow, imageCount = 0 }) => {
   const normalizedValue = normalizeImageGenerationOptions(value, workflow);
   const config = IMAGE_MODEL_CONFIGS[normalizedValue.provider];
   const availableResolutions = getImageModelResolutions(normalizedValue.provider, workflow, normalizedValue.seedreamTier);
@@ -373,7 +380,7 @@ export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, o
         <label className="text-sm font-semibold text-gray-300">{config.settingsLabel}</label>
         <div className={`grid gap-2 ${availableResolutions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
           {availableResolutions.map((resolution) => {
-            const creditCost = getImageCreditCost(normalizedValue.provider, resolution.value, workflow, normalizedValue.seedreamTier);
+            const creditCost = getImageCreditCost(normalizedValue.provider, resolution.value, workflow, normalizedValue.seedreamTier, imageCount);
             return (
               <button
                 key={resolution.value}
@@ -383,7 +390,7 @@ export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, o
                 disabled={isLoading}
               >
                 <span className="block truncate">{resolution.label}</span>
-                <span className="block text-[10px] font-medium opacity-75">{creditCost} cr</span>
+                <span className="block text-[10px] font-medium opacity-75">{formatCreditAmount(creditCost)} cr</span>
               </button>
             );
           })}

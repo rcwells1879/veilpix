@@ -4,6 +4,7 @@
 */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { formatCreditLabel } from '../src/utils/creditFormatting';
 import { MagicWandIcon, PaletteIcon, SunIcon, VideoIcon } from './icons';
 import ImageDropzone from './ImageDropzone';
 import ModeSelector, { type CreativeMode } from './ModeSelector';
@@ -83,8 +84,9 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
   const [singleTextPrompt, setSingleTextPrompt] = useState('');
   const activeImageWorkflow = activeMode === 'composite' ? 'image-to-image' : 'text-to-image';
   const normalizedActiveImageOptions = normalizeImageGenerationOptions(imageOptions, activeImageWorkflow);
-  const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedActiveImageOptions.provider, normalizedActiveImageOptions.resolution, activeImageWorkflow, normalizedActiveImageOptions.seedreamTier);
-  const imageCreditLabel = `${activeImageCreditCost} ${activeImageCreditCost === 1 ? 'credit' : 'credits'}`;
+  const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedActiveImageOptions.provider, normalizedActiveImageOptions.resolution, activeImageWorkflow, normalizedActiveImageOptions.seedreamTier, activeMode === 'composite' ? 2 : 0);
+  const sourceGenerationCreditCost = getImageCreditCost(normalizedActiveImageOptions.provider, normalizedActiveImageOptions.resolution, 'text-to-image', normalizedActiveImageOptions.seedreamTier);
+  const imageCreditLabel = formatCreditLabel(activeImageCreditCost);
 
   // Update composite file when prop changes
   useEffect(() => {
@@ -287,7 +289,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
-                    imageCreditCost={activeImageCreditCost}
+                    imageCreditCost={sourceGenerationCreditCost}
                   />
                   <ImageDropzone
                     file={compositeFile2}
@@ -300,7 +302,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     isAuthenticated={isAuthenticated}
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
-                    imageCreditCost={activeImageCreditCost}
+                    imageCreditCost={sourceGenerationCreditCost}
                   />
               </div>
               <div className="flex w-full flex-col gap-3">
@@ -319,6 +321,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                   onChange={onImageOptionsChange}
                   isLoading={isGeneratingImage}
                   workflow="image-to-image"
+                  imageCount={2}
                 />
               </div>
                <button

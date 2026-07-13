@@ -4,6 +4,7 @@
 */
 
 import React, { useState, useEffect } from 'react';
+import { formatCreditLabel } from '../src/utils/creditFormatting';
 import { PhotoIcon, CameraIcon } from './icons';
 import { SparkleIcon } from './Header';
 import Spinner from './Spinner';
@@ -29,7 +30,7 @@ const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label
   const [isTextToImageMode, setIsTextToImageMode] = useState(false);
   const [textPrompt, setTextPrompt] = useState('');
   const [wasGenerating, setWasGenerating] = useState(false);
-  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
+  const imageCreditLabel = formatCreditLabel(imageCreditCost);
 
   useEffect(() => {
     if (file) {

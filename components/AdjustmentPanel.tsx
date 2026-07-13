@@ -4,6 +4,7 @@
 */
 
 import React, { useState } from 'react';
+import { formatCreditLabel } from '../src/utils/creditFormatting';
 
 interface AdjustmentPanelProps {
   onApplyAdjustment: (prompt: string) => void;
@@ -13,7 +14,7 @@ interface AdjustmentPanelProps {
 
 const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, isLoading, imageCreditCost = 1 }) => {
   const [customPrompt, setCustomPrompt] = useState('');
-  const imageCreditLabel = `${imageCreditCost} ${imageCreditCost === 1 ? 'credit' : 'credits'}`;
+  const imageCreditLabel = formatCreditLabel(imageCreditCost);
 
   const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCustomPrompt(e.target.value);

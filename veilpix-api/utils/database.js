@@ -4,6 +4,14 @@ const { normalizeEmail } = require('./emailNormalizer');
 // Create Supabase client lazily to avoid module loading issues
 let supabase = null;
 
+function normalizeCreditAmount(credits) {
+    const amount = Number(credits);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error('Credit amount must be a positive number');
+    }
+    return Math.round(amount * 100) / 100;
+}
+
 function getSupabaseClient() {
     if (!supabase) {
         if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -339,27 +347,34 @@ const db = {
         }
     },
 
-    async deductUserCredit(clerkUserId) {
+    async deductUserCredits(clerkUserId, credits) {
         try {
-            console.log('🔍 DB: deductUserCredit called for:', clerkUserId);
+            const amount = normalizeCreditAmount(credits);
+            console.log('DB: deductUserCredits called with:', { clerkUserId, amount });
             const supabase = getSupabaseClient();
             
-            // Use the database function for atomic credit deduction
             const { data, error } = await supabase
-                .rpc('deduct_user_credit', { p_clerk_user_id: clerkUserId });
+                .rpc('deduct_user_credits', {
+                    p_clerk_user_id: clerkUserId,
+                    p_credits: amount
+                });
 
             if (error) {
-                console.error('🚨 DB: Error deducting user credit:', error);
+                console.error('DB: Error deducting user credits:', error);
                 return { success: false, error };
             }
 
             const success = data === true;
-            console.log(success ? '✅ DB: Successfully deducted 1 credit' : '❌ DB: No credits available to deduct');
+            console.log(success ? `DB: Successfully deducted ${amount} credits` : 'DB: Insufficient credits');
             return { success, error: null };
         } catch (error) {
-            console.error('🚨 DB: Exception deducting user credit:', error);
+            console.error('DB: Exception deducting user credits:', error);
             return { success: false, error };
         }
+    },
+
+    async deductUserCredit(clerkUserId) {
+        return this.deductUserCredits(clerkUserId, 1);
     },
 
     async addUserCredits(clerkUserId, credits) {

@@ -8,6 +8,7 @@ import { useUser } from '@clerk/clerk-react'
 import { useCreditPackages, useCreateCreditCheckout, redirectToStripe } from '../src/hooks/useStripeCheckout'
 import { useUsageStats } from '../src/hooks/useImageGeneration'
 import AuthRequiredModal from './AuthRequiredModal'
+import { formatCreditAmount } from '../src/utils/creditFormatting'
 
 interface PricingModalProps {
   isOpen: boolean
@@ -76,7 +77,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
               Get More Credits
             </h2>
             <p className="text-gray-400 text-lg">
-              You have <span className="text-white font-semibold">{usageStats?.creditsRemaining || 0}</span> credits remaining
+              You have <span className="text-white font-semibold">{formatCreditAmount(usageStats?.creditsRemaining || 0)}</span> credits remaining
             </p>
           </div>
         </div>

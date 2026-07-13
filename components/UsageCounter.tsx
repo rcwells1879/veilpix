@@ -6,6 +6,7 @@
 import React from 'react'
 import { useUsageStats } from '../src/hooks/useImageGeneration'
 import { useUser } from '@clerk/clerk-react'
+import { formatCreditAmount } from '../src/utils/creditFormatting'
 
 interface UsageCounterProps {
   onShowPricing?: () => void
@@ -77,7 +78,7 @@ export const UsageCounter: React.FC<UsageCounterProps> = ({ onShowPricing }) => 
             ? 'text-yellow-300'
             : 'text-purple-300'
         }`}>
-          {creditsRemaining} {creditsRemaining === 1 ? 'credit' : 'credits'}
+          {formatCreditAmount(creditsRemaining)} {creditsRemaining === 1 ? 'credit' : 'credits'}
         </span>
       </div>
 

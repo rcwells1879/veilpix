@@ -4,6 +4,7 @@
 */
 
 import React, { useState, useEffect } from 'react';
+import { formatCreditLabel } from '../src/utils/creditFormatting';
 import Spinner from './Spinner';
 import { ChevronLeftIcon } from './icons';
 import {
@@ -39,8 +40,8 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
     const [img1Url, setImg1Url] = useState<string | null>(null);
     const [img2Url, setImg2Url] = useState<string | null>(null);
     const normalizedImageOptions = normalizeImageGenerationOptions(imageOptions, 'image-to-image');
-    const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedImageOptions.provider, normalizedImageOptions.resolution, 'image-to-image', normalizedImageOptions.seedreamTier);
-    const imageCreditLabel = `${activeImageCreditCost} ${activeImageCreditCost === 1 ? 'credit' : 'credits'}`;
+    const activeImageCreditCost = imageCreditCost ?? getImageCreditCost(normalizedImageOptions.provider, normalizedImageOptions.resolution, 'image-to-image', normalizedImageOptions.seedreamTier, 2);
+    const imageCreditLabel = formatCreditLabel(activeImageCreditCost);
 
     useEffect(() => {
         const url1 = URL.createObjectURL(sourceImage1);
@@ -106,6 +107,7 @@ const CompositeScreen: React.FC<CompositeScreenProps> = ({
                         onChange={onImageOptionsChange}
                         isLoading={isLoading}
                         workflow="image-to-image"
+                        imageCount={2}
                     />
                     <div className="flex w-full flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
                         <button

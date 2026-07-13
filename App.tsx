@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
+import { formatCreditLabel } from './src/utils/creditFormatting';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import { useUser, useClerk } from '@clerk/clerk-react';
 import {
@@ -289,7 +290,7 @@ const App: React.FC = () => {
   });
   const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'text-to-image', imageGenerationOptions.seedreamTier);
   const imageEditCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier);
-  const imageEditCreditLabel = `${imageEditCreditCost} ${imageEditCreditCost === 1 ? 'credit' : 'credits'}`;
+  const imageEditCreditLabel = formatCreditLabel(imageEditCreditCost);
 
   // Persist settings to localStorage whenever they change
   useEffect(() => {
@@ -1721,7 +1722,8 @@ const App: React.FC = () => {
           imageGenerationOptions.provider,
           imageGenerationOptions.resolution,
           creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
-          imageGenerationOptions.seedreamTier
+          imageGenerationOptions.seedreamTier,
+          creativeMode === 'composite' ? 2 : 0
         )}
         onSelectGalleryImage={handleSelectGalleryImage}
         onSelectGalleryVideo={handleSelectGalleryVideo}
@@ -1748,7 +1750,7 @@ const App: React.FC = () => {
             sourceImage2={sourceImage2}
             imageOptions={imageGenerationOptions}
             onImageOptionsChange={handleImageOptionsChange}
-            imageCreditCost={getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier)}
+            imageCreditCost={getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier, 2)}
             onGenerate={handleGenerateComposite}
             isLoading={isLoading}
             onBack={handleUploadNew}
@@ -2155,7 +2157,8 @@ const App: React.FC = () => {
         imageGenerationOptions.provider,
         imageGenerationOptions.resolution,
         creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
-        imageGenerationOptions.seedreamTier
+        imageGenerationOptions.seedreamTier,
+        creativeMode === 'composite' ? 2 : 0
       )}
       onSelectGalleryImage={handleSelectGalleryImage}
       onSelectGalleryVideo={handleSelectGalleryVideo}

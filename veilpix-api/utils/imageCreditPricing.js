@@ -86,7 +86,10 @@ function normalizeImageResolution(provider, resolution, workflow, seedreamTier =
 }
 
 function veilpixCreditsFromUsd(usdCost) {
-    return Math.max(1, Math.ceil((Number(usdCost) || 0) / BILLABLE_USD_PER_VEILPIX_CREDIT));
+    const rawCredits = Math.max(0, (Number(usdCost) || 0) / BILLABLE_USD_PER_VEILPIX_CREDIT);
+    if (rawCredits <= 0) return 0;
+    if (rawCredits < 1) return Math.ceil(rawCredits * 100) / 100;
+    return Math.ceil(rawCredits);
 }
 
 function veilpixCreditsFromKieCredits(kieCredits) {
