@@ -10,10 +10,11 @@ interface AdjustmentPanelProps {
   onApplyAdjustment: (prompt: string) => void;
   isLoading: boolean;
   imageCreditCost?: number;
+  initialPrompt?: string;
 }
 
-const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, isLoading, imageCreditCost = 1 }) => {
-  const [customPrompt, setCustomPrompt] = useState('');
+const AdjustmentPanel: React.FC<AdjustmentPanelProps> = ({ onApplyAdjustment, isLoading, imageCreditCost = 1, initialPrompt = '' }) => {
+  const [customPrompt, setCustomPrompt] = useState(initialPrompt);
   const imageCreditLabel = formatCreditLabel(imageCreditCost);
 
   const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {

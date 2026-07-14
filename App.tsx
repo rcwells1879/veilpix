@@ -149,6 +149,32 @@ const dataURLtoFile = (dataurl: string, filename: string): File => {
     return new File([u8arr], filename, {type:mime});
 }
 
+const generatedImageToFile = async (
+  image: { data: string; mimeType?: string },
+  filenamePrefix: string
+): Promise<File> => {
+  const reportedMimeType = image.mimeType?.split(';')[0].trim().toLowerCase();
+  const mimeType = reportedMimeType?.startsWith('image/') ? reportedMimeType : 'image/png';
+  const extensionByMimeType: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/avif': 'avif',
+  };
+  const extension = extensionByMimeType[mimeType]
+    || mimeType.slice('image/'.length).replace('+xml', '')
+    || 'png';
+  const imageBlob = await fetch(`data:${mimeType};base64,${image.data}`)
+    .then(response => response.blob());
+
+  return new File(
+    [imageBlob],
+    `${filenamePrefix}-${Date.now()}.${extension}`,
+    { type: mimeType }
+  );
+};
+
 /**
  * Detects if an error message indicates a content safety filter violation
  * Google's Gemini API filters content for safety (NSFW, violence, policy violations)
@@ -244,8 +270,11 @@ const App: React.FC = () => {
   const hasPurchasedCredits = (usageStats?.totalCreditsPurchased ?? 0) > 0;
   const [view, setView] = useState<View>('start');
   const [history, setHistory] = useState<File[]>([]);
+  const [historyPrompts, setHistoryPrompts] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [prompt, setPrompt] = useState<string>('');
+  const [restoredVideoPrompt, setRestoredVideoPrompt] = useState<string>('');
+  const [videoPromptRecallKey, setVideoPromptRecallKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
@@ -332,9 +361,9 @@ const App: React.FC = () => {
   // Auto-save workflow to IndexedDB when history changes (debounced)
   useEffect(() => {
     if (history.length > 0) {
-      debouncedSaveWorkflow(history, historyIndex);
+      debouncedSaveWorkflow(history, historyIndex, historyPrompts);
     }
-  }, [history, historyIndex]);
+  }, [history, historyIndex, historyPrompts]);
 
   const handleSettingsChange = useCallback((newSettings: SettingsState) => {
     const normalizedImageOptions = normalizeImageGenerationOptions({
@@ -524,10 +553,17 @@ const App: React.FC = () => {
   const [sliderCompareMode, setSliderCompareMode] = useState<'original' | 'previous'>('original');
   const imgRef = useRef<HTMLImageElement>(null);
 
-  // Use optimistic history for immediate UI feedback, fallback to real history
+  // Optimistic history is display-only. Provider requests use canonical history.
   const displayHistory = optimisticHistory.length > history.length ? optimisticHistory : history;
-  const currentImage = displayHistory[historyIndex] ?? null;
+  const currentImage = history[historyIndex] ?? null;
+  const displayedImage = displayHistory[historyIndex] ?? currentImage;
   const originalImage = history[0] ?? null;
+
+  useEffect(() => {
+    if (historyIndex >= 0) {
+      setPrompt(historyPrompts[historyIndex] ?? '');
+    }
+  }, [historyIndex, historyPrompts]);
 
   const revokeGalleryVideoObjectUrl = useCallback(() => {
     if (galleryVideoObjectUrlRef.current) {
@@ -565,14 +601,14 @@ const App: React.FC = () => {
 
   // Effect to create and revoke object URLs safely for the current image
   useEffect(() => {
-    if (currentImage) {
-      const url = URL.createObjectURL(currentImage);
+    if (displayedImage) {
+      const url = URL.createObjectURL(displayedImage);
       setCurrentImageUrl(url);
       return () => URL.revokeObjectURL(url);
     } else {
       setCurrentImageUrl(null);
     }
-  }, [currentImage]);
+  }, [displayedImage]);
   
   // Effect to create and revoke object URLs safely for the original image
   useEffect(() => {
@@ -626,17 +662,20 @@ const App: React.FC = () => {
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
 
-  const addImageToHistory = useCallback((newImageFile: File) => {
+  const addImageToHistory = useCallback((newImageFile: File, imagePrompt = historyPrompts[historyIndex] ?? '') => {
     const newHistory = history.slice(0, historyIndex + 1);
+    const newHistoryPrompts = historyPrompts.slice(0, historyIndex + 1);
     newHistory.push(newImageFile);
+    newHistoryPrompts.push(imagePrompt);
     setHistory(newHistory);
+    setHistoryPrompts(newHistoryPrompts);
     setHistoryIndex(newHistory.length - 1);
     // Reset transient states after an action
     setCrop(undefined);
     setCompletedCrop(undefined);
     // Save AI-generated image to gallery
-    saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-  }, [history, historyIndex]);
+    saveToGallery(newImageFile, imagePrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
+  }, [history, historyIndex, historyPrompts]);
 
   const handleImageUpload = useCallback(async (file: File) => {
     setError(null);
@@ -654,7 +693,9 @@ const App: React.FC = () => {
         const processedFile = await processFileForUpload(file);
 
         setHistory([processedFile]);
+        setHistoryPrompts(['']);
         setHistoryIndex(0);
+        setPrompt('');
         setEditHotspot(null);
         setDisplayHotspot(null);
         setActiveTab('adjust');
@@ -672,7 +713,9 @@ const App: React.FC = () => {
     } else {
       // For non-HEIC files, use directly
       setHistory([file]);
+      setHistoryPrompts(['']);
       setHistoryIndex(0);
+      setPrompt('');
       setEditHotspot(null);
       setDisplayHotspot(null);
       setActiveTab('adjust');
@@ -685,11 +728,13 @@ const App: React.FC = () => {
   }, []);
 
   // Handle selecting an image from the gallery
-  const handleSelectGalleryImage = useCallback((file: File) => {
+  const handleSelectGalleryImage = useCallback((file: File, savedPrompt: string) => {
     clearVideoResult();
     setCreativeMode('single');
     setHistory([file]);
+    setHistoryPrompts([savedPrompt]);
     setHistoryIndex(0);
+    setPrompt(savedPrompt);
     setEditHotspot(null);
     setDisplayHotspot(null);
     setActiveTab('adjust');
@@ -698,10 +743,14 @@ const App: React.FC = () => {
     setView('editor');
   }, [clearVideoResult]);
 
-  const handleMakeGalleryImageReference = useCallback((file: File) => {
+  const handleMakeGalleryImageReference = useCallback((file: File, savedPrompt: string) => {
+    setPrompt(savedPrompt);
+    setRestoredVideoPrompt(savedPrompt);
+    setVideoPromptRecallKey(key => key + 1);
     if (creativeMode === 'single') {
       clearVideoResult();
       setHistory([file]);
+      setHistoryPrompts([savedPrompt]);
       setHistoryIndex(0);
       setEditHotspot(null);
       setDisplayHotspot(null);
@@ -747,7 +796,10 @@ const App: React.FC = () => {
         : [];
 
     setHistory([]);
+    setHistoryPrompts([]);
     setHistoryIndex(-1);
+    setRestoredVideoPrompt(details.prompt);
+    setVideoPromptRecallKey(key => key + 1);
     setEditHotspot(null);
     setDisplayHotspot(null);
     setCreativeMode('video');
@@ -780,12 +832,15 @@ const App: React.FC = () => {
     setEditHotspot(null);
     setDisplayHotspot(null);
     setCreativeMode('video');
+    setRestoredVideoPrompt(details.prompt);
+    setVideoPromptRecallKey(key => key + 1);
     if (videoProvider === 'seedance') {
       setSeedanceReferenceVideoFile(details.videoFile);
       setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
       setSeedanceReferenceVideoDuration(details.videoDuration ?? null);
     } else {
       setHistory([]);
+      setHistoryPrompts([]);
       setHistoryIndex(-1);
       setReferenceVideoFile(details.videoFile);
       setReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
@@ -837,16 +892,17 @@ const App: React.FC = () => {
         console.log('âœ… composite mutation returned:', response);
 
         if (response.success && response.image) {
-            const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-            const newImageFile = new File([imageBlob], `composite-${Date.now()}.png`, { type: 'image/png' });
+            const newImageFile = await generatedImageToFile(response.image, 'composite');
 
             setHistory([newImageFile]);
+            setHistoryPrompts([compositePrompt]);
             setHistoryIndex(0);
+            setPrompt(compositePrompt);
             setCreativeMode('single');
             setView('editor');
             setSourceImage1(null);
             setSourceImage2(null);
-            saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
+            saveToGallery(newImageFile, compositePrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
         } else {
             throw new Error(response.message || 'Failed to generate composite image');
         }
@@ -888,6 +944,7 @@ const App: React.FC = () => {
         setSourceImage1(processedFile1);
         setSourceImage2(processedFile2);
         setHistory([]);
+        setHistoryPrompts([]);
         setHistoryIndex(-1);
         if (compositePrompt.trim()) {
           await generateCompositeFromFiles(processedFile1, processedFile2, compositePrompt.trim(), options);
@@ -905,6 +962,7 @@ const App: React.FC = () => {
       setSourceImage1(file1);
       setSourceImage2(file2);
       setHistory([]);
+      setHistoryPrompts([]);
       setHistoryIndex(-1);
       if (compositePrompt.trim()) {
         await generateCompositeFromFiles(file1, file2, compositePrompt.trim(), options);
@@ -998,13 +1056,10 @@ const App: React.FC = () => {
       });
 
       if (response.success && response.image) {
-        // Convert the base64 image data to a File
-        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-        const newImageFile = new File([imageBlob], `edited-${Date.now()}.png`, { type: 'image/png' });
-        addImageToHistory(newImageFile);
+        const newImageFile = await generatedImageToFile(response.image, 'edited');
+        addImageToHistory(newImageFile, prompt);
         setEditHotspot(null);
         setDisplayHotspot(null);
-        setPrompt('');
       } else {
         throw new Error(response.message || 'Failed to generate image');
       }
@@ -1049,9 +1104,8 @@ const App: React.FC = () => {
       });
 
       if (response.success && response.image) {
-        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-        const newImageFile = new File([imageBlob], `filtered-${Date.now()}.png`, { type: 'image/png' });
-        addImageToHistory(newImageFile);
+        const newImageFile = await generatedImageToFile(response.image, 'filtered');
+        addImageToHistory(newImageFile, filterPrompt);
       } else {
         throw new Error(response.message || 'Failed to apply filter');
       }
@@ -1090,9 +1144,8 @@ const App: React.FC = () => {
       });
 
       if (response.success && response.image) {
-        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-        const newImageFile = new File([imageBlob], `adjusted-${Date.now()}.png`, { type: 'image/png' });
-        addImageToHistory(newImageFile);
+        const newImageFile = await generatedImageToFile(response.image, 'adjusted');
+        addImageToHistory(newImageFile, adjustmentPrompt);
       } else {
         throw new Error(response.message || 'Failed to apply adjustment');
       }
@@ -1134,8 +1187,7 @@ const App: React.FC = () => {
       });
 
       if (response.success && response.image) {
-        const imageBlob = await fetch(`data:${response.image.mimeType || 'image/png'};base64,${response.image.data}`).then(r => r.blob());
-        const newImageFile = new File([imageBlob], `text-to-image-${Date.now()}.png`, { type: 'image/png' });
+        const newImageFile = await generatedImageToFile(response.image, 'text-to-image');
 
         if (onSuccess) {
           // Callback mode: Pass the file to the callback (for composite mode)
@@ -1144,11 +1196,13 @@ const App: React.FC = () => {
         } else {
           // Default mode: Start a new editing session with the generated image (for single photo mode)
           setHistory([newImageFile]);
+          setHistoryPrompts([textPrompt]);
           setHistoryIndex(0);
+          setPrompt(textPrompt);
           setActiveTab('adjust');
           setView('editor');
           // Save text-to-image result to gallery
-          saveToGallery(newImageFile).then(() => setGalleryRefreshTrigger(n => n + 1));
+          saveToGallery(newImageFile, textPrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
           console.log('✅ Text-to-image generation successful, image added to history');
         }
       } else {
@@ -1236,9 +1290,12 @@ const App: React.FC = () => {
 
   const handleUploadNew = useCallback(() => {
       setHistory([]);
+      setHistoryPrompts([]);
       setHistoryIndex(-1);
       setError(null);
       setPrompt('');
+      setRestoredVideoPrompt('');
+      setVideoPromptRecallKey(key => key + 1);
       setEditHotspot(null);
       setDisplayHotspot(null);
       setSourceImage1(null);
@@ -1320,7 +1377,12 @@ const App: React.FC = () => {
     if (newMode === 'video' && view === 'editor' && currentImage && videoProvider === 'wan') {
       setWanReferenceImages(prev => prev.length > 0 ? prev : [currentImage]);
     }
-  }, [clearVideoResult, view, currentImage, videoProvider]);
+
+    if (newMode === 'video' && view === 'editor' && currentImage) {
+      setRestoredVideoPrompt(historyPrompts[historyIndex] ?? '');
+      setVideoPromptRecallKey(key => key + 1);
+    }
+  }, [clearVideoResult, view, currentImage, videoProvider, historyIndex, historyPrompts]);
 
   // Handle combining from the editor overlay
   const handleCompositeFromEditor = useCallback((file2: File) => {
@@ -1357,6 +1419,8 @@ const App: React.FC = () => {
     } = options;
 
     setVideoError(null);
+    setRestoredVideoPrompt(prompt);
+    setVideoPromptRecallKey(key => key + 1);
     clearVideoResult();
 
     try {
@@ -1421,7 +1485,8 @@ const App: React.FC = () => {
           referenceImages: provider === 'seedance' ? seedanceReferenceImages : wanReferenceImagesForRequest,
           referenceVideoFile: provider === 'seedance' ? seedanceReferenceVideoFile : referenceVideoFile,
           referenceVideoUrl: provider === 'seedance' ? seedanceReferenceVideoUrl : referenceVideoUrl,
-          videoDuration: duration
+          videoDuration: duration,
+          prompt
         }).then(() => setGalleryRefreshTrigger(n => n + 1));
       } else {
         throw new Error(response.message || 'Failed to generate video');
@@ -1463,13 +1528,18 @@ const App: React.FC = () => {
   const handleReferenceImageSelect = useCallback((file: File | null) => {
     if (file) {
       setHistory([file]);
+      setHistoryPrompts(['']);
       setHistoryIndex(0);
+      setPrompt('');
+      setRestoredVideoPrompt('');
+      setVideoPromptRecallKey(key => key + 1);
       setEditHotspot(null);
       setDisplayHotspot(null);
       setCrop(undefined);
       setCompletedCrop(undefined);
     } else {
       setHistory([]);
+      setHistoryPrompts([]);
       setHistoryIndex(0);
     }
   }, []);
@@ -2053,8 +2123,8 @@ const App: React.FC = () => {
                       </div>
                   )}
                   {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-                  {activeTab === 'adjust' && <AdjustmentPanel onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} imageCreditCost={imageEditCreditCost} />}
-                  {activeTab === 'filters' && <FilterPanel onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} />}
+                  {activeTab === 'adjust' && <AdjustmentPanel key={`adjust-${historyIndex}-${history.length}`} onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
+                  {activeTab === 'filters' && <FilterPanel key={`filter-${historyIndex}-${history.length}`} onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
               </div>
             </>
           )}
@@ -2085,6 +2155,8 @@ const App: React.FC = () => {
                 onVideoProviderChange={setVideoProvider}
                 videoUrl={videoUrl}
                 videoError={videoError}
+                restoredPrompt={restoredVideoPrompt}
+                promptRecallKey={videoPromptRecallKey}
                 referenceImage={null}
                 wanReferenceImages={wanReferenceImages}
                 referenceVideoFile={referenceVideoFile}

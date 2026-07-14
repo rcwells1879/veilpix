@@ -29,6 +29,8 @@ interface VideoControlsPanelProps {
   onVideoProviderChange: (provider: VideoProvider) => void;
   videoUrl?: string | null;
   videoError?: string | null;
+  restoredPrompt?: string;
+  promptRecallKey?: number;
   referenceImage?: File | null;
   wanReferenceImages?: File[];
   referenceVideoFile?: File | null;
@@ -146,6 +148,8 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   onVideoProviderChange,
   videoUrl,
   videoError,
+  restoredPrompt = '',
+  promptRecallKey = 0,
   referenceImage,
   wanReferenceImages,
   referenceVideoFile,
@@ -179,6 +183,10 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   const [seedanceWebSearch, setSeedanceWebSearch] = useState(false);
   const [referenceVideoPreviewUrl, setReferenceVideoPreviewUrl] = useState<string | null>(null);
   const [seedanceVideoPreviewUrl, setSeedanceVideoPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setVideoPrompt(restoredPrompt);
+  }, [promptRecallKey, restoredPrompt]);
 
   const hasSeedanceVideoReference = Boolean(seedanceReferenceVideoFile || seedanceReferenceVideoUrl);
   const displayedReferenceVideoUrl = referenceVideoPreviewUrl || referenceVideoUrl;

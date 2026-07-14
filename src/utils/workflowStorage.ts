@@ -18,6 +18,7 @@ interface StoredWorkflow {
     blob: Blob;
     name: string;
     type: string;
+    prompt?: string;
   }>;
   historyIndex: number;
   savedAt: number;
@@ -36,6 +37,7 @@ export interface GalleryImage {
   hasReferenceImage?: boolean;
   provider?: 'wan' | 'seedance';
   referenceImages?: StoredGalleryFile[];
+  prompt?: string;
 }
 
 export interface GalleryThumbnail {
@@ -48,6 +50,12 @@ export interface GalleryThumbnail {
   videoDuration?: number;
   hasReferenceImage?: boolean;
   provider?: 'wan' | 'seedance';
+  prompt?: string;
+}
+
+export interface GalleryImageDetails {
+  file: File;
+  prompt: string;
 }
 
 interface StoredGalleryFile {
@@ -64,6 +72,7 @@ export interface GalleryVideoDetails {
   referenceImages: File[];
   videoDuration?: number;
   provider?: 'wan' | 'seedance';
+  prompt: string;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -141,7 +150,7 @@ function openDB(): Promise<IDBDatabase> {
  * Save workflow to IndexedDB
  * Converts File objects to storable format
  */
-export async function saveWorkflow(history: File[], historyIndex: number): Promise<void> {
+export async function saveWorkflow(history: File[], historyIndex: number, prompts: string[] = []): Promise<void> {
   if (history.length === 0) {
     // Don't save empty workflows, but clear any existing one
     await clearWorkflow();
@@ -152,10 +161,11 @@ export async function saveWorkflow(history: File[], historyIndex: number): Promi
     const db = await openDB();
 
     // Convert Files to storable format (keeping blob data, name, and type)
-    const images = history.map(file => ({
+    const images = history.map((file, index) => ({
       blob: file as Blob,
       name: file.name,
       type: file.type,
+      prompt: prompts[index] || '',
     }));
 
     const workflow: StoredWorkflow = {
@@ -188,7 +198,7 @@ export async function saveWorkflow(history: File[], historyIndex: number): Promi
  * Load workflow from IndexedDB
  * Converts stored format back to File objects
  */
-export async function loadWorkflow(): Promise<{ history: File[]; historyIndex: number } | null> {
+export async function loadWorkflow(): Promise<{ history: File[]; historyIndex: number; prompts: string[] } | null> {
   try {
     const db = await openDB();
 
@@ -218,6 +228,7 @@ export async function loadWorkflow(): Promise<{ history: File[]; historyIndex: n
         resolve({
           history,
           historyIndex: workflow.historyIndex,
+          prompts: workflow.images.map(image => image.prompt || ''),
         });
       };
     });
@@ -260,13 +271,13 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null;
  * Debounced save - waits 500ms after last call before actually saving
  * This prevents excessive writes during rapid edits
  */
-export function debouncedSaveWorkflow(history: File[], historyIndex: number): void {
+export function debouncedSaveWorkflow(history: File[], historyIndex: number, prompts: string[] = []): void {
   if (saveTimeout) {
     clearTimeout(saveTimeout);
   }
 
   saveTimeout = setTimeout(() => {
-    saveWorkflow(history, historyIndex);
+    saveWorkflow(history, historyIndex, prompts);
     saveTimeout = null;
   }, 500);
 }
@@ -341,7 +352,7 @@ async function createThumbnail(file: File): Promise<Blob> {
  * Creates a thumbnail and stores both the full image and thumbnail
  * Enforces MAX_GALLERY_IMAGES limit by removing oldest
  */
-export async function saveToGallery(image: File): Promise<void> {
+export async function saveToGallery(image: File, prompt = ''): Promise<void> {
   try {
     const db = await openDB();
     const thumbnail = await createThumbnail(image);
@@ -351,6 +362,7 @@ export async function saveToGallery(image: File): Promise<void> {
       thumbnail,
       createdAt: Date.now(),
       name: image.name,
+      prompt,
     };
 
     return new Promise((resolve, reject) => {
@@ -419,8 +431,8 @@ export async function getGalleryImages(): Promise<GalleryThumbnail[]> {
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
         if (cursor) {
-          const { id, thumbnail, createdAt, name, type, videoUrl, videoDuration, hasReferenceImage, provider } = cursor.value as GalleryImage;
-          thumbnails.push({ id: id!, thumbnail, createdAt, name, type: type || 'image', videoUrl, videoDuration, hasReferenceImage, provider });
+          const { id, thumbnail, createdAt, name, type, videoUrl, videoDuration, hasReferenceImage, provider, prompt } = cursor.value as GalleryImage;
+          thumbnails.push({ id: id!, thumbnail, createdAt, name, type: type || 'image', videoUrl, videoDuration, hasReferenceImage, provider, prompt });
           cursor.continue();
         } else {
           resolve(thumbnails);
@@ -437,7 +449,7 @@ export async function getGalleryImages(): Promise<GalleryThumbnail[]> {
  * Get a full-size gallery image by ID for re-editing
  * Returns File for images, or { videoUrl, referenceImage } for videos
  */
-export async function getGalleryImage(id: number): Promise<File | null> {
+export async function getGalleryImage(id: number): Promise<GalleryImageDetails | null> {
   try {
     const db = await openDB();
 
@@ -455,7 +467,7 @@ export async function getGalleryImage(id: number): Promise<File | null> {
         const image = request.result as GalleryImage | undefined;
         if (image?.blob) {
           const file = new File([image.blob], image.name, { type: image.blob.type || 'image/png' });
-          resolve(file);
+          resolve({ file, prompt: image.prompt || '' });
         } else {
           resolve(null);
         }
@@ -540,6 +552,7 @@ export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDe
           referenceImages,
           videoDuration: entry.videoDuration,
           provider: entry.provider,
+          prompt: entry.prompt || '',
         });
       };
     });
@@ -652,6 +665,7 @@ export interface SaveVideoToGalleryOptions {
   referenceVideoFile?: File | null;
   referenceVideoUrl?: string | null;
   videoDuration?: number;
+  prompt?: string;
 }
 
 /**
@@ -660,7 +674,7 @@ export interface SaveVideoToGalleryOptions {
  */
 export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<void> {
   try {
-    const { videoUrl, provider, referenceImage = null, referenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, videoDuration } = options;
+    const { videoUrl, provider, referenceImage = null, referenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, videoDuration, prompt = '' } = options;
     const db = await openDB();
     const storedReferenceImages = referenceImages.length > 0
       ? referenceImages.slice(0, 5)
@@ -696,6 +710,7 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       hasReferenceImage: storedReferenceImages.length > 0,
       provider,
       referenceImages: storedReferenceImages.map(toStoredGalleryFile),
+      prompt,
     };
 
     return new Promise((resolve, reject) => {

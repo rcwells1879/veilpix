@@ -37,7 +37,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "How do you handle my photos, videos, and prompts?",
-    answer: "Privacy is a core priority. Uploaded photos, videos, and prompts are sent only for the requested generation or edit, then discarded rather than stored as a user library. VeilPix avoids advertising trackers and is designed around private creative workflows."
+    answer: "Privacy is a core priority. Uploaded media and prompts are sent only for the requested generation or edit. Your creation history and its prompts are saved locally in your browser so you can recall them, rather than stored as a server-side user library. VeilPix avoids advertising trackers and is designed around private creative workflows."
   },
   {
     question: "Is VeilPix really free?",

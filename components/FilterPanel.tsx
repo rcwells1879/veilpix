@@ -10,11 +10,12 @@ interface FilterPanelProps {
   onApplyFilter: (prompt: string) => void;
   isLoading: boolean;
   imageCreditCost?: number;
+  initialPrompt?: string;
 }
 
-const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading, imageCreditCost = 1 }) => {
+const FilterPanel: React.FC<FilterPanelProps> = ({ onApplyFilter, isLoading, imageCreditCost = 1, initialPrompt = '' }) => {
   const [selectedPresetPrompt, setSelectedPresetPrompt] = useState<string | null>(null);
-  const [customPrompt, setCustomPrompt] = useState('');
+  const [customPrompt, setCustomPrompt] = useState(initialPrompt);
   const imageCreditLabel = formatCreditLabel(imageCreditCost);
 
   const presets = [

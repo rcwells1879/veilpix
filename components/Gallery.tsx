@@ -15,9 +15,9 @@ import {
 } from '../src/utils/workflowStorage';
 
 interface GalleryProps {
-  onSelectImage: (file: File) => void;
+  onSelectImage: (file: File, prompt: string) => void;
   onSelectVideo?: (details: GalleryVideoDetails) => void;
-  onMakeImageReference?: (file: File) => void;
+  onMakeImageReference?: (file: File, prompt: string) => void;
   onMakeVideoReference?: (details: GalleryVideoDetails) => void;
   imageReferenceActionLabel?: string;
   videoReferenceActionLabel?: string;
@@ -89,9 +89,9 @@ const Gallery: React.FC<GalleryProps> = ({
         return;
       }
 
-      const file = await getGalleryImage(id);
-      if (file) {
-        onSelectImage(file);
+      const details = await getGalleryImage(id);
+      if (details) {
+        onSelectImage(details.file, details.prompt);
       }
     } catch (error) {
       console.error('Failed to open gallery item:', error);
@@ -119,9 +119,9 @@ const Gallery: React.FC<GalleryProps> = ({
     if (!onMakeImageReference) return;
     setLoadingImageId(id);
     try {
-      const file = await getGalleryImage(id);
-      if (file) {
-        onMakeImageReference(file);
+      const details = await getGalleryImage(id);
+      if (details) {
+        onMakeImageReference(details.file, details.prompt);
       }
     } catch (error) {
       console.error('Failed to use gallery image as reference:', error);

@@ -69,9 +69,9 @@ interface StartScreenProps {
   onShowSignupPrompt?: () => void;
   isGeneratingImage?: boolean;
   imageCreditCost?: number;
-  onSelectGalleryImage?: (file: File) => void;
+  onSelectGalleryImage?: (file: File, prompt: string) => void;
   onSelectGalleryVideo?: (details: GalleryVideoDetails) => void;
-  onMakeGalleryImageReference?: (file: File) => void;
+  onMakeGalleryImageReference?: (file: File, prompt: string) => void;
   onMakeGalleryVideoReference?: (details: GalleryVideoDetails) => void;
   galleryRefreshTrigger?: number;
   videoError?: string | null;
@@ -127,6 +127,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     if (onTextToImageGenerate) {
       onTextToImageGenerate(prompt, (file: File) => {
         setCompositeFile1(file);
+        setCompositePrompt(prompt);
       }, normalizeImageGenerationOptions(imageOptions, 'text-to-image'));
     }
   }, [imageOptions, onTextToImageGenerate]);
@@ -135,6 +136,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     if (onTextToImageGenerate) {
       onTextToImageGenerate(prompt, (file: File) => {
         setCompositeFile2(file);
+        setCompositePrompt(prompt);
       }, normalizeImageGenerationOptions(imageOptions, 'text-to-image'));
     }
   }, [imageOptions, onTextToImageGenerate]);
@@ -152,7 +154,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
     onTextToImageGenerate(prompt, undefined, normalizeImageGenerationOptions(imageOptions, 'text-to-image'));
   }, [imageOptions, isAuthenticated, onShowSignupPrompt, onTextToImageGenerate, singleTextPrompt]);
 
-  const handleGalleryImageReference = useCallback((file: File) => {
+  const handleGalleryImageReference = useCallback((file: File, savedPrompt: string) => {
     if (activeMode === 'composite') {
       if (!isAuthenticated && onShowSignupPrompt) {
         onShowSignupPrompt();
@@ -160,13 +162,15 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
       }
       if (!compositeFile1) {
         setCompositeFile1(file);
+        setCompositePrompt(savedPrompt);
         return;
       }
       setCompositeFile2(file);
+      setCompositePrompt(savedPrompt);
       return;
     }
 
-    onMakeGalleryImageReference?.(file);
+    onMakeGalleryImageReference?.(file, savedPrompt);
   }, [activeMode, compositeFile1, isAuthenticated, onMakeGalleryImageReference, onShowSignupPrompt]);
 
   const galleryImageReferenceLabel = activeMode === 'composite'
@@ -218,7 +222,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                   onFileSelect(null);
                 }
               }}
-              label="Upload a Photo"
+              label="Reference Photo"
               showWebcam={true}
               onWebcamClick={onUseWebcamClick}
               showTextToImage={false}
