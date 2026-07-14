@@ -23,6 +23,13 @@ function normalizeOutputFormat(outputFormat) {
     return outputFormat === 'jpeg' ? 'jpeg' : 'png';
 }
 
+function latestImageOnly(imageUrls) {
+    if (!Array.isArray(imageUrls)) return [];
+    const validUrls = imageUrls.filter(url => typeof url === 'string' && url.trim());
+    const latestImageUrl = validUrls[validUrls.length - 1];
+    return latestImageUrl ? [latestImageUrl] : [];
+}
+
 /**
  * Map image aspect to Seedream's aspect_ratio parameter
  * Based on the uploaded image dimensions or user preference
@@ -84,7 +91,7 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
 
     return {
         prompt: enhancedPrompt,
-        image_urls: imageUrls,
+        image_urls: latestImageOnly(imageUrls),
         aspect_ratio: aspectRatio,
         quality: mapQuality(resolution, seedreamTier),
         output_format: normalizeOutputFormat(outputFormat),
@@ -104,7 +111,7 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
 function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
-        image_urls: imageUrls,
+        image_urls: latestImageOnly(imageUrls),
         aspect_ratio: aspectRatio,
         quality: mapQuality(resolution, seedreamTier),
         output_format: normalizeOutputFormat(outputFormat),
@@ -124,7 +131,7 @@ function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:
 function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
-        image_urls: imageUrls,
+        image_urls: latestImageOnly(imageUrls),
         aspect_ratio: aspectRatio,
         quality: mapQuality(resolution, seedreamTier),
         output_format: normalizeOutputFormat(outputFormat),

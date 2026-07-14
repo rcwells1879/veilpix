@@ -12,6 +12,13 @@
  * - nsfw_checker defaults to false (more permissive)
  */
 
+function latestImageOnly(imageUrls) {
+    if (!Array.isArray(imageUrls)) return [];
+    const validUrls = imageUrls.filter(url => typeof url === 'string' && url.trim());
+    const latestImageUrl = validUrls[validUrls.length - 1];
+    return latestImageUrl ? [latestImageUrl] : [];
+}
+
 /**
  * Build Wan 2.7 Image API request for localized editing
  *
@@ -31,7 +38,7 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
 
     return {
         prompt: enhancedPrompt,
-        input_urls: imageUrls,
+        input_urls: latestImageOnly(imageUrls),
         aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
@@ -46,7 +53,7 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
 function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1', nsfwFilterEnabled = false) {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
-        input_urls: imageUrls,
+        input_urls: latestImageOnly(imageUrls),
         aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
@@ -61,7 +68,7 @@ function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:
 function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = false) {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
-        input_urls: imageUrls,
+        input_urls: latestImageOnly(imageUrls),
         aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
