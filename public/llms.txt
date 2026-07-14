@@ -8,7 +8,7 @@ VeilPix is a free, privacy-focused AI image and video generator for photo editin
 - AI image models: Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image
 - AI video models: Wan 2.7 text-to-video and reference-to-video, Wan 2.6 Flash image-to-video
 - Video model support: Seedance 2.0
-- Privacy: No long-term media storage, no advertising trackers, private editing and generation
+- Privacy: Browser-local creative history, no public gallery, and AI requests proxied through VeilPix; provider retention applies
 - Formats: JPEG, PNG, WebP, HEIC (auto-converted), plus common video references such as MP4, WebM, and MOV
 - No watermarks on output
 
@@ -20,7 +20,7 @@ VeilPix is a free, privacy-focused AI image and video generator for photo editin
 5. Image-to-Video - Animate still images with Wan 2.6 Flash
 6. Reference-to-Video - Use images, videos, or both as creative guidance
 7. Seedance 2.0 - Planned future video generation support
-8. Complete Privacy - Media is processed for the requested action without persistent user libraries
+8. Privacy-Focused Workflow - Creation history stays in the browser instead of a persistent VeilPix server-side library
 
 ## Age-Verified After Dark
 VeilPix includes an age-verified 18+ mode for private NSFW and adult creative workflows where supported by the selected model provider. VeilPix still applies account controls, provider safety systems, and misuse prevention.
@@ -51,3 +51,4 @@ VeilPix includes an age-verified 18+ mode for private NSFW and adult creative wo
 
 Website: https://veilstudio.io/veilpix/
 Blog: https://veilstudio.io/veilpix/blog/
+Privacy: https://veilstudio.io/veilpix/privacy/

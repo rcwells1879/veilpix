@@ -25,7 +25,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "What makes VeilPix different from other AI photo editors?",
-    answer: "VeilPix brings image editing, text-to-image generation, and AI video generation into one private creative tool. It supports localized editing, multi-image composition, text-to-video, image-to-video, and reference-to-video without storing your photos, videos, or prompts."
+    answer: "VeilPix brings image editing, text-to-image generation, and AI video generation into one privacy-focused creative tool. Your creation history and prompts stay in your browser instead of an account-synced VeilPix gallery, and cloud AI requests are proxied so the model gateway does not receive your direct browser IP or VeilPix account identity."
   },
   {
     question: "What types of images and videos can I create?",
@@ -37,7 +37,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: "How do you handle my photos, videos, and prompts?",
-    answer: "Privacy is a core priority. Uploaded media and prompts are sent only for the requested generation or edit. Your creation history and its prompts are saved locally in your browser so you can recall them, rather than stored as a server-side user library. VeilPix avoids advertising trackers and is designed around private creative workflows."
+    answer: "Uploaded media and prompts are sent through VeilPix to the selected cloud AI provider for the requested generation or edit. Your creation history and prompts are saved locally in your browser rather than in a server-side VeilPix creative library. Provider retention still applies; see the VeilPix Privacy page for the current data flow and retention details."
   },
   {
     question: "Is VeilPix really free?",

@@ -312,7 +312,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
         }
 
         uploadedFilename = uploadResult.filename;
-        console.log(`Image uploaded for Nano Banana Pro: ${uploadResult.url}`);
+        console.log('Image uploaded for Nano Banana Pro');
 
         // Build API request
         const apiRequest = buildEditRequest(

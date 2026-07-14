@@ -146,7 +146,7 @@ const SignupPromptModal: React.FC<SignupPromptModalProps> = ({ isOpen, onClose }
 
           {/* Privacy note */}
           <p className="text-xs text-gray-500 mt-4 leading-relaxed">
-            Your privacy matters. VeilPix processes images temporarily and never stores your personal photos or data.
+            Your creations are not published or saved to a VeilPix cloud gallery. Generation uses cloud AI providers under our privacy policy.
           </p>
         </div>
       </div>

@@ -193,7 +193,7 @@ function normalizeResponse(nanoBanana2Response) {
  */
 async function urlToBase64(imageUrl) {
     try {
-        console.log(`Fetching image from URL: ${imageUrl}`);
+        console.log('Fetching generated image');
 
         const response = await fetch(imageUrl);
 

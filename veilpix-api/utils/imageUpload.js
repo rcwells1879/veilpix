@@ -23,10 +23,10 @@ const CLEANUP_HOURS = 2;
  *
  * @param {Buffer} imageBuffer - The image file buffer
  * @param {string} mimeType - The MIME type of the image (e.g., 'image/png')
- * @param {string} userId - Optional user ID for organizing uploads
+ * @param {string} userId - Accepted for caller compatibility; never written into the public object key
  * @returns {Promise<{success: boolean, url?: string, error?: string}>}
  */
-async function uploadTemporaryFile(fileBuffer, mimeType, userId = 'anonymous', label = 'file') {
+async function uploadTemporaryFile(fileBuffer, mimeType, _userId = 'anonymous', label = 'file') {
     try {
         const supabase = getSupabaseClient();
 
@@ -34,9 +34,9 @@ async function uploadTemporaryFile(fileBuffer, mimeType, userId = 'anonymous', l
         const timestamp = Date.now();
         const randomId = crypto.randomBytes(8).toString('hex');
         const extension = mimeType.split('/')[1] || 'bin';
-        const filename = `${userId}/${timestamp}_${randomId}.${extension}`;
+        const filename = `${timestamp}_${randomId}.${extension}`;
 
-        console.log(`📤 Uploading temporary ${label}: ${filename}`);
+        console.log(`📤 Uploading temporary ${label}`);
 
         // Upload to Supabase Storage
         const { data, error } = await supabase.storage
@@ -68,7 +68,7 @@ async function uploadTemporaryFile(fileBuffer, mimeType, userId = 'anonymous', l
             };
         }
 
-        console.log(`✅ ${label} uploaded successfully: ${urlData.publicUrl}`);
+        console.log(`✅ Temporary ${label} uploaded successfully`);
 
         return {
             success: true,
@@ -148,7 +148,7 @@ async function deleteTemporaryImage(filename) {
     try {
         const supabase = getSupabaseClient();
 
-        console.log(`🗑️ Deleting temporary image: ${filename}`);
+        console.log('🗑️ Deleting temporary image');
 
         const { error } = await supabase.storage
             .from(TEMP_IMAGE_BUCKET)
@@ -162,7 +162,7 @@ async function deleteTemporaryImage(filename) {
             };
         }
 
-        console.log(`✅ Image deleted successfully: ${filename}`);
+        console.log('✅ Temporary image deleted successfully');
         return { success: true };
 
     } catch (error) {

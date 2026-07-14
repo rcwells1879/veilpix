@@ -63,7 +63,13 @@ async function createWanTask(requestBody, model = 'wan/2-6-flash-image-to-video'
         input: requestBody
     };
 
-    console.log('📤 Wan request payload:', JSON.stringify(payload, null, 2));
+    console.log('📤 Wan request summary:', {
+        model,
+        imageCount: Array.isArray(requestBody.image_urls) ? requestBody.image_urls.length : 0,
+        hasVideoReference: Boolean(requestBody.video_url),
+        duration: requestBody.duration,
+        resolution: requestBody.resolution
+    });
 
     const response = await fetch(`${WAN_API_URL}/api/v1/jobs/createTask`, {
         method: 'POST',
@@ -80,7 +86,7 @@ async function createWanTask(requestBody, model = 'wan/2-6-flash-image-to-video'
     }
 
     const result = await response.json();
-    console.log('✅ Wan task response:', JSON.stringify(result, null, 2));
+    console.log('✅ Wan task created:', result.data?.taskId);
 
     if (result.code !== 200 || !result.data || !result.data.taskId) {
         throw new Error(`Task creation failed: ${result.message || result.msg || JSON.stringify(result)}`);
@@ -265,7 +271,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         }
 
         uploadedFilename = uploadResult.filename;
-        console.log(`✅ Reference image uploaded for Wan: ${uploadResult.url}`);
+        console.log('✅ Reference image uploaded for Wan');
 
         // Build Wan 2.6 Flash API request
         const wanRequest = buildImageToVideoRequest(
@@ -364,7 +370,7 @@ router.post('/generate-reference-to-video', upload.fields([
             }
             uploadedFilenames.push(imageUpload.filename);
             referenceImages.push(imageUpload.url);
-            console.log(`✅ Reference image uploaded for Wan R2V: ${imageUpload.url}`);
+            console.log('✅ Reference image uploaded for Wan R2V');
         }
 
         if (videoFile) {
@@ -377,7 +383,7 @@ router.post('/generate-reference-to-video', upload.fields([
             }
             uploadedFilenames.push(videoUpload.filename);
             referenceVideos.push(videoUpload.url);
-            console.log(`✅ Reference video uploaded for Wan R2V: ${videoUpload.url}`);
+            console.log('✅ Reference video uploaded for Wan R2V');
         } else if (referenceVideoUrl) {
             try {
                 const parsed = new URL(referenceVideoUrl);

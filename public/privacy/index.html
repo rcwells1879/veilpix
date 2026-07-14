@@ -4,211 +4,716 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- Primary Meta Tags -->
-    <title>Privacy Policy | VeilPix - AI Image and Video Generator</title>
-    <meta name="title" content="Privacy Policy | VeilPix - AI Image and Video Generator" />
-    <meta name="description" content="VeilPix privacy policy. Learn how we protect your photos, videos, prompts, and generated media for private AI image and video generation." />
+    <title>VeilPix Privacy & Data Practices</title>
+    <meta name="title" content="VeilPix Privacy & Data Practices" />
+    <meta name="description" content="A plain-language explanation of how VeilPix handles images, videos, prompts, account data, browser history, AI processing, and provider retention." />
     <meta name="robots" content="index, follow" />
-
-    <!-- Canonical URL -->
+    <meta name="theme-color" content="#0b0d12" />
     <link rel="canonical" href="https://veilstudio.io/veilpix/privacy/" />
-
-    <!-- Favicon -->
-    <link rel="icon" href="../og-image.webp" />
-
-    <!-- Styles -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="../favicon.png" />
 
     <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0b0d12;
+            --surface: #12161d;
+            --surface-strong: #171d25;
+            --line: #29313c;
+            --text: #f4f7fa;
+            --muted: #a8b2bf;
+            --teal: #55d6c2;
+            --coral: #ef667a;
+            --amber: #f2c66d;
+            --blue: #72a7ff;
+            --max: 1120px;
+        }
+
+        * { box-sizing: border-box; }
+
+        html {
+            scroll-behavior: smooth;
+            scroll-padding-top: 88px;
+        }
+
         body {
-            font-family: 'Inter', sans-serif;
-            min-height: 100vh;
-            overflow-x: hidden;
+            margin: 0;
+            min-width: 320px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 16px;
+            line-height: 1.65;
+            letter-spacing: 0;
+        }
+
+        a { color: var(--teal); }
+        a:hover { color: #8de7d9; }
+
+        .site-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+            background: rgba(11, 13, 18, 0.94);
+            backdrop-filter: blur(14px);
+        }
+
+        .nav {
+            width: min(calc(100% - 32px), var(--max));
+            min-height: 64px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .brand {
+            color: var(--text);
+            font-size: 1.25rem;
+            font-weight: 800;
+            text-decoration: none;
+        }
+
+        .brand span { color: var(--teal); }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .nav-links a {
+            color: var(--muted);
+            font-size: 0.9rem;
+            font-weight: 650;
+            text-decoration: none;
+        }
+
+        .nav-links a:hover { color: var(--text); }
+
+        .hero {
+            border-bottom: 1px solid var(--line);
+            background:
+                linear-gradient(90deg, rgba(85, 214, 194, 0.09), transparent 38%),
+                var(--surface);
+        }
+
+        .hero-inner {
+            width: min(calc(100% - 32px), var(--max));
+            margin: 0 auto;
+            padding: 64px 0 52px;
+        }
+
+        .eyebrow {
+            margin: 0 0 14px;
+            color: var(--teal);
+            font-size: 0.78rem;
+            font-weight: 800;
+            text-transform: uppercase;
+        }
+
+        h1, h2, h3 { letter-spacing: 0; }
+
+        h1 {
+            max-width: 760px;
+            margin: 0;
+            font-size: clamp(2.45rem, 6vw, 4.7rem);
+            line-height: 1.03;
+        }
+
+        .hero-copy {
+            max-width: 760px;
+            margin: 24px 0 0;
+            color: #d4dbe3;
+            font-size: 1.18rem;
+        }
+
+        .updated {
+            margin: 20px 0 0;
+            color: var(--muted);
+            font-size: 0.88rem;
+        }
+
+        .facts {
+            width: min(calc(100% - 32px), var(--max));
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            border-right: 1px solid var(--line);
+            border-bottom: 1px solid var(--line);
+        }
+
+        .fact {
+            min-height: 156px;
+            padding: 28px 24px;
+            border-left: 1px solid var(--line);
+            background: var(--bg);
+        }
+
+        .fact strong {
+            display: block;
+            margin-bottom: 9px;
+            color: var(--text);
+            font-size: 1rem;
+        }
+
+        .fact p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.55;
+        }
+
+        .layout {
+            width: min(calc(100% - 32px), var(--max));
+            margin: 0 auto;
+            padding: 72px 0 96px;
+            display: grid;
+            grid-template-columns: 220px minmax(0, 1fr);
+            gap: 72px;
+        }
+
+        .toc {
+            position: sticky;
+            top: 96px;
+            align-self: start;
+        }
+
+        .toc strong {
+            display: block;
+            margin-bottom: 13px;
+            color: var(--text);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+        }
+
+        .toc a {
+            display: block;
+            padding: 7px 0;
+            color: var(--muted);
+            font-size: 0.88rem;
+            text-decoration: none;
+        }
+
+        .toc a:hover { color: var(--teal); }
+
+        .content { min-width: 0; }
+
+        section {
+            padding: 0 0 64px;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 64px;
+        }
+
+        section:last-child {
+            margin-bottom: 0;
+            border-bottom: 0;
+        }
+
+        h2 {
+            margin: 0 0 20px;
+            font-size: clamp(1.65rem, 4vw, 2.25rem);
+            line-height: 1.18;
+        }
+
+        h3 {
+            margin: 28px 0 9px;
+            font-size: 1.08rem;
+            line-height: 1.35;
+        }
+
+        p { margin: 0 0 18px; }
+        .lede { color: #d7dee6; font-size: 1.08rem; }
+        .muted { color: var(--muted); }
+
+        .plain-truth {
+            margin-top: 28px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .plain-truth > div { padding: 26px; }
+        .plain-truth > div + div { border-left: 1px solid var(--line); }
+        .plain-truth h3 { margin-top: 0; }
+
+        .yes h3 { color: var(--teal); }
+        .no h3 { color: var(--coral); }
+
+        ul {
+            margin: 12px 0 0;
+            padding-left: 20px;
+            color: #d0d7df;
+        }
+
+        li { margin: 8px 0; }
+        li::marker { color: var(--teal); }
+
+        .flow {
+            margin-top: 30px;
+            display: grid;
+            gap: 0;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .flow-step {
+            display: grid;
+            grid-template-columns: 54px 180px minmax(0, 1fr);
+            align-items: start;
+            gap: 16px;
+            padding: 22px;
+            background: var(--surface);
+        }
+
+        .flow-step + .flow-step { border-top: 1px solid var(--line); }
+
+        .step-number {
+            width: 36px;
+            height: 36px;
+            border: 1px solid #3d4b58;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            color: var(--teal);
+            font-weight: 800;
+        }
+
+        .flow-step strong { padding-top: 5px; }
+        .flow-step p { margin: 3px 0 0; color: var(--muted); }
+
+        .notice {
+            margin: 28px 0;
+            padding: 20px 22px;
+            border-left: 3px solid var(--amber);
+            background: rgba(242, 198, 109, 0.08);
+            color: #e5dcc8;
+        }
+
+        .notice strong { color: var(--amber); }
+
+        .table-wrap {
+            margin-top: 28px;
+            overflow-x: auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            min-width: 690px;
+            border-collapse: collapse;
+            background: var(--surface);
+            font-size: 0.91rem;
+        }
+
+        th, td {
+            padding: 17px 18px;
+            border-bottom: 1px solid var(--line);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        tr:last-child td { border-bottom: 0; }
+        th { color: var(--text); background: var(--surface-strong); font-size: 0.78rem; text-transform: uppercase; }
+        td { color: #c9d1da; }
+        td:first-child { color: var(--text); font-weight: 700; }
+
+        .comparison-note {
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .source-list {
+            margin-top: 24px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px 24px;
+        }
+
+        .source-list a {
+            display: block;
+            color: #c6d9f8;
+            font-size: 0.88rem;
+        }
+
+        .control-list {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+            margin-top: 26px;
+        }
+
+        .control {
+            padding: 20px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+        }
+
+        .control h3 { margin-top: 0; color: var(--blue); }
+        .control p { margin-bottom: 0; color: var(--muted); font-size: 0.92rem; }
+
+        .contact-band {
+            padding: 32px;
+            border: 1px solid #3b4d58;
+            border-radius: 8px;
+            background: var(--surface-strong);
+        }
+
+        .contact-band h2 { margin-bottom: 12px; }
+        .contact-band p:last-child { margin-bottom: 0; }
+
+        .site-footer {
+            border-top: 1px solid var(--line);
+            background: #080a0e;
+        }
+
+        .footer-inner {
+            width: min(calc(100% - 32px), var(--max));
+            margin: 0 auto;
+            padding: 32px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            color: var(--muted);
+            font-size: 0.86rem;
+        }
+
+        .footer-links { display: flex; gap: 22px; }
+        .footer-links a { color: var(--muted); text-decoration: none; }
+        .footer-links a:hover { color: var(--text); }
+
+        @media (max-width: 900px) {
+            .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .layout { grid-template-columns: 1fr; gap: 0; }
+            .toc { display: none; }
+        }
+
+        @media (max-width: 640px) {
+            .nav { min-height: 58px; }
+            .nav-links { gap: 16px; }
+            .nav-links a { font-size: 0.83rem; }
+            .hero-inner { padding: 46px 0 40px; }
+            .hero-copy { font-size: 1.03rem; }
+            .facts { grid-template-columns: 1fr; }
+            .fact { min-height: auto; padding: 21px; }
+            .layout { padding: 54px 0 70px; }
+            section { padding-bottom: 48px; margin-bottom: 48px; }
+            .plain-truth, .control-list, .source-list { grid-template-columns: 1fr; }
+            .plain-truth > div + div { border-left: 0; border-top: 1px solid var(--line); }
+            .flow-step { grid-template-columns: 42px minmax(0, 1fr); }
+            .flow-step p { grid-column: 2; }
+            .contact-band { padding: 24px; }
+            .footer-inner { align-items: flex-start; flex-direction: column; }
         }
     </style>
 
-    <!-- Structured Data -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "WebPage",
-      "name": "Privacy Policy",
-      "description": "VeilPix privacy policy explaining data handling practices",
-      "publisher": {
-        "@type": "Organization",
-        "name": "VeilPix"
-      },
-      "dateModified": "2026-06-06"
-    }
-    </script>
-
-    <!-- BreadcrumbList Schema -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      "itemListElement": [
-        {"@type": "ListItem", "position": 1, "name": "VeilPix", "item": "https://veilstudio.io/veilpix/"},
-        {"@type": "ListItem", "position": 2, "name": "Privacy Policy", "item": "https://veilstudio.io/veilpix/privacy/"}
-      ]
+      "name": "VeilPix Privacy & Data Practices",
+      "description": "A plain-language explanation of how VeilPix handles creative content, account data, analytics, AI processing, and provider retention.",
+      "url": "https://veilstudio.io/veilpix/privacy/",
+      "publisher": { "@type": "Organization", "name": "VeilPix" },
+      "dateModified": "2026-07-14"
     }
     </script>
 </head>
 <body>
-    <!-- Background -->
-    <div class="fixed inset-0 -z-10">
-        <div class="absolute inset-0 bg-gradient-to-br from-[#020106] via-[#0A1629] via-[#113652] to-[#00A6E8]"></div>
-        <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/3 to-transparent animate-pulse [animation-duration:6s]"></div>
-    </div>
+    <header class="site-header">
+        <nav class="nav" aria-label="Primary navigation">
+            <a class="brand" href="../"><span>Veil</span>Pix</a>
+            <div class="nav-links">
+                <a href="../">Create</a>
+                <a href="../blog/">Blog</a>
+                <a href="../terms/">Terms</a>
+            </div>
+        </nav>
+    </header>
 
-    <!-- Navigation -->
-    <nav class="w-full bg-black/20 backdrop-blur-sm border-b border-white/10">
-        <div class="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-            <a href="../" class="text-2xl font-bold text-white hover:text-blue-300 transition-colors">
-                VeilPix
-            </a>
-            <div class="flex items-center space-x-6">
-                <a href="../" class="text-gray-300 hover:text-white transition-colors">Create</a>
-                <a href="../blog/" class="text-gray-300 hover:text-white transition-colors">Blog</a>
+    <main>
+        <div class="hero">
+            <div class="hero-inner">
+                <p class="eyebrow">Privacy &amp; data practices</p>
+                <h1>VeilPix privacy, explained plainly.</h1>
+                <p class="hero-copy">
+                    Your creations are not a social feed or an account-synced gallery. VeilPix keeps your working history in your browser, proxies generation requests through our server, and sends only the content needed to create your result. Cloud AI still requires cloud processing, so this page also explains exactly where your content goes and how long the provider says it remains there.
+                </p>
+                <p class="updated">Effective and last updated: July 14, 2026</p>
             </div>
         </div>
-    </nav>
 
-    <!-- Content -->
-    <main class="max-w-4xl mx-auto px-4 py-12">
-        <!-- Breadcrumb -->
-        <nav class="text-sm text-gray-400 mb-8">
-            <a href="../" class="hover:text-white">VeilPix</a> >
-            <span class="text-white">Privacy Policy</span>
-        </nav>
-
-        <!-- Header -->
-        <header class="mb-12">
-            <h1 class="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
-                Privacy Policy
-            </h1>
-            <p class="text-xl text-gray-300 leading-relaxed">
-                Last updated: June 6, 2026
-            </p>
-        </header>
-
-        <!-- Content -->
-        <article class="prose prose-lg prose-invert max-w-none space-y-8">
-            <section class="bg-white/10 backdrop-blur-sm rounded-xl border border-white/20 p-6">
-                <h2 class="text-2xl font-bold text-white mb-4">Our Privacy Commitment</h2>
-                <p class="text-gray-300 leading-relaxed">
-                    VeilPix is built with privacy as a core principle. We believe your images, videos, prompts, and creative work belong to you alone. This policy explains how we handle your data - spoiler: we collect almost nothing.
-                </p>
-            </section>
-
-            <section>
-                <h2 class="text-2xl font-bold text-white mb-4">Media Processing</h2>
-                <div class="bg-green-900/20 border border-green-500/30 rounded-lg p-6">
-                    <h3 class="text-xl font-semibold text-green-300 mb-3">What We Do NOT Store</h3>
-                    <ul class="text-gray-300 space-y-2">
-                        <li><strong>Your Media:</strong> Photos and videos are processed for the requested edit or generation and then discarded</li>
-                        <li><strong>Your Prompts:</strong> Text descriptions you enter are not logged or stored</li>
-                        <li><strong>Editing History:</strong> Your undo/redo history exists only in your browser</li>
-                        <li><strong>Generated Media:</strong> Output images and videos are delivered directly to your browser</li>
-                    </ul>
-                </div>
-            </section>
-
-            <section>
-                <h2 class="text-2xl font-bold text-white mb-4">AI Processing</h2>
-                <p class="text-gray-300 mb-4 leading-relaxed">
-                    VeilPix uses third-party AI models including Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7, and Wan 2.6 Flash to process images, videos, and prompts. When you submit media for editing or generation:
-                </p>
-                <ul class="text-gray-300 space-y-2 pl-6">
-                    <li>Your image, video, and/or prompt is sent to the AI provider for processing</li>
-                    <li>The AI provider processes your request and returns the result</li>
-                    <li>We do not retain copies of media sent to AI providers</li>
-                    <li>AI providers have their own privacy policies regarding temporary processing</li>
-                </ul>
-            </section>
-
-            <section>
-                <h2 class="text-2xl font-bold text-white mb-4">Account Information</h2>
-                <p class="text-gray-300 mb-4 leading-relaxed">
-                    If you choose to create an account (via Clerk authentication), we collect:
-                </p>
-                <ul class="text-gray-300 space-y-2 pl-6">
-                    <li><strong>Email address:</strong> For account identification and communication</li>
-                    <li><strong>Usage count:</strong> Number of AI generation and editing credits used</li>
-                    <li><strong>Payment information:</strong> Processed securely by Stripe (we never see your full card number)</li>
-                </ul>
-            </section>
-
-            <section>
-                <h2 class="text-2xl font-bold text-white mb-4">Analytics</h2>
-                <p class="text-gray-300 mb-4 leading-relaxed">
-                    We use Google Analytics with privacy-enhanced settings:
-                </p>
-                <ul class="text-gray-300 space-y-2 pl-6">
-                    <li>IP anonymization enabled</li>
-                    <li>No advertising signals</li>
-                    <li>No ad personalization</li>
-                    <li>Limited cookie retention (30 days)</li>
-                </ul>
-            </section>
-
-            <section>
-                <h2 class="text-2xl font-bold text-white mb-4">Cookies</h2>
-                <p class="text-gray-300 leading-relaxed">
-                    VeilPix uses minimal cookies only for essential functionality:
-                </p>
-                <ul class="text-gray-300 space-y-2 pl-6 mt-4">
-                    <li><strong>Authentication:</strong> Session cookies if you sign in</li>
-                    <li><strong>Preferences:</strong> Local storage for settings (AI model selection, theme)</li>
-                    <li><strong>Analytics:</strong> Google Analytics cookies (anonymized)</li>
-                </ul>
-            </section>
-
-            <section>
-                <h2 class="text-2xl font-bold text-white mb-4">Your Rights</h2>
-                <p class="text-gray-300 mb-4 leading-relaxed">
-                    You have the right to:
-                </p>
-                <ul class="text-gray-300 space-y-2 pl-6">
-                    <li>Access your account data</li>
-                    <li>Request deletion of your account</li>
-                    <li>Export your usage history</li>
-                    <li>Opt out of analytics</li>
-                </ul>
-            </section>
-
-            <section>
-                <h2 class="text-2xl font-bold text-white mb-4">Contact</h2>
-                <p class="text-gray-300 leading-relaxed">
-                    For privacy-related questions, please contact us through our website.
-                </p>
-            </section>
-
-            <div class="bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-2xl border border-white/20 p-8 text-center mt-16">
-                <h3 class="text-2xl font-bold text-white mb-4">Ready to Create with Privacy?</h3>
-                <p class="text-gray-300 mb-6">
-                    Experience private AI image and video generation with complete peace of mind.
-                </p>
-                <a href="../" class="bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold py-4 px-8 rounded-lg hover:from-blue-700 hover:to-blue-600 transition-all duration-300 inline-block">
-                    Start Creating
-                </a>
+        <div class="facts" aria-label="Privacy summary">
+            <div class="fact">
+                <strong>No public gallery</strong>
+                <p>VeilPix does not publish your creations or make them discoverable to other users.</p>
             </div>
-        </article>
+            <div class="fact">
+                <strong>Browser-local history</strong>
+                <p>Your VeilPix gallery, prompts, and workflow history stay in this browser unless you clear them.</p>
+            </div>
+            <div class="fact">
+                <strong>Identity-shielded requests</strong>
+                <p>The AI gateway receives our server connection, not your direct browser IP, email, or payment identity.</p>
+            </div>
+            <div class="fact">
+                <strong>14-day provider media window</strong>
+                <p>Kie.ai says generated media is automatically deleted after 14 days; task text and metadata remain longer.</p>
+            </div>
+        </div>
+
+        <div class="layout">
+            <aside class="toc" aria-label="On this page">
+                <strong>On this page</strong>
+                <a href="#promise">The honest promise</a>
+                <a href="#flow">How a request moves</a>
+                <a href="#data">What we handle</a>
+                <a href="#partners">Service providers</a>
+                <a href="#comparison">How VeilPix compares</a>
+                <a href="#controls">Your controls</a>
+                <a href="#security">Security &amp; limits</a>
+                <a href="#contact">Contact</a>
+            </aside>
+
+            <article class="content">
+                <section id="promise">
+                    <p class="eyebrow">The honest promise</p>
+                    <h2>Private by design does not mean “never leaves your device.”</h2>
+                    <p class="lede">
+                        VeilPix is a cloud AI tool. Your prompt and any reference media must be sent for generation. Our privacy approach is to avoid building a server-side creative profile around that content, avoid publishing it, and separate your direct identity from the request sent to the AI gateway.
+                    </p>
+
+                    <div class="plain-truth">
+                        <div class="yes">
+                            <h3>What VeilPix does</h3>
+                            <ul>
+                                <li>Keeps creation history and saved prompts in browser storage.</li>
+                                <li>Proxies AI calls through the VeilPix API.</li>
+                                <li>Uses temporary media URLs only when a model requires them.</li>
+                                <li>Avoids a public feed and account-linked cloud gallery.</li>
+                                <li>Does not use creative content to train a VeilPix model.</li>
+                            </ul>
+                        </div>
+                        <div class="no">
+                            <h3>What VeilPix cannot promise</h3>
+                            <ul>
+                                <li>That prompts and media never leave your device.</li>
+                                <li>That cloud providers retain nothing after generation.</li>
+                                <li>That content itself cannot reveal who you are.</li>
+                                <li>That an active result URL is private if you share it.</li>
+                                <li>Absolute anonymity or security on the internet.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="flow">
+                    <p class="eyebrow">Request flow</p>
+                    <h2>How a creation moves through VeilPix</h2>
+                    <p class="lede">The shortest accurate version is browser to VeilPix to AI provider, then back to your browser.</p>
+
+                    <div class="flow">
+                        <div class="flow-step">
+                            <span class="step-number">1</span>
+                            <strong>Your browser</strong>
+                            <p>You choose media and enter a prompt. Local gallery items, thumbnails, prompts, and settings are stored in browser storage on that device.</p>
+                        </div>
+                        <div class="flow-step">
+                            <span class="step-number">2</span>
+                            <strong>VeilPix API</strong>
+                            <p>Your request reaches our server over HTTPS. We verify your account and credits, select the model, and submit the generation with a server-side API key.</p>
+                        </div>
+                        <div class="flow-step">
+                            <span class="step-number">3</span>
+                            <strong>Temporary media</strong>
+                            <p>When a model needs a URL, VeilPix temporarily uploads the reference file to Supabase Storage. We attempt to delete it as soon as the job completes or fails. A failed cleanup can delay deletion.</p>
+                        </div>
+                        <div class="flow-step">
+                            <span class="step-number">4</span>
+                            <strong>Kie.ai &amp; model infrastructure</strong>
+                            <p>Kie.ai receives the prompt, model settings, and necessary media or temporary URLs. It sees the VeilPix server connection and VeilPix API identity, not your direct browser IP, email, Clerk identity, or Stripe details.</p>
+                        </div>
+                        <div class="flow-step">
+                            <span class="step-number">5</span>
+                            <strong>Your result</strong>
+                            <p>Image results are returned to the app and may be saved in your local browser gallery. Video entries can point to provider-hosted result files, so download anything you want to keep.</p>
+                        </div>
+                    </div>
+
+                    <div class="notice">
+                        <strong>Provider retention:</strong> Kie.ai's current documentation says generated media files are stored for 14 days and then automatically deleted. It separately says task logs containing text and metadata are stored for two months. Those are Kie.ai's practices, not a claim that VeilPix controls the provider's storage.
+                    </div>
+                </section>
+
+                <section id="data">
+                    <p class="eyebrow">Data inventory</p>
+                    <h2>What we handle and why</h2>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Where it goes</th>
+                                    <th>Purpose and retention</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Prompts &amp; reference media</td>
+                                    <td>VeilPix API, temporary storage when required, Kie.ai and model infrastructure</td>
+                                    <td>Used to perform the requested generation. VeilPix does not create a server-side creative library. Kie.ai documents separate retention for generated media and task logs.</td>
+                                </tr>
+                                <tr>
+                                    <td>Local gallery &amp; settings</td>
+                                    <td>Your browser's IndexedDB and local storage</td>
+                                    <td>Lets you revisit work and preferences. It remains until you delete gallery items, use Clear All, or clear site data. It does not automatically sync across devices.</td>
+                                </tr>
+                                <tr>
+                                    <td>Account information</td>
+                                    <td>Clerk and VeilPix's Supabase database</td>
+                                    <td>Email, authentication identifiers, account status, and credit balance are used to operate and secure your account.</td>
+                                </tr>
+                                <tr>
+                                    <td>Usage records</td>
+                                    <td>VeilPix's Supabase database</td>
+                                    <td>Request type, credit cost, task identifier, processing time, success or error status, and similar operational metadata support billing, reliability, and abuse prevention.</td>
+                                </tr>
+                                <tr>
+                                    <td>Payment information</td>
+                                    <td>Stripe</td>
+                                    <td>Stripe processes payment details. VeilPix stores transaction and customer references but does not receive your full card number.</td>
+                                </tr>
+                                <tr>
+                                    <td>Site analytics</td>
+                                    <td>Google Analytics</td>
+                                    <td>Page, feature, device, and network information helps us understand product use. VeilPix does not put prompts or media into its custom analytics events. IP anonymization is enabled, Google signals and ad personalization are disabled, and the configured analytics cookie lifetime is 30 days.</td>
+                                </tr>
+                                <tr>
+                                    <td>Security &amp; server logs</td>
+                                    <td>VeilPix infrastructure</td>
+                                    <td>Routes, response status, timing, task IDs, IP information in error/security contexts, and error details may be logged to operate and defend the service. Standard generation logs are designed not to record raw prompts or full media payloads.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section id="partners">
+                    <p class="eyebrow">Service providers</p>
+                    <h2>Who helps operate VeilPix</h2>
+                    <p>We use service providers only for functions the product needs:</p>
+                    <ul>
+                        <li><strong>Kie.ai and underlying model infrastructure</strong> for AI image and video generation.</li>
+                        <li><strong>Supabase</strong> for account, usage, billing-reference, and temporary object storage.</li>
+                        <li><strong>Clerk</strong> for sign-in, sessions, and account authentication.</li>
+                        <li><strong>Stripe</strong> for credit purchases and payment processing.</li>
+                        <li><strong>Google Analytics</strong> for privacy-configured product and traffic measurement.</li>
+                        <li><strong>Hosting and security providers</strong> for application delivery, networking, logging, and protection.</li>
+                    </ul>
+                    <p class="muted">These providers process data under their own terms and policies. We may also disclose information when required by law, to protect users or the service, or as part of a business transaction with appropriate safeguards.</p>
+                </section>
+
+                <section id="comparison">
+                    <p class="eyebrow">A narrow comparison</p>
+                    <h2>How VeilPix differs from several direct AI products</h2>
+                    <p class="lede">Privacy comparisons are only useful when they are specific. This table compares a few published defaults as of July 14, 2026. Plans, settings, regions, and business products can change the result.</p>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Published default or practice</th>
+                                    <th>VeilPix distinction</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Midjourney</td>
+                                    <td>Midjourney says creations are open by default and may appear on Explore; Stealth Mode is limited to Pro and Mega plans.</td>
+                                    <td>VeilPix has no public creation feed. Your local gallery is not published to other users.</td>
+                                </tr>
+                                <tr>
+                                    <td>Consumer ChatGPT</td>
+                                    <td>OpenAI says individual-service content may be used to improve models unless the user opts out; Temporary Chat follows different rules.</td>
+                                    <td>VeilPix does not use your content to train a VeilPix model and does not maintain an account-synced creative history. Provider processing still applies.</td>
+                                </tr>
+                                <tr>
+                                    <td>Google AI Studio / Gemini API</td>
+                                    <td>Google's terms say content submitted through unpaid services may be used to improve products and may be reviewed by humans; paid services have different data-use terms.</td>
+                                    <td>VeilPix avoids sending your direct account identity to Kie.ai and does not build a server-side gallery, but Kie.ai and model-provider terms still govern cloud processing.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <p class="comparison-note">VeilPix is independent and is not affiliated with or endorsed by Midjourney, OpenAI, Google, Kie.ai, or the model operators available through the service.</p>
+
+                    <div class="source-list" aria-label="Comparison sources">
+                        <a href="https://docs.kie.ai/1973359m0" target="_blank" rel="noopener noreferrer">Kie.ai: task logs and generated-file retention</a>
+                        <a href="https://docs.midjourney.com/hc/en-us/articles/28014645615373-Keeping-Your-Creations-Private" target="_blank" rel="noopener noreferrer">Midjourney: keeping creations private</a>
+                        <a href="https://help.openai.com/en/articles/5722486-chatgpt-privacy-policies" target="_blank" rel="noopener noreferrer">OpenAI: how consumer content is used</a>
+                        <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener noreferrer">Google: Gemini API additional terms</a>
+                    </div>
+                </section>
+
+                <section id="controls">
+                    <p class="eyebrow">Your controls</p>
+                    <h2>Practical choices you can make</h2>
+                    <div class="control-list">
+                        <div class="control">
+                            <h3>Delete local creations</h3>
+                            <p>Remove individual gallery items or use Clear All. Clearing the browser's VeilPix site data also removes locally stored history and settings.</p>
+                        </div>
+                        <div class="control">
+                            <h3>Save videos you need</h3>
+                            <p>Download provider-hosted videos before the 14-day media window ends. A local gallery entry does not extend the provider link's lifetime.</p>
+                        </div>
+                        <div class="control">
+                            <h3>Limit identifying content</h3>
+                            <p>Remove location metadata and avoid faces, documents, or details you do not want processed by a cloud AI provider.</p>
+                        </div>
+                        <div class="control">
+                            <h3>Exercise data rights</h3>
+                            <p>Contact us to request access, correction, or deletion of account information, subject to legal, security, fraud-prevention, and transaction-record obligations.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="security">
+                    <p class="eyebrow">Security &amp; limits</p>
+                    <h2>Important limits to understand</h2>
+                    <p>We use HTTPS, server-side provider credentials, authenticated endpoints, rate limits, and access-controlled account systems. No online service can guarantee perfect security or anonymity.</p>
+                    <p>Temporary provider and storage URLs can be accessed by someone who obtains the full URL while it remains active. Do not share result links publicly unless you intend others to see them. Content can also identify you on its own even when VeilPix does not send your account details with the AI request.</p>
+                    <p>VeilPix is not directed to children under 13. We may update this policy as the product, providers, or law changes. Material changes will be reflected by the date at the top of this page.</p>
+                </section>
+
+                <section id="contact">
+                    <div class="contact-band">
+                        <p class="eyebrow">Questions or requests</p>
+                        <h2>Talk to VeilStudio</h2>
+                        <p>For a privacy question or account-data request, contact VeilStudio and identify your request as relating to VeilPix. We may need to verify your identity before changing or disclosing account information.</p>
+                        <p><a href="https://veilstudio.io/#contact">Contact VeilStudio</a></p>
+                    </div>
+                </section>
+            </article>
+        </div>
     </main>
 
-    <!-- Footer -->
-    <footer class="mt-20 border-t border-white/10 bg-black/20 backdrop-blur-sm">
-        <div class="max-w-4xl mx-auto px-4 py-8">
-            <div class="flex flex-col md:flex-row items-center justify-between">
-                <div class="text-gray-400 text-sm mb-4 md:mb-0">
-                    2026 VeilPix. Privacy-first AI image and video generation.
-                </div>
-                <div class="flex items-center space-x-6">
-                    <a href="../" class="text-gray-400 hover:text-white text-sm transition-colors">Create</a>
-                    <a href="../blog/" class="text-gray-400 hover:text-white text-sm transition-colors">Blog</a>
-                    <a href="../terms/" class="text-gray-400 hover:text-white text-sm transition-colors">Terms</a>
-                </div>
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <span>&copy; 2026 VeilPix. Privacy-focused AI creation, described without shortcuts.</span>
+            <div class="footer-links">
+                <a href="../">Create</a>
+                <a href="../terms/">Terms</a>
+                <a href="../blog/">Blog</a>
             </div>
         </div>
     </footer>

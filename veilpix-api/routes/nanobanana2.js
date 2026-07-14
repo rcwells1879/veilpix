@@ -306,7 +306,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
         }
 
         uploadedFilename = uploadResult.filename;
-        console.log(`Image uploaded for Nano Banana 2: ${uploadResult.url}`);
+        console.log('Image uploaded for Nano Banana 2');
 
         // Build API request
         const apiRequest = buildEditRequest(
@@ -661,7 +661,7 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
         const { prompt, resolution = '2K', aspectRatio = '1:1' } = req.body;
 
         console.log('Starting Nano Banana 2 text-to-image generation');
-        console.log('Prompt:', prompt);
+        console.log('Nano Banana 2 request summary:', { resolution, aspectRatio });
 
         if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
             return res.status(400).json({

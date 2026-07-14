@@ -95,15 +95,18 @@ function getSeedreamModel(seedreamTier, workflow) {
 async function createSeedreamTask(requestBody, model) {
     try {
         console.log('🌐 Creating SeeDream task');
-        console.log('📝 Input parameters:', JSON.stringify(requestBody, null, 2));
+        console.log('📝 SeeDream request summary:', {
+            model,
+            imageCount: Array.isArray(requestBody.image_urls) ? requestBody.image_urls.length : 0,
+            resolution: requestBody.resolution,
+            aspectRatio: requestBody.aspect_ratio
+        });
 
         // Kie.ai expects parameters nested inside "input" object
         const payload = {
             model,
             input: requestBody
         };
-
-        console.log('📤 Full request payload:', JSON.stringify(payload, null, 2));
 
         const response = await fetch(`${SEEDREAM_API_URL}/api/v1/jobs/createTask`, {
             method: 'POST',
@@ -120,7 +123,7 @@ async function createSeedreamTask(requestBody, model) {
         }
 
         const result = await response.json();
-        console.log('✅ SeeDream task created:', result);
+        console.log('✅ SeeDream task created:', result.data?.taskId);
 
         // Kie.ai response format: { code: 200, message: "success", data: { taskId: "..." } }
         if (result.code !== 200 || !result.data || !result.data.taskId) {
@@ -325,7 +328,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
         }
 
         uploadedFilename = uploadResult.filename;
-        console.log(`✅ Image uploaded for SeeDream: ${uploadResult.url}`);
+        console.log('✅ Image uploaded for SeeDream');
 
         // Build SeeDream API request
         const seedreamRequest = buildEditRequest(

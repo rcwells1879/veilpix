@@ -81,7 +81,6 @@ function getCreditDetailsForRequest(req) {
 async function createWanImageTask(requestBody) {
     try {
         console.log('🌐 Creating Wan Image task');
-        console.log('📝 Input parameters:', JSON.stringify(requestBody, null, 2));
 
         const selectedWorkflow = Array.isArray(requestBody.input_urls) && requestBody.input_urls.length > 0
             ? IMAGE_WORKFLOWS.IMAGE_TO_IMAGE
@@ -92,7 +91,13 @@ async function createWanImageTask(requestBody) {
             input: requestBody
         };
 
-        console.log('📤 Full request payload:', JSON.stringify(payload, null, 2));
+        console.log('📝 Wan Image request summary:', {
+            model: selectedModel,
+            workflow: selectedWorkflow,
+            imageCount: Array.isArray(requestBody.input_urls) ? requestBody.input_urls.length : 0,
+            resolution: requestBody.resolution,
+            aspectRatio: requestBody.aspect_ratio
+        });
 
         const response = await fetch(`${WAN_API_URL}/api/v1/jobs/createTask`, {
             method: 'POST',
@@ -109,7 +114,7 @@ async function createWanImageTask(requestBody) {
         }
 
         const result = await response.json();
-        console.log('✅ Wan Image task created:', result);
+        console.log('✅ Wan Image task created:', result.data?.taskId);
 
         if (result.code !== 200 || !result.data || !result.data.taskId) {
             throw new Error(`Task creation failed: ${result.message || 'Unknown error'}`);
