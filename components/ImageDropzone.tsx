@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatCreditLabel } from '../src/utils/creditFormatting';
+import { useImageImport } from '../src/hooks/useImageImport';
 import { PhotoIcon, CameraIcon } from './icons';
 import { SparkleIcon } from './Header';
 import Spinner from './Spinner';
@@ -22,32 +23,21 @@ export interface ImageDropzoneProps {
   isGeneratingImage?: boolean;
   imageCreditCost?: number;
   enableDocumentPaste?: boolean;
+  pastePriority?: number;
 }
 
-const IMAGE_FILE_EXTENSION = /\.(avif|gif|heic|heif|jpe?g|png|webp)$/i;
-
-const isImageFile = (file: File) => file.type.startsWith('image/') || IMAGE_FILE_EXTENSION.test(file.name);
-
-const getFileNameFromUrl = (url: string, mimeType: string) => {
-  try {
-    const fileName = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'dropped-image');
-    if (IMAGE_FILE_EXTENSION.test(fileName)) return fileName;
-  } catch {
-    // Data URLs and malformed source URLs fall through to a generated name.
-  }
-
-  const extension = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-  return `dropped-image.${extension}`;
-};
-
-const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick, showTextToImage = false, onTextToImageGenerate, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost = 2, enableDocumentPaste = false }) => {
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
+const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label, showWebcam = false, onWebcamClick, showTextToImage = false, onTextToImageGenerate, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost = 2, enableDocumentPaste = true, pastePriority = 0 }) => {
   const [fileUrl, setFileUrl] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isTextToImageMode, setIsTextToImageMode] = useState(false);
   const [textPrompt, setTextPrompt] = useState('');
   const [wasGenerating, setWasGenerating] = useState(false);
   const imageCreditLabel = formatCreditLabel(imageCreditCost);
+  const imageImport = useImageImport({
+    onImages: (files) => onFileSelect(files[0]),
+    enableDocumentPaste,
+    pastePriority,
+  });
+  const { isDraggingOver, isProcessing } = imageImport;
 
   useEffect(() => {
     if (file) {
@@ -69,96 +59,11 @@ const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label
     }
   }, [isGeneratingImage, wasGenerating, isTextToImageMode]);
 
-  const processImageFile = useCallback(async (selectedFile: File) => {
-    if (!isImageFile(selectedFile)) {
-      alert('Please choose, paste, or drop an image file.');
-      return;
-    }
-
-    setIsProcessing(true);
-    try {
-      const { processFileForUpload } = await import('../src/utils/heicConverter');
-      onFileSelect(await processFileForUpload(selectedFile));
-    } catch (error) {
-      console.error('Failed to process image file:', error);
-      alert(error instanceof Error ? error.message : 'Failed to process the image. Please try a JPEG or PNG.');
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [onFileSelect]);
-
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
-    if (selectedFile) void processImageFile(selectedFile);
+    if (selectedFile) void imageImport.importFiles([selectedFile]);
     event.target.value = '';
   };
-
-  const processImageUrl = useCallback(async (sourceUrl: string) => {
-    try {
-      setIsProcessing(true);
-      const response = await fetch(sourceUrl);
-      if (!response.ok) throw new Error(`Image request failed with status ${response.status}`);
-
-      const blob = await response.blob();
-      if (!blob.type.startsWith('image/')) throw new Error('The dropped link does not point to an image');
-
-      await processImageFile(new File([blob], getFileNameFromUrl(sourceUrl, blob.type), { type: blob.type }));
-    } catch (error) {
-      console.error('Failed to load dropped image URL:', error);
-      alert('That site prevented the image from being imported. Copy and paste the image, download it, or drag the downloaded file here.');
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [processImageFile]);
-
-  const handleDrop = (event: React.DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-    setIsDraggingOver(false);
-
-    const droppedFile = Array.from(event.dataTransfer.files).find(isImageFile)
-      || Array.from(event.dataTransfer.items)
-        .find((item) => item.kind === 'file' && item.type.startsWith('image/'))
-        ?.getAsFile();
-
-    if (droppedFile) {
-      void processImageFile(droppedFile);
-      return;
-    }
-
-    const html = event.dataTransfer.getData('text/html');
-    const htmlImageUrl = html
-      ? new DOMParser().parseFromString(html, 'text/html').querySelector('img')?.src
-      : null;
-    const plainUrl = event.dataTransfer.getData('text/uri-list')
-      .split('\n')
-      .find((line) => line && !line.startsWith('#'))
-      || event.dataTransfer.getData('text/plain');
-    const sourceUrl = htmlImageUrl || plainUrl.trim();
-
-    if (sourceUrl && /^(https?:|data:|blob:)/i.test(sourceUrl)) {
-      void processImageUrl(sourceUrl);
-    }
-  };
-
-  useEffect(() => {
-    if (!enableDocumentPaste) return;
-
-    const handlePaste = (event: ClipboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.matches('input, textarea, [contenteditable="true"]')) return;
-
-      const pastedFile = Array.from(event.clipboardData?.items || [])
-        .find((item) => item.kind === 'file' && item.type.startsWith('image/'))
-        ?.getAsFile();
-      if (!pastedFile) return;
-
-      event.preventDefault();
-      void processImageFile(pastedFile);
-    };
-
-    document.addEventListener('paste', handlePaste);
-    return () => document.removeEventListener('paste', handlePaste);
-  }, [enableDocumentPaste, processImageFile]);
 
   const handleTextToImageClick = () => {
     if (!isAuthenticated && onShowSignupPrompt) {
@@ -222,14 +127,8 @@ const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label
         </div>
       ) : (
         <label
+          {...imageImport.targetProps}
           className={`flex flex-col items-center justify-center w-full h-64 p-4 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 ${isDraggingOver ? 'border-blue-400 bg-blue-500/10' : 'border-gray-600 hover:border-gray-500 hover:bg-white/5'}`}
-          onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              setIsDraggingOver(false);
-            }
-          }}
-          onDrop={handleDrop}
         >
           {fileUrl ? (
             <>
@@ -256,9 +155,9 @@ const ImageDropzone: React.FC<ImageDropzoneProps> = ({ onFileSelect, file, label
                 <span className="font-semibold text-gray-300">{label}</span>
                 <span className="text-sm text-gray-500">
                   {showTextToImage && showWebcam
-                    ? 'Click to upload, drag & drop, generate with text, or use webcam'
+                    ? 'Click to upload, paste, drag & drop, generate with text, or use webcam'
                     : showTextToImage
-                      ? 'Click to upload, drag & drop, or generate with text'
+                      ? 'Click to upload, paste, drag & drop, or generate with text'
                       : showWebcam
                         ? 'Click to upload, paste, drag & drop, or use webcam'
                         : 'Click to upload, paste, or drag & drop'}

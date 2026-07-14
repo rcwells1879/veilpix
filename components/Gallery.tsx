@@ -13,6 +13,10 @@ import {
   GalleryThumbnail,
   GalleryVideoDetails,
 } from '../src/utils/workflowStorage';
+import {
+  VEILPIX_GALLERY_IMAGE_PREFIX,
+  VEILPIX_GALLERY_IMAGE_TYPE,
+} from '../src/utils/imageTransfer';
 
 interface GalleryProps {
   onSelectImage: (file: File, prompt: string) => void;
@@ -130,6 +134,12 @@ const Gallery: React.FC<GalleryProps> = ({
     }
   };
 
+  const handleImageDragStart = (event: React.DragEvent<HTMLElement>, id: number) => {
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(VEILPIX_GALLERY_IMAGE_TYPE, String(id));
+    event.dataTransfer.setData('text/plain', `${VEILPIX_GALLERY_IMAGE_PREFIX}${id}`);
+  };
+
   const handleDelete = async (id: number) => {
     // Revoke the thumbnail URL to free memory
     if (thumbnailUrls[id]) {
@@ -205,18 +215,24 @@ const Gallery: React.FC<GalleryProps> = ({
         {images.map((image) => (
           <div
             key={image.id}
+            onDragStartCapture={(event) => {
+              if (image.type === 'image') handleImageDragStart(event, image.id);
+            }}
             className="relative group aspect-square bg-gray-800 rounded-lg overflow-hidden border border-gray-700/50 hover:border-blue-500/50 transition-colors"
           >
             {/* Thumbnail Image */}
             <button
               onClick={() => handleImageClick(image.id, image.type)}
               disabled={loadingImageId === image.id}
+              draggable={image.type === 'image' && loadingImageId !== image.id}
+              title={image.type === 'image' ? 'Drag to an image input to use the original' : undefined}
               className="w-full h-full"
             >
               {thumbnailUrls[image.id] && (
                 <img
                   src={thumbnailUrls[image.id]}
                   alt={image.name}
+                  draggable={image.type === 'image'}
                   className="w-full h-full object-cover"
                 />
               )}

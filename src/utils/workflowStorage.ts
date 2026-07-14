@@ -675,9 +675,10 @@ export interface SaveVideoToGalleryOptions {
 export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<void> {
   try {
     const { videoUrl, provider, referenceImage = null, referenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, videoDuration, prompt = '' } = options;
+    const maxStoredReferenceImages = provider === 'seedance' ? 9 : 5;
     const db = await openDB();
     const storedReferenceImages = referenceImages.length > 0
-      ? referenceImages.slice(0, 5)
+      ? referenceImages.slice(0, maxStoredReferenceImages)
       : referenceImage
         ? [referenceImage]
         : [];

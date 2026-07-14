@@ -766,6 +766,8 @@ export interface GenerateReferenceToVideoRequest {
 
 export interface GenerateSeedanceVideoRequest {
   referenceImages?: File[]
+  firstFrame?: File | null
+  lastFrame?: File | null
   referenceVideo?: File | null
   referenceVideoUrl?: string | null
   referenceVideoDuration?: number | null
@@ -788,9 +790,17 @@ export function useGenerateSeedanceVideo() {
     mutationFn: async (data: GenerateSeedanceVideoRequest): Promise<VideoGenerationResponse> => {
       const formData = new FormData()
 
+      if (data.firstFrame) {
+        const [compressedFirstFrame] = await compressMultipleImages([data.firstFrame], 20)
+        formData.append('firstFrame', compressedFirstFrame)
+      }
+      if (data.lastFrame) {
+        const [compressedLastFrame] = await compressMultipleImages([data.lastFrame], 20)
+        formData.append('lastFrame', compressedLastFrame)
+      }
       if (data.referenceImages?.length) {
         const compressedImages = await compressMultipleImages(data.referenceImages, 20)
-        compressedImages.slice(0, 4).forEach((image) => {
+        compressedImages.slice(0, 9).forEach((image) => {
           formData.append('referenceImages', image)
         })
       }

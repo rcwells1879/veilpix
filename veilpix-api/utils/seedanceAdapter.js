@@ -111,6 +111,16 @@ function buildSeedanceRequest(prompt, options = {}) {
     } = options;
 
     const selectedVariant = normalizeVariant(variant);
+    const hasFrameInput = Boolean(firstFrameUrl || lastFrameUrl);
+    const hasMultimodalInput = referenceImages.length > 0 || referenceVideos.length > 0 || referenceAudios.length > 0;
+
+    if (lastFrameUrl && !firstFrameUrl) {
+        throw new Error('A Seedance last frame requires a first frame');
+    }
+    if (hasFrameInput && hasMultimodalInput) {
+        throw new Error('Seedance frame inputs cannot be combined with multimodal references');
+    }
+
     const request = {
         prompt,
         duration: clampDuration(duration, selectedVariant),

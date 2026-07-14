@@ -64,6 +64,7 @@ import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryV
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast' | 'mini';
+type SeedanceInputMode = 'frames' | 'references';
 
 interface VideoGenerateOptions {
   provider: VideoProvider;
@@ -74,6 +75,7 @@ interface VideoGenerateOptions {
   wanAudio?: boolean;
   wanMultiShots?: boolean;
   seedanceVariant?: SeedanceVariant;
+  seedanceInputMode?: SeedanceInputMode;
   seedanceGenerateAudio?: boolean;
   seedanceWebSearch?: boolean;
 }
@@ -523,6 +525,9 @@ const App: React.FC = () => {
   const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
   const [referenceVideoDuration, setReferenceVideoDuration] = useState<number | null>(null);
   const [wanReferenceImages, setWanReferenceImages] = useState<File[]>([]);
+  const [seedanceInputMode, setSeedanceInputMode] = useState<SeedanceInputMode>('references');
+  const [seedanceFirstFrame, setSeedanceFirstFrame] = useState<File | null>(null);
+  const [seedanceLastFrame, setSeedanceLastFrame] = useState<File | null>(null);
   const [seedanceReferenceImages, setSeedanceReferenceImages] = useState<File[]>([]);
   const [seedanceReferenceVideoFile, setSeedanceReferenceVideoFile] = useState<File | null>(null);
   const [seedanceReferenceVideoUrl, setSeedanceReferenceVideoUrl] = useState<string | null>(null);
@@ -776,7 +781,8 @@ const App: React.FC = () => {
 
     setCreativeMode('video');
     if (videoProvider === 'seedance') {
-      setSeedanceReferenceImages(prev => [...prev, file].slice(0, 4));
+      setSeedanceInputMode('references');
+      setSeedanceReferenceImages(prev => [...prev, file].slice(0, 9));
     } else {
       const maxImages = referenceVideoFile || referenceVideoUrl ? 4 : 5;
       setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
@@ -811,8 +817,11 @@ const App: React.FC = () => {
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(null);
     setSeedanceReferenceAudioFile(null);
+    setSeedanceFirstFrame(null);
+    setSeedanceLastFrame(null);
     if (selectedProvider === 'seedance') {
-      setSeedanceReferenceImages(referenceImages.slice(0, 4));
+      setSeedanceInputMode('references');
+      setSeedanceReferenceImages(referenceImages.slice(0, 9));
       setWanReferenceImages([]);
     } else {
       setWanReferenceImages(referenceImages.slice(0, 5));
@@ -835,6 +844,7 @@ const App: React.FC = () => {
     setRestoredVideoPrompt(details.prompt);
     setVideoPromptRecallKey(key => key + 1);
     if (videoProvider === 'seedance') {
+      setSeedanceInputMode('references');
       setSeedanceReferenceVideoFile(details.videoFile);
       setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
       setSeedanceReferenceVideoDuration(details.videoDuration ?? null);
@@ -1307,6 +1317,9 @@ const App: React.FC = () => {
       setReferenceVideoFile(null);
       setReferenceVideoUrl(null);
       setReferenceVideoDuration(null);
+      setSeedanceInputMode('references');
+      setSeedanceFirstFrame(null);
+      setSeedanceLastFrame(null);
       setSeedanceReferenceImages([]);
       setSeedanceReferenceVideoFile(null);
       setSeedanceReferenceVideoUrl(null);
@@ -1358,6 +1371,9 @@ const App: React.FC = () => {
       setReferenceVideoFile(null);
       setReferenceVideoUrl(null);
       setReferenceVideoDuration(null);
+      setSeedanceInputMode('references');
+      setSeedanceFirstFrame(null);
+      setSeedanceLastFrame(null);
       setSeedanceReferenceImages([]);
       setSeedanceReferenceVideoFile(null);
       setSeedanceReferenceVideoUrl(null);
@@ -1414,6 +1430,7 @@ const App: React.FC = () => {
       wanAudio = true,
       wanMultiShots = false,
       seedanceVariant = 'regular',
+      seedanceInputMode: selectedSeedanceInputMode = 'references',
       seedanceGenerateAudio = false,
       seedanceWebSearch = false
     } = options;
@@ -1429,12 +1446,15 @@ const App: React.FC = () => {
       let response: any;
 
       if (provider === 'seedance') {
+        const usesFrameMode = selectedSeedanceInputMode === 'frames';
         response = await seedanceVideoMutation.mutateAsync({
-            referenceImages: seedanceReferenceImages,
-            referenceVideo: seedanceReferenceVideoFile,
-            referenceVideoUrl: seedanceReferenceVideoUrl,
-            referenceVideoDuration: seedanceReferenceVideoDuration,
-            referenceAudio: seedanceReferenceAudioFile,
+            firstFrame: usesFrameMode ? seedanceFirstFrame : null,
+            lastFrame: usesFrameMode ? seedanceLastFrame : null,
+            referenceImages: usesFrameMode ? [] : seedanceReferenceImages,
+            referenceVideo: usesFrameMode ? null : seedanceReferenceVideoFile,
+            referenceVideoUrl: usesFrameMode ? null : seedanceReferenceVideoUrl,
+            referenceVideoDuration: usesFrameMode ? null : seedanceReferenceVideoDuration,
+            referenceAudio: usesFrameMode ? null : seedanceReferenceAudioFile,
             prompt,
             variant: seedanceVariant,
             duration,
@@ -1481,10 +1501,16 @@ const App: React.FC = () => {
         saveVideoToGallery({
           videoUrl: response.videoUrl,
           provider,
-          referenceImage: provider === 'seedance' ? seedanceReferenceImages[0] ?? null : wanReferenceImagesForRequest[0] ?? null,
-          referenceImages: provider === 'seedance' ? seedanceReferenceImages : wanReferenceImagesForRequest,
-          referenceVideoFile: provider === 'seedance' ? seedanceReferenceVideoFile : referenceVideoFile,
-          referenceVideoUrl: provider === 'seedance' ? seedanceReferenceVideoUrl : referenceVideoUrl,
+          referenceImage: provider === 'seedance'
+            ? (selectedSeedanceInputMode === 'frames' ? seedanceFirstFrame : seedanceReferenceImages[0]) ?? null
+            : wanReferenceImagesForRequest[0] ?? null,
+          referenceImages: provider === 'seedance'
+            ? selectedSeedanceInputMode === 'frames'
+              ? [seedanceFirstFrame, seedanceLastFrame].filter((file): file is File => Boolean(file))
+              : seedanceReferenceImages
+            : wanReferenceImagesForRequest,
+          referenceVideoFile: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoFile : provider === 'wan' ? referenceVideoFile : null,
+          referenceVideoUrl: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoUrl : provider === 'wan' ? referenceVideoUrl : null,
           videoDuration: duration,
           prompt
         }).then(() => setGalleryRefreshTrigger(n => n + 1));
@@ -1506,6 +1532,8 @@ const App: React.FC = () => {
     referenceVideoUrl,
     wanReferenceImages,
     seedanceReferenceAudioFile,
+    seedanceFirstFrame,
+    seedanceLastFrame,
     seedanceReferenceImages,
     seedanceReferenceVideoDuration,
     seedanceReferenceVideoFile,
@@ -1562,13 +1590,33 @@ const App: React.FC = () => {
     setVideoError(null);
   }, [clearVideoResult]);
 
+  const handleSeedanceInputModeChange = useCallback((mode: SeedanceInputMode) => {
+    setSeedanceInputMode(mode);
+    clearVideoResult();
+    setVideoError(null);
+  }, [clearVideoResult]);
+
+  const handleSeedanceFirstFrameSelect = useCallback((file: File | null) => {
+    setSeedanceFirstFrame(file);
+    if (!file) setSeedanceLastFrame(null);
+    clearVideoResult();
+    setVideoError(null);
+  }, [clearVideoResult]);
+
+  const handleSeedanceLastFrameSelect = useCallback((file: File | null) => {
+    setSeedanceLastFrame(file);
+    clearVideoResult();
+    setVideoError(null);
+  }, [clearVideoResult]);
+
   const handleSeedanceReferenceImagesChange = useCallback((images: File[]) => {
-    setSeedanceReferenceImages(images.slice(0, 4));
+    setSeedanceReferenceImages(images.slice(0, 9));
     clearVideoResult();
     setVideoError(null);
   }, [clearVideoResult]);
 
   const handleSeedanceReferenceVideoSelect = useCallback(async (file: File | null) => {
+    setSeedanceInputMode('references');
     setSeedanceReferenceVideoFile(file);
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
@@ -1585,6 +1633,7 @@ const App: React.FC = () => {
   }, [clearVideoResult]);
 
   const handleSeedanceReferenceAudioSelect = useCallback((file: File | null) => {
+    setSeedanceInputMode('references');
     setSeedanceReferenceAudioFile(file);
     clearVideoResult();
     setVideoError(null);
@@ -1593,6 +1642,7 @@ const App: React.FC = () => {
   const handleUseGeneratedVideoAsReference = useCallback(() => {
     if (!videoUrl) return;
     if (videoProvider === 'seedance') {
+      setSeedanceInputMode('references');
       setSeedanceReferenceVideoFile(galleryVideoFile);
       setSeedanceReferenceVideoUrl(galleryVideoFile ? null : videoUrl);
       setSeedanceReferenceVideoDuration(null);
@@ -1624,7 +1674,8 @@ const App: React.FC = () => {
         try {
           const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
           const processedFile = await isHEIC(file) ? await processFileForUpload(file) : file;
-          setSeedanceReferenceImages(prev => [...prev, processedFile].slice(0, 4));
+          setSeedanceInputMode('references');
+          setSeedanceReferenceImages(prev => [...prev, processedFile].slice(0, 9));
           clearVideoResult();
           setVideoError(null);
           setView('editor');
@@ -1772,11 +1823,17 @@ const App: React.FC = () => {
         referenceVideoUrl={referenceVideoUrl}
         referenceVideoDuration={referenceVideoDuration}
         onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+        seedanceInputMode={seedanceInputMode}
+        seedanceFirstFrame={seedanceFirstFrame}
+        seedanceLastFrame={seedanceLastFrame}
         seedanceReferenceImages={seedanceReferenceImages}
         seedanceReferenceVideoFile={seedanceReferenceVideoFile}
         seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
         seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
         seedanceReferenceAudioFile={seedanceReferenceAudioFile}
+        onSeedanceInputModeChange={handleSeedanceInputModeChange}
+        onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
+        onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
         onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
         onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
         onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
@@ -2162,6 +2219,9 @@ const App: React.FC = () => {
                 referenceVideoFile={referenceVideoFile}
                 referenceVideoUrl={referenceVideoUrl}
                 referenceVideoDuration={referenceVideoDuration}
+                seedanceInputMode={seedanceInputMode}
+                seedanceFirstFrame={seedanceFirstFrame}
+                seedanceLastFrame={seedanceLastFrame}
                 seedanceReferenceImages={seedanceReferenceImages}
                 seedanceReferenceVideoFile={seedanceReferenceVideoFile}
                 seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
@@ -2170,6 +2230,9 @@ const App: React.FC = () => {
                 onReferenceImageSelect={handleReferenceImageSelect}
                 onWanReferenceImagesChange={handleWanReferenceImagesChange}
                 onReferenceVideoSelect={handleReferenceVideoSelect}
+                onSeedanceInputModeChange={handleSeedanceInputModeChange}
+                onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
+                onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
                 onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
                 onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
                 onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
@@ -2210,11 +2273,17 @@ const App: React.FC = () => {
       referenceVideoUrl={referenceVideoUrl}
       referenceVideoDuration={referenceVideoDuration}
       onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+      seedanceInputMode={seedanceInputMode}
+      seedanceFirstFrame={seedanceFirstFrame}
+      seedanceLastFrame={seedanceLastFrame}
       seedanceReferenceImages={seedanceReferenceImages}
       seedanceReferenceVideoFile={seedanceReferenceVideoFile}
       seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
       seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
       seedanceReferenceAudioFile={seedanceReferenceAudioFile}
+      onSeedanceInputModeChange={handleSeedanceInputModeChange}
+      onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
+      onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
       onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
       onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
       onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}

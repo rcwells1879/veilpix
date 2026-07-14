@@ -4,10 +4,12 @@
 */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { VideoIcon } from './icons';
+import { useImageImport } from '../src/hooks/useImageImport';
+import { PhotoIcon, VideoIcon } from './icons';
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast' | 'mini';
+type SeedanceInputMode = 'frames' | 'references';
 
 interface VideoGenerateOptions {
   provider: VideoProvider;
@@ -18,6 +20,7 @@ interface VideoGenerateOptions {
   wanAudio?: boolean;
   wanMultiShots?: boolean;
   seedanceVariant?: SeedanceVariant;
+  seedanceInputMode?: SeedanceInputMode;
   seedanceGenerateAudio?: boolean;
   seedanceWebSearch?: boolean;
 }
@@ -37,6 +40,9 @@ interface VideoControlsPanelProps {
   referenceVideoUrl?: string | null;
   referenceVideoDuration?: number | null;
   seedanceReferenceImages: File[];
+  seedanceInputMode: SeedanceInputMode;
+  seedanceFirstFrame?: File | null;
+  seedanceLastFrame?: File | null;
   seedanceReferenceVideoFile?: File | null;
   seedanceReferenceVideoUrl?: string | null;
   seedanceReferenceVideoDuration?: number | null;
@@ -44,6 +50,9 @@ interface VideoControlsPanelProps {
   onReferenceImageSelect?: (file: File | null) => void;
   onWanReferenceImagesChange?: (files: File[]) => void;
   onReferenceVideoSelect?: (file: File | null) => void;
+  onSeedanceInputModeChange: (mode: SeedanceInputMode) => void;
+  onSeedanceFirstFrameSelect: (file: File | null) => void;
+  onSeedanceLastFrameSelect: (file: File | null) => void;
   onSeedanceReferenceImagesChange: (files: File[]) => void;
   onSeedanceReferenceVideoSelect: (file: File | null) => void;
   onSeedanceReferenceVideoUrlRemove: () => void;
@@ -56,6 +65,7 @@ const WAN_27_DURATIONS = [5, 10] as const;
 const WAN_RESOLUTIONS = ['720p', '1080p'] as const;
 const WAN_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
 const SEEDANCE_VARIANTS: SeedanceVariant[] = ['regular', 'fast', 'mini'];
+const SEEDANCE_MAX_REFERENCE_IMAGES = 9;
 const SEEDANCE_RATIOS: Record<SeedanceVariant, string[]> = {
   regular: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
   fast: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
@@ -141,6 +151,83 @@ function FileImagePreview({ file, className }: { file: File; className: string }
   return <img src={url} alt={file.name} className={className} />;
 }
 
+function SeedanceFrameSlot({
+  file,
+  label,
+  helper,
+  disabled,
+  pastePriority,
+  onChange,
+}: {
+  file?: File | null;
+  label: string;
+  helper: string;
+  disabled: boolean;
+  pastePriority: number;
+  onChange: (file: File | null) => void;
+}) {
+  const imageImport = useImageImport({
+    onImages: (files) => onChange(files[0]),
+    disabled,
+    pastePriority,
+  });
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <span className="text-sm font-semibold text-gray-300">{label}</span>
+      {file ? (
+        <div
+          {...imageImport.targetProps}
+          title={`Paste or drop a replacement ${label.toLowerCase()}`}
+          className={`relative aspect-video overflow-hidden rounded-lg border bg-black/40 transition ${
+            imageImport.isDraggingOver ? 'border-[#E04F67] ring-2 ring-[#E04F67]/30' : 'border-gray-700'
+          }`}
+        >
+          <FileImagePreview file={file} className="h-full w-full object-contain" />
+          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-black/75 px-3 py-2">
+            <span className="min-w-0 truncate text-xs text-gray-200">{file.name}</span>
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              disabled={disabled}
+              className="shrink-0 text-xs font-semibold text-red-300 transition hover:text-red-200 disabled:opacity-50"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ) : (
+        <label
+          {...imageImport.targetProps}
+          title={`Paste or drop ${label.toLowerCase()}`}
+          className={`flex aspect-video flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-4 text-center transition ${
+            disabled
+              ? 'cursor-not-allowed border-gray-700 bg-gray-900/30 opacity-55'
+              : imageImport.isDraggingOver
+                ? 'cursor-copy border-[#E04F67] bg-[#E04F67]/15 ring-2 ring-[#E04F67]/30'
+                : 'cursor-pointer border-[#E04F67]/40 bg-[#E04F67]/5 hover:border-[#E04F67] hover:bg-[#E04F67]/10'
+          }`}
+        >
+          <PhotoIcon className="h-7 w-7 text-[#F3A2AF]" />
+          <span className="text-sm font-bold text-gray-200">{imageImport.isProcessing ? 'Processing Image...' : `Add ${label}`}</span>
+          <span className="text-xs text-gray-500">{helper}</span>
+          <input
+            type="file"
+            accept="image/*,.heic,.heif"
+            className="hidden"
+            disabled={disabled || imageImport.isProcessing}
+            onChange={(event) => {
+              const selectedFile = event.target.files?.[0];
+              if (selectedFile) void imageImport.importFiles([selectedFile]);
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   isLoading,
   onGenerate,
@@ -156,6 +243,9 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   referenceVideoUrl,
   referenceVideoDuration,
   seedanceReferenceImages,
+  seedanceInputMode,
+  seedanceFirstFrame,
+  seedanceLastFrame,
   seedanceReferenceVideoFile,
   seedanceReferenceVideoUrl,
   seedanceReferenceVideoDuration,
@@ -163,6 +253,9 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   onReferenceImageSelect,
   onWanReferenceImagesChange,
   onReferenceVideoSelect,
+  onSeedanceInputModeChange,
+  onSeedanceFirstFrameSelect,
+  onSeedanceLastFrameSelect,
   onSeedanceReferenceImagesChange,
   onSeedanceReferenceVideoSelect,
   onSeedanceReferenceVideoUrlRemove,
@@ -188,7 +281,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
     setVideoPrompt(restoredPrompt);
   }, [promptRecallKey, restoredPrompt]);
 
-  const hasSeedanceVideoReference = Boolean(seedanceReferenceVideoFile || seedanceReferenceVideoUrl);
+  const hasSeedanceVideoReference = seedanceInputMode === 'references' && Boolean(seedanceReferenceVideoFile || seedanceReferenceVideoUrl);
   const displayedReferenceVideoUrl = referenceVideoPreviewUrl || referenceVideoUrl;
   const displayedSeedanceVideoUrl = seedanceVideoPreviewUrl || seedanceReferenceVideoUrl;
   const activeWanReferenceImages = wanReferenceImages ?? (referenceImage ? [referenceImage] : []);
@@ -202,6 +295,26 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
   const wanDurationOptions = wanUsesReferenceToVideo ? WAN_27_DURATIONS : WAN_26_DURATIONS;
   const seedanceDurationLimits = SEEDANCE_DURATION_LIMITS[seedanceVariant];
   const seedanceRatioOptions = SEEDANCE_RATIOS[seedanceVariant];
+  const wanImageImport = useImageImport({
+    onImages: (files) => {
+      if (onWanReferenceImagesChange) {
+        onWanReferenceImagesChange([...activeWanReferenceImages, ...files].slice(0, maxWanReferenceImages));
+      } else {
+        onReferenceImageSelect?.(files[0]);
+      }
+    },
+    disabled: isLoading || videoProvider !== 'wan' || !canAddWanReferenceImages || activeWanReferenceImages.length >= maxWanReferenceImages,
+    multiple: true,
+    maxFiles: maxWanReferenceImages - activeWanReferenceImages.length,
+  });
+  const seedanceImageImport = useImageImport({
+    onImages: (files) => onSeedanceReferenceImagesChange(
+      [...seedanceReferenceImages, ...files].slice(0, SEEDANCE_MAX_REFERENCE_IMAGES)
+    ),
+    disabled: isLoading || videoProvider !== 'seedance' || seedanceInputMode !== 'references' || seedanceReferenceImages.length >= SEEDANCE_MAX_REFERENCE_IMAGES,
+    multiple: true,
+    maxFiles: SEEDANCE_MAX_REFERENCE_IMAGES - seedanceReferenceImages.length,
+  });
 
   const wanCreditCost = useMemo(() => getWanCreditCost(wanDuration, wanResolution), [wanDuration, wanResolution]);
   const seedanceCreditCost = useMemo(() => getSeedanceCreditCost(
@@ -275,6 +388,7 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
         resolution: seedanceResolution,
         ratio: seedanceRatio,
         seedanceVariant,
+        seedanceInputMode,
         seedanceGenerateAudio,
         seedanceWebSearch,
       });
@@ -290,26 +404,6 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
       wanAudio: audioEnabled,
       wanMultiShots: multiShotsEnabled,
     });
-  };
-
-  const handleSeedanceImagesInput = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = (Array.from(event.currentTarget.files ?? []) as File[]).filter((file) => file.type.startsWith('image/'));
-    if (files.length > 0) {
-      onSeedanceReferenceImagesChange([...seedanceReferenceImages, ...files].slice(0, 4));
-    }
-    event.currentTarget.value = '';
-  };
-
-  const handleWanImagesInput = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = (Array.from(event.currentTarget.files ?? []) as File[]).filter((file) => file.type.startsWith('image/'));
-    if (files.length > 0) {
-      if (onWanReferenceImagesChange) {
-        onWanReferenceImagesChange([...activeWanReferenceImages, ...files].slice(0, maxWanReferenceImages));
-      } else {
-        onReferenceImageSelect?.(files[0]);
-      }
-    }
-    event.currentTarget.value = '';
   };
 
   const activeCreditCost = videoProvider === 'seedance' ? seedanceCreditCost : wanCreditCost;
@@ -399,16 +493,27 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
                   </div>
                 ))}
                 {canAddWanReferenceImages && activeWanReferenceImages.length < maxWanReferenceImages && (
-                  <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-blue-400/40 bg-blue-500/5 p-3 text-center transition hover:border-blue-400 hover:bg-blue-500/10">
-                    <span className="text-sm font-bold text-blue-200">Add Image</span>
-                    <span className="text-xs text-gray-500">{maxWanReferenceImages - activeWanReferenceImages.length} slots left</span>
+                  <label
+                    {...wanImageImport.targetProps}
+                    title="Paste or drop reference images"
+                    className={`flex aspect-square cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-3 text-center transition ${
+                      wanImageImport.isDraggingOver
+                        ? 'cursor-copy border-blue-400 bg-blue-500/15 ring-2 ring-blue-400/30'
+                        : 'border-blue-400/40 bg-blue-500/5 hover:border-blue-400 hover:bg-blue-500/10'
+                    }`}
+                  >
+                    <span className="text-sm font-bold text-blue-200">{wanImageImport.isProcessing ? 'Processing...' : 'Add Images'}</span>
+                    <span className="text-xs text-gray-500">Paste or drop - {maxWanReferenceImages - activeWanReferenceImages.length} slots left</span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/*,.heic,.heif"
                       multiple
                       className="hidden"
-                      disabled={isLoading}
-                      onChange={handleWanImagesInput}
+                      disabled={isLoading || wanImageImport.isProcessing}
+                      onChange={(event) => {
+                        void wanImageImport.importFiles(Array.from(event.currentTarget.files ?? []));
+                        event.currentTarget.value = '';
+                      }}
                     />
                   </label>
                 )}
@@ -468,106 +573,181 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="flex flex-col gap-2 md:col-span-2">
-            <label className="text-sm font-semibold text-gray-300">Reference Images</label>
-            <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {seedanceReferenceImages.map((file, index) => (
-                  <div key={`${file.name}-${file.lastModified}-${index}`} className="relative aspect-square overflow-hidden rounded-md bg-black/40">
-                    <FileImagePreview file={file} className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => onSeedanceReferenceImagesChange(seedanceReferenceImages.filter((_, imageIndex) => imageIndex !== index))}
-                      disabled={isLoading}
-                      className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-1 text-[10px] font-bold text-white transition hover:bg-red-600 disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                {seedanceReferenceImages.length < 4 && (
-                  <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-[#E04F67]/40 bg-[#E04F67]/5 p-3 text-center transition hover:border-[#E04F67] hover:bg-[#E04F67]/10">
-                    <span className="text-sm font-bold text-[#F3A2AF]">Add Image</span>
-                    <span className="text-xs text-gray-500">{4 - seedanceReferenceImages.length} slots left</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      disabled={isLoading}
-                      onChange={handleSeedanceImagesInput}
-                    />
-                  </label>
-                )}
-              </div>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-300">Reference Inputs</h4>
+              <p className="text-xs text-gray-500">Choose strict boundary frames or multimodal style and character references.</p>
+            </div>
+            <div className="grid shrink-0 grid-cols-2 rounded-lg border border-white/10 bg-gray-900/60 p-1">
+              <button
+                type="button"
+                onClick={() => onSeedanceInputModeChange('frames')}
+                disabled={isLoading}
+                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                  seedanceInputMode === 'frames'
+                    ? 'bg-[#E04F67] text-white shadow-md shadow-[#E04F67]/20'
+                    : 'text-gray-400 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                Start / End Frames
+              </button>
+              <button
+                type="button"
+                onClick={() => onSeedanceInputModeChange('references')}
+                disabled={isLoading}
+                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                  seedanceInputMode === 'references'
+                    ? 'bg-[#E04F67] text-white shadow-md shadow-[#E04F67]/20'
+                    : 'text-gray-400 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                Style / Character
+              </button>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-gray-300">Reference Video</label>
-              <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
-                {displayedSeedanceVideoUrl ? (
-                  <div className="flex flex-col gap-2">
-                    <video src={displayedSeedanceVideoUrl} controls className="max-h-40 w-full rounded bg-black object-contain" />
-                    <button
-                      type="button"
-                      onClick={() => seedanceReferenceVideoFile ? onSeedanceReferenceVideoSelect(null) : onSeedanceReferenceVideoUrlRemove()}
-                      disabled={isLoading}
-                      className="text-sm font-semibold text-red-300 hover:text-red-200 disabled:opacity-50"
-                    >
-                      Remove Video
-                    </button>
-                  </div>
-                ) : (
-                  <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-600 py-6 text-center transition hover:border-[#E04F67] hover:bg-[#E04F67]/10">
-                    <VideoIcon className="h-7 w-7 text-[#F3A2AF]" />
-                    <span className="text-sm font-semibold text-gray-200">Add Video</span>
-                    <span className="text-xs text-gray-500">Up to 15s input</span>
-                    <input
-                      type="file"
-                      accept="video/*"
-                      className="hidden"
-                      disabled={isLoading}
-                      onChange={(event) => onSeedanceReferenceVideoSelect(event.target.files?.[0] || null)}
-                    />
-                  </label>
-                )}
-              </div>
+          {seedanceInputMode === 'frames' ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <SeedanceFrameSlot
+                file={seedanceFirstFrame}
+                label="Start Frame"
+                helper="Exact first frame"
+                disabled={isLoading}
+                pastePriority={seedanceFirstFrame ? 1 : 0}
+                onChange={(file) => {
+                  onSeedanceFirstFrameSelect(file);
+                  if (!file && seedanceLastFrame) onSeedanceLastFrameSelect(null);
+                }}
+              />
+              <SeedanceFrameSlot
+                file={seedanceLastFrame}
+                label="End Frame"
+                helper={seedanceFirstFrame ? 'Optional exact final frame' : 'Add a start frame first'}
+                disabled={isLoading || !seedanceFirstFrame}
+                pastePriority={seedanceFirstFrame ? 0 : 2}
+                onChange={onSeedanceLastFrameSelect}
+              />
             </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <div>
+                  <label className="text-sm font-semibold text-gray-300">Style & Character Images</label>
+                  <p className="text-xs text-gray-500">Image roles are guided by your prompt.</p>
+                </div>
+                <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {seedanceReferenceImages.map((file, index) => (
+                      <div key={`${file.name}-${file.lastModified}-${index}`} className="relative aspect-square overflow-hidden rounded-md bg-black/40">
+                        <FileImagePreview file={file} className="h-full w-full object-cover" />
+                        <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-1 text-[10px] font-bold text-white">Reference {index + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => onSeedanceReferenceImagesChange(seedanceReferenceImages.filter((_, imageIndex) => imageIndex !== index))}
+                          disabled={isLoading}
+                          className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-1 text-[10px] font-bold text-white transition hover:bg-red-600 disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    {seedanceReferenceImages.length < SEEDANCE_MAX_REFERENCE_IMAGES && (
+                      <label
+                        {...seedanceImageImport.targetProps}
+                        title="Paste or drop style and character images"
+                        className={`flex aspect-square cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-3 text-center transition ${
+                          seedanceImageImport.isDraggingOver
+                            ? 'cursor-copy border-[#E04F67] bg-[#E04F67]/15 ring-2 ring-[#E04F67]/30'
+                            : 'border-[#E04F67]/40 bg-[#E04F67]/5 hover:border-[#E04F67] hover:bg-[#E04F67]/10'
+                        }`}
+                      >
+                        <PhotoIcon className="h-7 w-7 text-[#F3A2AF]" />
+                        <span className="text-sm font-bold text-[#F3A2AF]">{seedanceImageImport.isProcessing ? 'Processing...' : 'Add Images'}</span>
+                        <span className="text-xs text-gray-500">Paste or drop - {SEEDANCE_MAX_REFERENCE_IMAGES - seedanceReferenceImages.length} slots left</span>
+                        <input
+                          type="file"
+                          accept="image/*,.heic,.heif"
+                          multiple
+                          className="hidden"
+                          disabled={isLoading || seedanceImageImport.isProcessing}
+                          onChange={(event) => {
+                            void seedanceImageImport.importFiles(Array.from(event.currentTarget.files ?? []));
+                            event.currentTarget.value = '';
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-gray-300">Reference Audio</label>
-              <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
-                {seedanceReferenceAudioFile ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="truncate text-sm text-gray-300">{seedanceReferenceAudioFile.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => onSeedanceReferenceAudioSelect(null)}
-                      disabled={isLoading}
-                      className="text-sm font-semibold text-red-300 hover:text-red-200 disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-semibold text-gray-300">Reference Video</label>
+                  <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
+                    {displayedSeedanceVideoUrl ? (
+                      <div className="flex flex-col gap-2">
+                        <video src={displayedSeedanceVideoUrl} controls className="max-h-40 w-full rounded bg-black object-contain" />
+                        <button
+                          type="button"
+                          onClick={() => seedanceReferenceVideoFile ? onSeedanceReferenceVideoSelect(null) : onSeedanceReferenceVideoUrlRemove()}
+                          disabled={isLoading}
+                          className="text-sm font-semibold text-red-300 hover:text-red-200 disabled:opacity-50"
+                        >
+                          Remove Video
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-600 py-6 text-center transition hover:border-[#E04F67] hover:bg-[#E04F67]/10">
+                        <VideoIcon className="h-7 w-7 text-[#F3A2AF]" />
+                        <span className="text-sm font-semibold text-gray-200">Add Video</span>
+                        <span className="text-xs text-gray-500">Up to 15s input</span>
+                        <input
+                          type="file"
+                          accept="video/*"
+                          className="hidden"
+                          disabled={isLoading}
+                          onChange={(event) => onSeedanceReferenceVideoSelect(event.target.files?.[0] || null)}
+                        />
+                      </label>
+                    )}
                   </div>
-                ) : (
-                  <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-600 py-5 text-center transition hover:border-[#E04F67] hover:bg-[#E04F67]/10">
-                    <span className="text-sm font-semibold text-gray-200">Add Audio</span>
-                    <span className="text-xs text-gray-500">Music, voice, or rhythm guide</span>
-                    <input
-                      type="file"
-                      accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg"
-                      className="hidden"
-                      disabled={isLoading}
-                      onChange={(event) => onSeedanceReferenceAudioSelect(event.target.files?.[0] || null)}
-                    />
-                  </label>
-                )}
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-semibold text-gray-300">Reference Audio</label>
+                  <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
+                    {seedanceReferenceAudioFile ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate text-sm text-gray-300">{seedanceReferenceAudioFile.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => onSeedanceReferenceAudioSelect(null)}
+                          disabled={isLoading}
+                          className="text-sm font-semibold text-red-300 hover:text-red-200 disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-600 py-5 text-center transition hover:border-[#E04F67] hover:bg-[#E04F67]/10">
+                        <span className="text-sm font-semibold text-gray-200">Add Audio</span>
+                        <span className="text-xs text-gray-500">Music, voice, or rhythm guide</span>
+                        <input
+                          type="file"
+                          accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg"
+                          className="hidden"
+                          disabled={isLoading}
+                          onChange={(event) => onSeedanceReferenceAudioSelect(event.target.files?.[0] || null)}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 

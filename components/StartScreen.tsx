@@ -24,6 +24,7 @@ import type { GalleryVideoDetails } from '../src/utils/workflowStorage';
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast' | 'mini';
+type SeedanceInputMode = 'frames' | 'references';
 
 interface StartScreenProps {
   onFileSelect: (files: FileList | null) => void;
@@ -42,6 +43,7 @@ interface StartScreenProps {
     wanAudio?: boolean;
     wanMultiShots?: boolean;
     seedanceVariant?: SeedanceVariant;
+    seedanceInputMode?: SeedanceInputMode;
     seedanceGenerateAudio?: boolean;
     seedanceWebSearch?: boolean;
   }) => void;
@@ -52,12 +54,18 @@ interface StartScreenProps {
   referenceVideoUrl?: string | null;
   referenceVideoDuration?: number | null;
   onSeedanceReferenceVideoSelect?: (file: File | null) => void;
+  seedanceInputMode?: SeedanceInputMode;
+  seedanceFirstFrame?: File | null;
+  seedanceLastFrame?: File | null;
   seedanceReferenceImages?: File[];
   seedanceReferenceVideoFile?: File | null;
   seedanceReferenceVideoUrl?: string | null;
   seedanceReferenceVideoDuration?: number | null;
   seedanceReferenceAudioFile?: File | null;
   onSeedanceReferenceImagesChange?: (files: File[]) => void;
+  onSeedanceInputModeChange?: (mode: SeedanceInputMode) => void;
+  onSeedanceFirstFrameSelect?: (file: File | null) => void;
+  onSeedanceLastFrameSelect?: (file: File | null) => void;
   onSeedanceReferenceVideoUrlRemove?: () => void;
   onSeedanceReferenceAudioSelect?: (file: File | null) => void;
   videoProvider: VideoProvider;
@@ -77,7 +85,7 @@ interface StartScreenProps {
   videoError?: string | null;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, imageOptions, onImageOptionsChange, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSelect, onUseWebcamClick, onUseWebcamForCompositeClick, onTextToImageGenerate, imageOptions, onImageOptionsChange, onVideoGenerate, onReferenceVideoSelect, onWanReferenceImagesChange, wanReferenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, referenceVideoDuration = null, onSeedanceReferenceVideoSelect, seedanceInputMode = 'references', seedanceFirstFrame = null, seedanceLastFrame = null, seedanceReferenceImages = [], seedanceReferenceVideoFile = null, seedanceReferenceVideoUrl = null, seedanceReferenceVideoDuration = null, seedanceReferenceAudioFile = null, onSeedanceReferenceImagesChange, onSeedanceInputModeChange, onSeedanceFirstFrameSelect, onSeedanceLastFrameSelect, onSeedanceReferenceVideoUrlRemove, onSeedanceReferenceAudioSelect, videoProvider, onVideoProviderChange, activeMode, onModeChange, compositeFile1: initialCompositeFile1 = null, isAuthenticated = false, onShowSignupPrompt, isGeneratingImage = false, imageCreditCost, onSelectGalleryImage, onSelectGalleryVideo, onMakeGalleryImageReference, onMakeGalleryVideoReference, galleryRefreshTrigger, videoError }) => {
   const [compositeFile1, setCompositeFile1] = useState<File | null>(initialCompositeFile1);
   const [compositeFile2, setCompositeFile2] = useState<File | null>(null);
   const [compositePrompt, setCompositePrompt] = useState('');
@@ -297,6 +305,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
                     imageCreditCost={sourceGenerationCreditCost}
+                    pastePriority={compositeFile1 ? 2 : 0}
                   />
                   <ImageDropzone
                     file={compositeFile2}
@@ -310,6 +319,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
                     onShowSignupPrompt={onShowSignupPrompt}
                     isGeneratingImage={isGeneratingImage}
                     imageCreditCost={sourceGenerationCreditCost}
+                    pastePriority={!compositeFile1 ? 1 : !compositeFile2 ? 0 : 1}
                   />
               </div>
               <div className="flex w-full flex-col gap-3">
@@ -362,12 +372,18 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               referenceVideoUrl={referenceVideoUrl}
               referenceVideoDuration={referenceVideoDuration}
               seedanceReferenceImages={seedanceReferenceImages}
+              seedanceInputMode={seedanceInputMode}
+              seedanceFirstFrame={seedanceFirstFrame}
+              seedanceLastFrame={seedanceLastFrame}
               seedanceReferenceVideoFile={seedanceReferenceVideoFile}
               seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
               seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
               seedanceReferenceAudioFile={seedanceReferenceAudioFile}
               onWanReferenceImagesChange={onWanReferenceImagesChange || (() => {})}
               onReferenceVideoSelect={onReferenceVideoSelect}
+              onSeedanceInputModeChange={onSeedanceInputModeChange || (() => {})}
+              onSeedanceFirstFrameSelect={onSeedanceFirstFrameSelect || (() => {})}
+              onSeedanceLastFrameSelect={onSeedanceLastFrameSelect || (() => {})}
               onSeedanceReferenceImagesChange={onSeedanceReferenceImagesChange || (() => {})}
               onSeedanceReferenceVideoSelect={onSeedanceReferenceVideoSelect || (() => {})}
               onSeedanceReferenceVideoUrlRemove={onSeedanceReferenceVideoUrlRemove || (() => {})}

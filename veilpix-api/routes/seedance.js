@@ -27,7 +27,7 @@ const router = express.Router();
 const SEEDANCE_API_KEY = process.env.KIE_API_KEY || process.env.SEEDREAM_API_KEY;
 const SEEDANCE_API_URL = process.env.KIE_API_BASE_URL || process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
 
-const MAX_REFERENCE_IMAGES = 4;
+const MAX_REFERENCE_IMAGES = 9;
 const MAX_REFERENCE_VIDEOS = 1;
 const MAX_REFERENCE_AUDIOS = 1;
 const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
