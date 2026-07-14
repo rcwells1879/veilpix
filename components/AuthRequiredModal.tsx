@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React from 'react';
-import { SignInButton, SignUpButton } from '@clerk/clerk-react';
+import React, { useState } from 'react';
 import { LogInIcon, UserPlusIcon, CreditCardIcon } from './icons';
+import { CustomSignIn } from './CustomSignIn';
+import { CustomSignUp } from './CustomSignUp';
 
 interface AuthRequiredModalProps {
   isOpen: boolean;
@@ -13,7 +14,34 @@ interface AuthRequiredModalProps {
 }
 
 const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({ isOpen, onClose }) => {
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [showSignUp, setShowSignUp] = useState(false);
+
   if (!isOpen) return null;
+
+  if (showSignIn) {
+    return (
+      <CustomSignIn
+        onClose={onClose}
+        onSwitchToSignUp={() => {
+          setShowSignIn(false);
+          setShowSignUp(true);
+        }}
+      />
+    );
+  }
+
+  if (showSignUp) {
+    return (
+      <CustomSignUp
+        onClose={onClose}
+        onSwitchToSignIn={() => {
+          setShowSignUp(false);
+          setShowSignIn(true);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -56,12 +84,13 @@ const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({ isOpen, onClose }
           {/* Auth Buttons */}
           <div className="space-y-4">
             {/* Sign In Button */}
-            <SignInButton mode="modal">
-              <button className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl transition-all duration-300 ease-in-out shadow-lg hover:shadow-xl hover:-translate-y-px active:scale-95 group border border-gray-600">
+              <button
+                onClick={() => setShowSignIn(true)}
+                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gray-700 hover:bg-gray-600 rounded-xl transition-all duration-300 ease-in-out shadow-lg hover:shadow-xl hover:-translate-y-px active:scale-95 group border border-gray-600"
+              >
                 <LogInIcon className="w-5 h-5 text-blue-400 transition-transform group-hover:scale-110" />
                 <span className="text-white font-bold text-lg">Sign In</span>
               </button>
-            </SignInButton>
 
             {/* Divider */}
             <div className="relative">
@@ -74,12 +103,13 @@ const AuthRequiredModal: React.FC<AuthRequiredModalProps> = ({ isOpen, onClose }
             </div>
 
             {/* Sign Up Button */}
-            <SignUpButton mode="modal">
-              <button className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl transition-all duration-300 ease-in-out shadow-lg shadow-purple-500/20 hover:shadow-xl hover:shadow-purple-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner group">
+              <button
+                onClick={() => setShowSignUp(true)}
+                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl transition-all duration-300 ease-in-out shadow-lg shadow-purple-500/20 hover:shadow-xl hover:shadow-purple-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner group"
+              >
                 <UserPlusIcon className="w-5 h-5 text-white transition-transform group-hover:scale-110" />
                 <span className="text-white font-bold text-lg">Create Account</span>
               </button>
-            </SignUpButton>
           </div>
 
           {/* Info note */}

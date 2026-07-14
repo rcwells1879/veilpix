@@ -4,6 +4,7 @@
 */
 
 import React from 'react'
+import { useAuth } from '@clerk/clerk-react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useApiClient } from '../services/apiClient'
 import { queryClient } from '../queryClient'
@@ -84,9 +85,11 @@ export interface GenerateTextToImageRequest {
 // Custom hook for usage statistics (authenticated only)
 export function useUsageStats() {
   const { apiRequest } = useApiClient()
+  const { isLoaded, isSignedIn } = useAuth()
   
   return useQuery({
     queryKey: ['usage-stats'],
+    enabled: isLoaded && isSignedIn,
     queryFn: async (): Promise<UsageStats> => {
       console.log('🚀 Getting authenticated user stats and credits')
       const result = await apiRequest<UsageStats>('/api/usage/stats', { 

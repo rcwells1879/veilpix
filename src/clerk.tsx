@@ -1,4 +1,5 @@
 import { ClerkProvider } from '@clerk/clerk-react'
+import type { ReactNode } from 'react'
 
 // Get the publishable key from environment variables
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -60,13 +61,16 @@ const clerkTheme = {
 }
 
 interface ClerkWrapperProps {
-  children: React.ReactNode
+  children: ReactNode
 }
 
 export function ClerkWrapper({ children }: ClerkWrapperProps) {
+  const needsClerkProfileUi = new URLSearchParams(window.location.search).get('clerk_ui') === 'profile'
+
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
+      clerkJSVariant={needsClerkProfileUi ? '' : 'headless'}
       appearance={clerkTheme}
       afterSignUpUrl="/veilpix/"
       afterSignInUrl="/veilpix/"

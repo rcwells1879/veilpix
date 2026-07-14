@@ -2,10 +2,12 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { AuthButton } from './AuthButton';
 import { UsageCounter } from './UsageCounter';
-import { SettingsMenu, SettingsState } from './SettingsMenu';
+import type { SettingsState } from './SettingsMenu';
+
+const SettingsMenu = lazy(() => import('./SettingsMenu').then((module) => ({ default: module.SettingsMenu })));
 
 interface HeaderProps {
   onShowPricing?: () => void;
@@ -57,14 +59,18 @@ const Header: React.FC<HeaderProps> = ({ onShowPricing, settings, onSettingsChan
               <SettingsIcon className="w-5 h-5 text-gray-300" />
             </button>
 
-            <SettingsMenu
-              isOpen={isSettingsOpen}
-              onClose={() => setIsSettingsOpen(false)}
-              settings={settings}
-              onSettingsChange={onSettingsChange}
-              hasPurchasedCredits={hasPurchasedCredits}
-              onShowPricing={onShowPricing}
-            />
+            {isSettingsOpen && (
+              <Suspense fallback={null}>
+                <SettingsMenu
+                  isOpen={isSettingsOpen}
+                  onClose={() => setIsSettingsOpen(false)}
+                  settings={settings}
+                  onSettingsChange={onSettingsChange}
+                  hasPurchasedCredits={hasPurchasedCredits}
+                  onShowPricing={onShowPricing}
+                />
+              </Suspense>
+            )}
           </div>
 
           {/* Authentication */}

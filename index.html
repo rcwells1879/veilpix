@@ -345,43 +345,57 @@
       function loadGoogleTag() {
         if (window.__veilPixGtagLoaded) return;
         window.__veilPixGtagLoaded = true;
+        interactionEvents.forEach(function(eventName) {
+          window.removeEventListener(eventName, loadGoogleTag, interactionOptions);
+        });
         var script = document.createElement('script');
         script.async = true;
         script.src = 'https://www.googletagmanager.com/gtag/js?id=G-5WKT3R1ZSM';
         document.head.appendChild(script);
       }
 
-      function scheduleGoogleTagLoad() {
-        if ('requestIdleCallback' in window) {
-          window.requestIdleCallback(loadGoogleTag, { timeout: 2500 });
-        } else {
-          window.setTimeout(loadGoogleTag, 1500);
-        }
-      }
-
-      if (document.readyState === 'complete') {
-        scheduleGoogleTagLoad();
-      } else {
-        window.addEventListener('load', scheduleGoogleTagLoad, { once: true });
-      }
+      // Analytics is not required to render or use the start screen. Load it
+      // only after a real interaction so it cannot compete with FCP or LCP.
+      var interactionEvents = ['pointerdown', 'keydown', 'touchstart', 'scroll'];
+      var interactionOptions = { once: true, passive: true };
+      interactionEvents.forEach(function(eventName) {
+        window.addEventListener(eventName, loadGoogleTag, interactionOptions);
+      });
     </script>
 <!-- Web App Manifest for PWA -->
 <link rel="manifest" href="/veilpix/manifest.json">
 
-<!-- Performance optimizations -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preconnect" href="https://api.veilstudio.io">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Clerk is the only cross-origin dependency needed on the first screen. -->
+<link rel="preconnect" href="https://clerk.veilstudio.io" crossorigin>
 <style>
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     min-height: 100vh;
     overflow-x: hidden;
 }
 
+#veilpix-start-hero {
+    position: absolute;
+    top: 4.5rem;
+    left: 50%;
+    z-index: 2;
+    width: min(calc(100% - 2rem), 64rem);
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
+.js .seo-fallback {
+    visibility: hidden;
+}
+
+@media (min-width: 640px) {
+    #veilpix-start-hero {
+        top: 5.75rem;
+    }
+}
 
 </style>
+<script>document.documentElement.classList.add('js');</script>
   <link rel="stylesheet" href="/index.css">
 </head>
   <body>
@@ -389,10 +403,18 @@ body {
       <div class="absolute inset-0 bg-gradient-to-br from-[#020106] via-[#0A1629] via-[#113652] to-[#00A6E8]"></div>
       <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/3 to-transparent animate-pulse [animation-duration:6s]"></div>
     </div>
+    <section id="veilpix-start-hero" class="flex flex-col items-center gap-6 text-center" aria-labelledby="veilpix-start-heading">
+      <h1 id="veilpix-start-heading" class="text-5xl font-extrabold tracking-tight text-gray-100 sm:text-6xl md:text-7xl">
+        Create Images. Edit Photos. <span class="text-[#E04F67]">Generate Video.</span>
+      </h1>
+      <p class="max-w-3xl text-lg text-gray-400 md:text-xl">
+        Generate images from text, retouch photos, combine references, and create Wan or Seedance 2.0 video clips from simple prompts.
+      </p>
+    </section>
     <div id="root">
       <!-- Fallback content shown before React loads and to no-JavaScript visitors -->
-      <main itemscope itemtype="https://schema.org/WebApplication">
-        <h1>VeilPix - Free AI Image and Video Generator</h1>
+      <main class="seo-fallback" itemscope itemtype="https://schema.org/WebApplication">
+        <h2>VeilPix - Free AI Image and Video Generator</h2>
 
         <section aria-label="What is VeilPix">
           <h2>What is VeilPix?</h2>

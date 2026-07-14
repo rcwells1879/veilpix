@@ -9,19 +9,26 @@
  * that rely on exact email pattern matching (e.g., j.o.h.n@gmail.com).
 */
 
-import React, { useState } from 'react';
-import { SignOutButton, useUser, useClerk } from '@clerk/clerk-react';
+import React, { lazy, Suspense, useState } from 'react';
+import { useUser, useClerk } from '@clerk/clerk-react';
 import { LogInIcon, UserPlusIcon, LogOutIcon } from './icons';
-import { CustomSignUp } from './CustomSignUp';
-import { CustomSignIn } from './CustomSignIn';
+
+const CustomSignUp = lazy(() => import('./CustomSignUp').then((module) => ({ default: module.CustomSignUp })));
+const CustomSignIn = lazy(() => import('./CustomSignIn').then((module) => ({ default: module.CustomSignIn })));
 
 export const AuthButton: React.FC = () => {
   const { isSignedIn, user, isLoaded } = useUser();
-  const { openUserProfile } = useClerk();
+  const clerk = useClerk();
 
   // State for custom auth modals
   const [showSignUp, setShowSignUp] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
+
+  const handleOpenUserProfile = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('clerk_ui', 'profile');
+    window.location.assign(url.toString());
+  };
 
   if (!isLoaded) {
     return (
@@ -36,7 +43,7 @@ export const AuthButton: React.FC = () => {
       <div className="flex items-center space-x-1 sm:space-x-2">
           {/* User Profile Button */}
           <button
-            onClick={() => openUserProfile()}
+            onClick={handleOpenUserProfile}
             className="flex items-center space-x-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-800/50 hover:bg-gray-700/50 rounded-full transition-colors duration-200 border border-gray-600/50"
           >
             <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-[#E04F67] flex items-center justify-center text-white font-semibold text-xs sm:text-sm">
@@ -48,11 +55,13 @@ export const AuthButton: React.FC = () => {
           </button>
 
           {/* Sign Out Button */}
-          <SignOutButton>
-            <button className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-800/50 hover:bg-gray-700/50 transition-colors duration-200 border border-gray-600/50 group">
+            <button
+              onClick={() => clerk.signOut()}
+              className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-800/50 hover:bg-gray-700/50 transition-colors duration-200 border border-gray-600/50 group"
+              aria-label="Sign out"
+            >
               <LogOutIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 group-hover:text-red-400 transition-colors" />
             </button>
-          </SignOutButton>
       </div>
     );
   }
@@ -92,18 +101,22 @@ export const AuthButton: React.FC = () => {
 
       {/* Custom Sign Up Modal */}
       {showSignUp && (
-        <CustomSignUp
-          onClose={() => setShowSignUp(false)}
-          onSwitchToSignIn={handleSwitchToSignIn}
-        />
+        <Suspense fallback={null}>
+          <CustomSignUp
+            onClose={() => setShowSignUp(false)}
+            onSwitchToSignIn={handleSwitchToSignIn}
+          />
+        </Suspense>
       )}
 
       {/* Custom Sign In Modal */}
       {showSignIn && (
-        <CustomSignIn
-          onClose={() => setShowSignIn(false)}
-          onSwitchToSignUp={handleSwitchToSignUp}
-        />
+        <Suspense fallback={null}>
+          <CustomSignIn
+            onClose={() => setShowSignIn(false)}
+            onSwitchToSignUp={handleSwitchToSignUp}
+          />
+        </Suspense>
       )}
     </>
   );

@@ -1,7 +1,52 @@
 import path from 'path';
 import fs from 'fs';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
+
+// The entry stylesheet is small once compressed. Inlining it avoids a
+// render-blocking round trip while keeping lazy feature CSS in separate files.
+function inlineEntryCss(): Plugin {
+  return {
+    name: 'inline-entry-css',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const htmlAsset = Object.values(bundle).find(
+        (item) => item.type === 'asset' && item.fileName === 'index.html'
+      );
+
+      if (!htmlAsset || htmlAsset.type !== 'asset') return;
+
+      let html = typeof htmlAsset.source === 'string'
+        ? htmlAsset.source
+        : new TextDecoder().decode(htmlAsset.source);
+      const stylesheetLinks = html.match(/<link\b[^>]*>/g) || [];
+
+      for (const linkTag of stylesheetLinks) {
+        if (!/\brel=["']stylesheet["']/.test(linkTag)) continue;
+
+        const href = linkTag.match(/\bhref=["']([^"']+\.css)["']/)?.[1];
+        if (!href) continue;
+
+        const assetPath = new URL(href, 'https://veilpix.invalid').pathname;
+        const assetsIndex = assetPath.indexOf('/assets/');
+        if (assetsIndex === -1) continue;
+
+        const fileName = assetPath.slice(assetsIndex + 1);
+        const cssAsset = bundle[fileName];
+        if (!cssAsset || cssAsset.type !== 'asset') continue;
+
+        const css = typeof cssAsset.source === 'string'
+          ? cssAsset.source
+          : new TextDecoder().decode(cssAsset.source);
+        html = html.replace(linkTag, `<style data-veilpix-entry-css>${css}</style>`);
+        delete bundle[fileName];
+      }
+
+      htmlAsset.source = html;
+    },
+  };
+}
 
 // Plugin to serve static HTML pages from public/ directory
 function serveStaticPages() {
@@ -38,6 +83,7 @@ export default defineConfig(({ mode }) => {
       plugins: [
         serveStaticPages(),
         tailwindcss(),
+        inlineEntryCss(),
       ],
       resolve: {
         alias: {

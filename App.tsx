@@ -13,9 +13,9 @@
  * - Backend API for all AI operations (Nano Banana 2, Seedream 5, Wan 2.7 Image)
  */
 
-import React, { useState, useCallback, useRef, useEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
 import { formatCreditLabel } from './src/utils/creditFormatting';
-import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
+import type { Crop, PixelCrop } from 'react-image-crop';
 import { useUser, useClerk } from '@clerk/clerk-react';
 import {
   useGenerateEditNanoBanana2,
@@ -42,15 +42,10 @@ import {
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Spinner from './components/Spinner';
-import FilterPanel from './components/FilterPanel';
-import AdjustmentPanel from './components/AdjustmentPanel';
-import CropPanel from './components/CropPanel';
 import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon, DownloadIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
-import BeforeAfterSlider from './components/BeforeAfterSlider';
-import SignupPromptModal from './components/SignupPromptModal';
 import ModeSelector, { type CreativeMode } from './components/ModeSelector';
-import { SettingsState } from './components/SettingsMenu';
+import type { SettingsState } from './components/SettingsMenu';
 import {
   getImageCreditCost,
   ImageModelSelector,
@@ -59,7 +54,6 @@ import {
   type ImageGenerationOptions,
   type ImageProvider,
 } from './components/ImageModelControlsPanel';
-import Gallery from './components/Gallery';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
 
 type VideoProvider = 'wan' | 'seedance';
@@ -109,6 +103,13 @@ function getVideoDurationSeconds(source: File | string): Promise<number | null> 
 // Lazy-loaded components for video and composite-from-editor modes
 const VideoControlsPanel = lazy(() => import('./components/VideoControlsPanel'));
 const CompositeEditorOverlay = lazy(() => import('./components/CompositeEditorOverlay'));
+const AdjustmentPanel = lazy(() => import('./components/AdjustmentPanel'));
+const BeforeAfterSlider = lazy(() => import('./components/BeforeAfterSlider'));
+const CropEditor = lazy(() => import('./components/CropEditor'));
+const CropPanel = lazy(() => import('./components/CropPanel'));
+const FilterPanel = lazy(() => import('./components/FilterPanel'));
+const Gallery = lazy(() => import('./components/Gallery'));
+const SignupPromptModal = lazy(() => import('./components/SignupPromptModal'));
 
 /**
  * Lazy-loaded components for better initial bundle size
@@ -268,6 +269,7 @@ const DEFAULT_SETTINGS: SettingsState = {
 const App: React.FC = () => {
   const { isSignedIn, isLoaded } = useUser();
   const clerk = useClerk();
+  const openedProfileRef = useRef(false);
   const { data: usageStats } = useUsageStats();
   const hasPurchasedCredits = (usageStats?.totalCreditsPurchased ?? 0) > 0;
   const [view, setView] = useState<View>('start');
@@ -282,6 +284,11 @@ const App: React.FC = () => {
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('adjust');
   const [showSignupPrompt, setShowSignupPrompt] = useState<boolean>(false);
+
+  useLayoutEffect(() => {
+    const startHero = document.getElementById('veilpix-start-hero');
+    if (startHero) startHero.hidden = view !== 'start';
+  }, [view]);
 
   // Settings state with localStorage persistence
   const [settings, setSettings] = useState<SettingsState>(() => {
@@ -443,6 +450,21 @@ const App: React.FC = () => {
       });
     }
   }, [clerk.loaded]);
+
+  useEffect(() => {
+    if (!isLoaded || !clerk.loaded || openedProfileRef.current) return;
+
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('clerk_ui') !== 'profile') return;
+
+    openedProfileRef.current = true;
+    url.searchParams.delete('clerk_ui');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+
+    if (isSignedIn) {
+      clerk.openUserProfile();
+    }
+  }, [clerk, isLoaded, isSignedIn]);
 
   // Payment flow state
   const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
@@ -1893,12 +1915,14 @@ const App: React.FC = () => {
       const hasGeneratedVideoPreview = creativeMode === 'video' && Boolean(videoUrl);
 
       const imageDisplay = currentImageUrl && showSlider && canUndo && activeTab !== 'crop' && sliderBeforeImage ? (
-        <BeforeAfterSlider
-          beforeImage={sliderBeforeImage}
-          afterImage={currentImageUrl}
-          beforeLabel={sliderBeforeLabel}
-          afterLabel="Current"
-        />
+        <Suspense fallback={<div className="min-h-[20rem] w-full rounded-xl bg-black/20" />}>
+          <BeforeAfterSlider
+            beforeImage={sliderBeforeImage}
+            afterImage={currentImageUrl}
+            beforeLabel={sliderBeforeLabel}
+            afterLabel="Current"
+          />
+        </Suspense>
       ) : currentImageUrl ? (
         <div className="relative">
           {/* Base image is the original, only shown when comparing and current image exists */}
@@ -1922,18 +1946,6 @@ const App: React.FC = () => {
         </div>
       ) : null;
       
-      // For ReactCrop, we need a single image element. We'll use the current one.
-      const cropImageElement = currentImageUrl ? (
-        <img 
-          ref={imgRef}
-          key={`crop-${currentImageUrl}`}
-          src={currentImageUrl} 
-          alt="Crop this image"
-          className="w-full h-auto object-contain max-h-[60vh] rounded-xl"
-        />
-      ) : null;
-
-
       return (
         <div className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 animate-fade-in">
           {/* Persistent Mode Selector */}
@@ -1977,15 +1989,22 @@ const App: React.FC = () => {
 
                 {activeTab === 'crop' && creativeMode === 'single' ? (
                   <div className="flex w-full items-center justify-center">
-                    <ReactCrop
-                      crop={crop}
-                      onChange={c => setCrop(c)}
-                      onComplete={c => setCompletedCrop(c)}
-                      aspect={aspect}
-                      className="max-h-[60vh]"
-                    >
-                      {cropImageElement}
-                    </ReactCrop>
+                    <Suspense fallback={(
+                      <img
+                        src={currentImageUrl}
+                        alt="Crop this image"
+                        className="w-full h-auto object-contain max-h-[60vh] rounded-xl"
+                      />
+                    )}>
+                      <CropEditor
+                        src={currentImageUrl}
+                        imageRef={imgRef}
+                        crop={crop}
+                        onChange={setCrop}
+                        onComplete={setCompletedCrop}
+                        aspect={aspect}
+                      />
+                    </Suspense>
                   </div>
                 ) : imageDisplay }
 
@@ -2179,9 +2198,11 @@ const App: React.FC = () => {
                           </form>
                       </div>
                   )}
-                  {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-                  {activeTab === 'adjust' && <AdjustmentPanel key={`adjust-${historyIndex}-${history.length}`} onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
-                  {activeTab === 'filters' && <FilterPanel key={`filter-${historyIndex}-${history.length}`} onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
+                  <Suspense fallback={<div className="min-h-24 w-full" />}>
+                    {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
+                    {activeTab === 'adjust' && <AdjustmentPanel key={`adjust-${historyIndex}-${history.length}`} onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
+                    {activeTab === 'filters' && <FilterPanel key={`filter-${historyIndex}-${history.length}`} onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
+                  </Suspense>
               </div>
             </>
           )}
@@ -2243,14 +2264,16 @@ const App: React.FC = () => {
           )}
 
           {(creativeMode === 'single' || creativeMode === 'composite' || creativeMode === 'video') && (
-            <Gallery
-              onSelectImage={handleSelectGalleryImage}
-              onSelectVideo={handleSelectGalleryVideo}
-              onMakeImageReference={handleMakeGalleryImageReference}
-              onMakeVideoReference={creativeMode === 'video' ? handleMakeGalleryVideoReference : undefined}
-              imageReferenceActionLabel={creativeMode === 'composite' ? 'Add Reference' : creativeMode === 'single' ? 'Use Photo' : 'Make Reference'}
-              refreshTrigger={galleryRefreshTrigger}
-            />
+            <Suspense fallback={null}>
+              <Gallery
+                onSelectImage={handleSelectGalleryImage}
+                onSelectVideo={handleSelectGalleryVideo}
+                onMakeImageReference={handleMakeGalleryImageReference}
+                onMakeVideoReference={creativeMode === 'video' ? handleMakeGalleryVideoReference : undefined}
+                imageReferenceActionLabel={creativeMode === 'composite' ? 'Add Reference' : creativeMode === 'single' ? 'Use Photo' : 'Make Reference'}
+                refreshTrigger={galleryRefreshTrigger}
+              />
+            </Suspense>
           )}
         </div>
       );
@@ -2313,6 +2336,9 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen text-gray-100 flex flex-col">
+      {isLoaded && isSignedIn && (
+        <link rel="preconnect" href="https://api.veilstudio.io" crossOrigin="anonymous" />
+      )}
       <Header
         onShowPricing={() => setShowPricingModal(true)}
         settings={settings}
@@ -2353,21 +2379,27 @@ const App: React.FC = () => {
       )}
 
       {/* Pricing Modal */}
-      <Suspense fallback={null}>
-        <PricingModal
-          isOpen={showPricingModal}
-          onClose={() => setShowPricingModal(false)}
-        />
-      </Suspense>
+      {showPricingModal && (
+        <Suspense fallback={null}>
+          <PricingModal
+            isOpen={showPricingModal}
+            onClose={() => setShowPricingModal(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Signup Prompt Modal */}
-      <SignupPromptModal
-        isOpen={showSignupPrompt}
-        onClose={() => {
-          console.log('🔴 Closing signup prompt modal');
-          setShowSignupPrompt(false);
-        }}
-      />
+      {showSignupPrompt && (
+        <Suspense fallback={null}>
+          <SignupPromptModal
+            isOpen={showSignupPrompt}
+            onClose={() => {
+              console.log('🔴 Closing signup prompt modal');
+              setShowSignupPrompt(false);
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };
