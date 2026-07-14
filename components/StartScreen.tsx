@@ -211,25 +211,28 @@ const StartScreen: React.FC<StartScreenProps> = ({ onFileSelect, onCompositeSele
               isLoading={isGeneratingImage}
               workflow="text-to-image"
             />
-            <ImageDropzone
-              file={null}
-              onFileSelect={(file) => {
-                if (file) {
-                  const dt = new DataTransfer();
-                  dt.items.add(file);
-                  onFileSelect(dt.files);
-                } else {
-                  onFileSelect(null);
-                }
-              }}
-              label="Reference Photo"
-              showWebcam={true}
-              onWebcamClick={onUseWebcamClick}
-              showTextToImage={false}
-              isAuthenticated={isAuthenticated}
-              onShowSignupPrompt={onShowSignupPrompt}
-              isGeneratingImage={isGeneratingImage}
-            />
+            <div className="w-full md:w-[calc(50%-0.5rem)] md:self-center">
+              <ImageDropzone
+                file={null}
+                onFileSelect={(file) => {
+                  if (file) {
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    onFileSelect(dt.files);
+                  } else {
+                    onFileSelect(null);
+                  }
+                }}
+                label="Reference Photo"
+                showWebcam={true}
+                onWebcamClick={onUseWebcamClick}
+                showTextToImage={false}
+                isAuthenticated={isAuthenticated}
+                onShowSignupPrompt={onShowSignupPrompt}
+                isGeneratingImage={isGeneratingImage}
+                enableDocumentPaste={true}
+              />
+            </div>
             {onTextToImageGenerate && (
               <form
                 onSubmit={handleSingleTextToImageSubmit}
