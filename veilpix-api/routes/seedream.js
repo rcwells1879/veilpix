@@ -29,6 +29,10 @@ const {
     getImageCreditDetails,
     normalizeSeedreamTier
 } = require('../utils/imageCreditPricing');
+const {
+    createKieApiError,
+    getKieErrorHttpResponse
+} = require('../utils/kieApiError');
 
 const router = express.Router();
 
@@ -91,6 +95,15 @@ function getSeedreamModel(seedreamTier, workflow) {
     return `seedream/5-${tier}-${mode}`;
 }
 
+function sendSeedreamError(res, error, fallbackError) {
+    const response = getKieErrorHttpResponse(error, fallbackError);
+    const body = process.env.NODE_ENV === 'development' && response.status !== 400
+        ? { ...response.body, details: error.stack }
+        : response.body;
+
+    return res.status(response.status).json(body);
+}
+
 // Helper function to create SeeDream task
 async function createSeedreamTask(requestBody, model) {
     try {
@@ -119,7 +132,11 @@ async function createSeedreamTask(requestBody, model) {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`SeeDream API error: ${response.status} ${response.statusText} - ${errorText}`);
+            throw createKieApiError(
+                `SeeDream API error: ${response.status} ${response.statusText}`,
+                response.status,
+                errorText
+            );
         }
 
         const result = await response.json();
@@ -127,7 +144,11 @@ async function createSeedreamTask(requestBody, model) {
 
         // Kie.ai response format: { code: 200, message: "success", data: { taskId: "..." } }
         if (result.code !== 200 || !result.data || !result.data.taskId) {
-            throw new Error(`Task creation failed: ${result.message || 'Unknown error'}`);
+            throw createKieApiError(
+                'Task creation failed',
+                result.code,
+                result.message || result.msg || 'Unknown error'
+            );
         }
 
         return result;
@@ -153,14 +174,22 @@ async function pollSeedreamJob(taskId, maxAttempts = 120, intervalMs = 1000) {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`Task status check failed: ${response.status} - ${errorText}`);
+                throw createKieApiError(
+                    `Task status check failed: ${response.status}`,
+                    response.status,
+                    errorText
+                );
             }
 
             const result = await response.json();
 
             // Kie.ai response: { code: 200, message: "success", data: { state: "...", resultJson: "..." } }
             if (result.code !== 200) {
-                throw new Error(`Task query failed: ${result.message || 'Unknown error'}`);
+                throw createKieApiError(
+                    'Task query failed',
+                    result.code,
+                    result.message || result.msg || 'Unknown error'
+                );
             }
 
             const taskData = result.data;
@@ -177,7 +206,11 @@ async function pollSeedreamJob(taskId, maxAttempts = 120, intervalMs = 1000) {
             }
 
             if (state === 'fail') {
-                throw new Error(`Task failed: ${taskData.failMsg || taskData.failCode || 'Unknown error'}`);
+                throw createKieApiError(
+                    'Task failed',
+                    taskData.failCode,
+                    taskData.failMsg || taskData.failCode || 'Unknown error'
+                );
             }
 
             // States: waiting, queuing, generating - continue polling
@@ -399,11 +432,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             await deductCreditAndTrack(req, startTime, 'edited image', null, false, error.message);
         }
 
-        res.status(500).json({
-            error: 'Failed to generate edited image',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        sendSeedreamError(res, error, 'Failed to generate edited image');
     }
 });
 
@@ -488,11 +517,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
             await deductCreditAndTrack(req, startTime, 'filtered image', null, false, error.message);
         }
 
-        res.status(500).json({
-            error: 'Failed to generate filtered image',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        sendSeedreamError(res, error, 'Failed to generate filtered image');
     }
 });
 
@@ -586,11 +611,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
             await deductCreditAndTrack(req, startTime, 'adjusted image', null, false, error.message);
         }
 
-        res.status(500).json({
-            error: 'Failed to generate adjusted image',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        sendSeedreamError(res, error, 'Failed to generate adjusted image');
     }
 });
 
@@ -688,11 +709,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
             await deductCreditAndTrack(req, startTime, 'combined image', null, false, error.message);
         }
 
-        res.status(500).json({
-            error: 'Failed to generate combined image',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        sendSeedreamError(res, error, 'Failed to generate combined image');
     }
 });
 
@@ -776,11 +793,7 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
             await deductCreditAndTrack(req, startTime, 'text-to-image', null, false, error.message);
         }
 
-        res.status(500).json({
-            error: 'Failed to generate image from text',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        sendSeedreamError(res, error, 'Failed to generate image from text');
     }
 });
 

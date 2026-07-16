@@ -189,10 +189,44 @@ const generatedImageToFile = async (
  * Note: Includes '500' and 'internal server error' as safety keywords because
  * Google's API sometimes returns 500 errors for safety violations without clear messaging
  */
-const isSafetyFilterError = (errorMessage: string, nsfwFilterEnabled: boolean): boolean => {
+const CONTENT_POLICY_ERROR_CODE = 'CONTENT_POLICY_VIOLATION';
+const CONTENT_POLICY_ERROR_MESSAGE = 'Content policy violation: this request was flagged by the content moderation provider.';
+
+const getApiErrorMessage = (error: unknown): string => {
+    if (typeof error === 'string') {
+        return error;
+    }
+
+    if (error && typeof error === 'object') {
+        const apiError = error as {
+            message?: string;
+            data?: { message?: string; error?: string };
+        };
+
+        return apiError.data?.message
+            || apiError.data?.error
+            || apiError.message
+            || 'An unknown error occurred.';
+    }
+
+    return 'An unknown error occurred.';
+};
+
+const isSafetyFilterError = (error: unknown, nsfwFilterEnabled: boolean): boolean => {
+    if (error && typeof error === 'object') {
+        const apiError = error as {
+            data?: { code?: string };
+        };
+
+        if (apiError.data?.code === CONTENT_POLICY_ERROR_CODE) {
+            return true;
+        }
+    }
+
     const safetyKeywords = [
         'safety',
         'blocked',
+        'flagged',
         'inappropriate',
         'policy',
         'violation',
@@ -201,10 +235,12 @@ const isSafetyFilterError = (errorMessage: string, nsfwFilterEnabled: boolean): 
         'terms of service',
         'content policy',
         'not allowed',
+        'not approved',
+        'moderation provider',
         'failed the review'
     ];
 
-    const lowerError = errorMessage.toLowerCase();
+    const lowerError = getApiErrorMessage(error).toLowerCase();
 
     // Direct safety keyword match
     if (safetyKeywords.some(keyword => lowerError.includes(keyword))) {
@@ -222,6 +258,18 @@ const isSafetyFilterError = (errorMessage: string, nsfwFilterEnabled: boolean): 
 
     return false;
 }
+
+const getGenerationErrorMessage = (
+    error: unknown,
+    fallbackPrefix: string,
+    nsfwFilterEnabled: boolean
+): string => {
+    if (isSafetyFilterError(error, nsfwFilterEnabled)) {
+        return CONTENT_POLICY_ERROR_MESSAGE;
+    }
+
+    return `${fallbackPrefix} ${getApiErrorMessage(error)}`;
+};
 
 /**
  * DEPRECATED - Legacy function no longer used in production
@@ -939,8 +987,11 @@ const App: React.FC = () => {
             throw new Error(response.message || 'Failed to generate composite image');
         }
     } catch (err: any) {
-        const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-        setError(`Failed to generate the composite image. ${errorMessage}`);
+        setError(getGenerationErrorMessage(
+          err,
+          'Failed to generate the composite image.',
+          settings.nsfwFilterEnabled
+        ));
         console.error(err);
     }
   }, [imageGenerationOptions, imageMutationsByProvider, isLoaded, isSignedIn, settings.nsfwFilterEnabled]);
@@ -1096,8 +1147,11 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to generate image');
       }
     } catch (err: any) {
-      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      setError(`Failed to generate the image. ${errorMessage}`);
+      setError(getGenerationErrorMessage(
+        err,
+        'Failed to generate the image.',
+        settings.nsfwFilterEnabled
+      ));
       console.error(err);
     }
   }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
@@ -1142,8 +1196,11 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to apply filter');
       }
     } catch (err: any) {
-      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      setError(`Failed to apply the filter. ${errorMessage}`);
+      setError(getGenerationErrorMessage(
+        err,
+        'Failed to apply the filter.',
+        settings.nsfwFilterEnabled
+      ));
       console.error(err);
     }
   }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
@@ -1182,8 +1239,11 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to apply adjustment');
       }
     } catch (err: any) {
-      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      setError(`Failed to apply the adjustment. ${errorMessage}`);
+      setError(getGenerationErrorMessage(
+        err,
+        'Failed to apply the adjustment.',
+        settings.nsfwFilterEnabled
+      ));
       console.error(err);
     }
   }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
@@ -1241,8 +1301,11 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to generate image from text');
       }
     } catch (err: any) {
-      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      setError(`Failed to generate image from text. ${errorMessage}`);
+      setError(getGenerationErrorMessage(
+        err,
+        'Failed to generate image from text.',
+        settings.nsfwFilterEnabled
+      ));
       console.error('💥 Text-to-image generation failed:', err);
     }
   }, [imageGenerationOptions, imageMutationsByProvider, setOptimisticHistory, settings.nsfwFilterEnabled]);
@@ -1540,9 +1603,9 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to generate video');
       }
     } catch (err: any) {
-      const errorMessage = err?.data?.message || err?.data?.error || err.message || 'An unknown error occurred.';
-      if (isSafetyFilterError(errorMessage, settings.nsfwFilterEnabled)) {
-        setError(errorMessage);
+      const errorMessage = getApiErrorMessage(err);
+      if (isSafetyFilterError(err, settings.nsfwFilterEnabled)) {
+        setError(CONTENT_POLICY_ERROR_MESSAGE);
       } else {
         setVideoError(`Failed to generate video. ${errorMessage}`);
       }
@@ -1765,9 +1828,11 @@ const App: React.FC = () => {
              isSafetyIssue
                ? 'bg-yellow-500/10 border border-yellow-500/20'
                : 'bg-red-500/10 border border-red-500/20'
-           }`}>
+            }`}>
             <h2 className={`text-2xl font-bold ${isSafetyIssue ? 'text-yellow-300' : 'text-red-300'}`}>
-              {isSafetyIssue ? 'Content Not Allowed' : 'An Error Occurred'}
+              {isSafetyIssue
+                ? (hasPurchasedCredits ? 'Content Warning' : 'Age Verification Required')
+                : 'An Error Occurred'}
             </h2>
 
             {isSafetyIssue ? (
@@ -1781,16 +1846,28 @@ const App: React.FC = () => {
                       Try rephrasing your prompt, or switch to a different AI provider in the Settings menu. Different models have different content policies.
                     </p>
                   </>
+                ) : hasPurchasedCredits ? (
+                  <>
+                    <p>
+                      Your request was flagged while the content filter is enabled. For supported consensual adult content, you can turn on After Dark by disabling the content filter in Settings.
+                    </p>
+                    <p className="text-sm text-yellow-300/80">
+                      Individual AI providers may still enforce restrictions that VeilPix cannot override.
+                    </p>
+                  </>
                 ) : (
                   <>
                     <p>
-                      Your request was flagged by our content filter. Please note that VeilStudio strictly prohibits the creation of child sexual abuse material (CSAM) and non-consensual imagery of real individuals under all circumstances.
+                      Your request appears to contain adult content. VeilPix requires an account and age verification before supported consensual adult content can be generated.
                     </p>
                     <p className="text-sm text-yellow-300/80">
-                      Outside of those restrictions, VeilStudio does not prohibit the creation of adult content. Once you verify your age by purchasing credits, the content filter can be toggled on or off in the Settings menu.
+                      Age verification is completed when you purchase credits. After verification, you can control the content filter from the Settings menu.
                     </p>
                   </>
                 )}
+                <p className="text-sm font-medium text-yellow-100">
+                  VeilPix strictly prohibits child sexual abuse material (CSAM) and non-consensual intimate imagery under all circumstances.
+                </p>
               </div>
             ) : (
               <p className="text-md text-red-400">{error}</p>
@@ -1820,7 +1897,7 @@ const App: React.FC = () => {
                   }}
                   className="font-bold py-2 px-6 rounded-lg text-md transition-all bg-gradient-to-br from-purple-600 to-pink-600 text-white hover:shadow-lg hover:-translate-y-px active:scale-95"
                 >
-                  Purchase Credits
+                  Verify Age &amp; Purchase Credits
                 </button>
               )}
             </div>
