@@ -42,7 +42,7 @@ import {
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Spinner from './components/Spinner';
-import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon, DownloadIcon } from './components/icons';
+import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon, DownloadIcon, PhotoIcon } from './components/icons';
 import StartScreen from './components/StartScreen';
 import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import type { SettingsState } from './components/SettingsMenu';
@@ -55,6 +55,7 @@ import {
   type ImageProvider,
 } from './components/ImageModelControlsPanel';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
+import { extractLastVideoFrame } from './src/utils/videoFrameExtraction';
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast' | 'mini';
@@ -591,6 +592,7 @@ const App: React.FC = () => {
   const [galleryVideoFile, setGalleryVideoFile] = useState<File | null>(null);
   const galleryVideoObjectUrlRef = useRef<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [isExtractingLastFrame, setIsExtractingLastFrame] = useState(false);
   const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
   const [referenceVideoDuration, setReferenceVideoDuration] = useState<number | null>(null);
@@ -1445,6 +1447,28 @@ const App: React.FC = () => {
     }
   }, [videoUrl]);
 
+  const handleContinueFromLastFrame = useCallback(async () => {
+    const source = galleryVideoFile || videoUrl;
+    if (!source) return;
+
+    setIsExtractingLastFrame(true);
+    setVideoError(null);
+
+    try {
+      const frameFile = await extractLastVideoFrame(source);
+      setVideoProvider('seedance');
+      setSeedanceInputMode('frames');
+      setSeedanceFirstFrame(frameFile);
+      setSeedanceLastFrame(null);
+      clearVideoResult();
+    } catch (error) {
+      const details = error instanceof Error ? error.message : 'Please try again.';
+      setVideoError(`Could not extract the last frame. ${details}`);
+    } finally {
+      setIsExtractingLastFrame(false);
+    }
+  }, [clearVideoResult, galleryVideoFile, videoUrl]);
+
   // Handle creative mode switching (single/composite/video)
   const handleModeChange = useCallback((newMode: CreativeMode) => {
     setCreativeMode(newMode);
@@ -2041,13 +2065,28 @@ const App: React.FC = () => {
               <div className="absolute left-3 top-3 rounded-md bg-black/60 px-3 py-1 text-sm text-gray-200 backdrop-blur-sm">
                 Generated Video
               </div>
-              <button
-                onClick={handleVideoDownload}
-                className="absolute bottom-3 right-3 rounded-md border border-white bg-black/30 p-2 transition-all duration-200 ease-in-out hover:bg-white/10 active:scale-95"
-                aria-label="Download video"
-              >
-                <DownloadIcon className="h-5 w-5 text-white" />
-              </button>
+              <div className="absolute bottom-3 right-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2">
+                <button
+                  onClick={handleContinueFromLastFrame}
+                  disabled={isExtractingLastFrame || isLoading}
+                  className="flex min-w-0 items-center gap-2 rounded-md border border-white bg-black/60 px-3 py-2 text-sm font-semibold text-white backdrop-blur-sm transition-all duration-200 ease-in-out hover:bg-black/75 active:scale-95 disabled:cursor-wait disabled:opacity-70"
+                  aria-label="Use the last frame as the start frame for a new video"
+                >
+                  {isExtractingLastFrame ? (
+                    <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />
+                  ) : (
+                    <PhotoIcon className="h-4 w-4 shrink-0 text-white" />
+                  )}
+                  <span className="truncate">{isExtractingLastFrame ? 'Extracting...' : 'Continue from Last Frame'}</span>
+                </button>
+                <button
+                  onClick={handleVideoDownload}
+                  className="shrink-0 rounded-md border border-white bg-black/60 p-2 backdrop-blur-sm transition-all duration-200 ease-in-out hover:bg-black/75 active:scale-95"
+                  aria-label="Download video"
+                >
+                  <DownloadIcon className="h-5 w-5 text-white" />
+                </button>
+              </div>
             </div>
           ) : currentImageUrl ? (
             <div className="relative w-full overflow-hidden rounded-xl bg-black/20 shadow-2xl">
