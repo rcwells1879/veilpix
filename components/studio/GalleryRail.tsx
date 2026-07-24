@@ -387,7 +387,7 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
   return (
     <aside
       id="creations-gallery"
-      className="w-full shrink-0 scroll-mt-4 border-t border-white/[0.06] bg-black/[0.06] pb-4 md:h-full md:w-40 md:border-t-0 md:bg-transparent md:pb-0 lg:w-48"
+      className="w-full shrink-0 scroll-mt-4 border-t border-white/[0.06] bg-black/[0.06] pb-4 md:absolute md:inset-y-0 md:right-0 md:z-10 md:w-40 md:border-t-0 md:bg-transparent md:pb-0 lg:w-48"
       aria-label="Creations gallery"
       data-dropdown-keep-open=""
     >

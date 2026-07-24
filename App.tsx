@@ -1354,9 +1354,9 @@ const App: React.FC = () => {
         onToggleGallery={() => document.getElementById('creations-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
         {/* Main column: stage + composer */}
-        <main className="flex min-h-full min-w-0 shrink-0 flex-col overflow-visible px-3 pb-9 sm:px-6 sm:pb-12 md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto md:overflow-x-hidden">
+        <main className="flex min-h-full min-w-0 shrink-0 flex-col overflow-visible px-3 pb-9 sm:px-6 sm:pb-12 md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto md:overflow-x-hidden md:px-[11.5rem] lg:px-[13.5rem]">
           {isVideoEditorOpen ? (
             <Suspense fallback={<div className="flex flex-1 items-center justify-center"><Spinner /></div>}>
               <VideoEditor
