@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
-const rateLimit = require('express-rate-limit');
 const { clerkMiddleware } = require('@clerk/express');
+const { createRateLimiter } = require('./utils/rateLimiter');
 require('dotenv').config();
 
 const app = express();
@@ -71,17 +71,6 @@ const webhookRoutes = require('./routes/webhooks');
 
 // Webhook routes need raw body parsing - must come before JSON parsing
 app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookRoutes);
-
-// Enhanced rate limiting with different limits for different endpoints
-const createRateLimiter = (windowMs, max, message) => rateLimit({
-    windowMs,
-    max,
-    message: { error: message, retryAfter: Math.ceil(windowMs / 60000) + ' minutes' },
-    standardHeaders: true,
-    legacyHeaders: false,
-    // Skip successful requests to only count errors
-    skip: (req, res) => res.statusCode < 400
-});
 
 // Apply different rate limits (exclude webhooks from rate limiting)
 app.use('/api/auth', createRateLimiter(15 * 60 * 1000, 20, 'Too many authentication requests'));

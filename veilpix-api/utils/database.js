@@ -151,10 +151,32 @@ async function reconcileUserFromEmailMatch(supabase, currentUser, matchedUser, c
     return data;
 }
 
+async function reactivateDeletedUser(supabase, user) {
+    if (!user?.deleted_at) {
+        return user;
+    }
+
+    const { data, error } = await supabase
+        .from('users')
+        .update({
+            deleted_at: null,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id)
+        .select()
+        .single();
+
+    if (error) {
+        throw error;
+    }
+
+    return data;
+}
+
 // Database utility functions
 const db = {
     // User management
-    async createOrGetUser(clerkUserId, email) {
+    async createOrGetUser(clerkUserId, email, { reactivateDeleted = false } = {}) {
         try {
             console.log('🔍 DB: createOrGetUser called with:', { clerkUserId, email });
             const supabase = getSupabaseClient();
@@ -178,10 +200,13 @@ const db = {
 
             if (existingUser && !fetchError) {
                 console.log('🔍 DB: Found existing user, returning');
-                const matchedUser = await findUserByEmail(supabase, normalizedEmail, email, existingUser.id);
+                const activeUser = reactivateDeleted
+                    ? await reactivateDeletedUser(supabase, existingUser)
+                    : existingUser;
+                const matchedUser = await findUserByEmail(supabase, normalizedEmail, email, activeUser.id);
                 const reconciledUser = await reconcileUserFromEmailMatch(
                     supabase,
-                    existingUser,
+                    activeUser,
                     matchedUser,
                     clerkUserId,
                     email,
@@ -193,14 +218,20 @@ const db = {
             const sameEmailUser = await findUserByEmail(supabase, normalizedEmail, email);
             if (sameEmailUser && !fetchError) {
                 console.log('DB: Found same-email user for new Clerk ID, migrating row');
+                const migrationData = {
+                    clerk_user_id: clerkUserId,
+                    email: sameEmailUser.email || email,
+                    normalized_email: sameEmailUser.normalized_email || normalizedEmail,
+                    updated_at: new Date().toISOString()
+                };
+
+                if (reactivateDeleted && Object.hasOwn(sameEmailUser, 'deleted_at')) {
+                    migrationData.deleted_at = null;
+                }
+
                 const { data: migratedUser, error: migrateError } = await supabase
                     .from('users')
-                    .update({
-                        clerk_user_id: clerkUserId,
-                        email: sameEmailUser.email || email,
-                        normalized_email: sameEmailUser.normalized_email || normalizedEmail,
-                        updated_at: new Date().toISOString()
-                    })
+                    .update(migrationData)
                     .eq('id', sameEmailUser.id)
                     .select()
                     .single();
@@ -245,6 +276,29 @@ const db = {
             console.error('Error creating/getting user:', error);
             throw error;
         }
+    },
+
+    async markClerkUserDeleted(clerkUserId) {
+        const supabase = getSupabaseClient();
+        const deletedAt = new Date().toISOString();
+        const { data, error } = await supabase
+            .from('users')
+            .update({
+                deleted_at: deletedAt,
+                updated_at: deletedAt
+            })
+            .eq('clerk_user_id', clerkUserId)
+            .select('id')
+            .limit(1);
+
+        if (error) {
+            throw error;
+        }
+
+        return {
+            found: Boolean(data?.length),
+            deletedAt
+        };
     },
 
     // Usage tracking

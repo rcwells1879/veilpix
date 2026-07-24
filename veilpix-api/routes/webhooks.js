@@ -9,7 +9,9 @@
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { createClient } = require('@supabase/supabase-js');
+const { verifyWebhook } = require('@clerk/express/webhooks');
 const { db } = require('../utils/database');
+const { handleClerkWebhookEvent } = require('../utils/clerkWebhook');
 const router = express.Router();
 
 // Create a single Supabase client for this module following Supabase AI recommendations
@@ -21,6 +23,31 @@ if (!supabase || typeof supabase.from !== 'function') {
   throw new Error('Supabase client not initialized properly');
 }
 console.log('✅ Supabase client initialized successfully');
+
+// Clerk webhook endpoint. The parent router supplies the raw request body.
+router.post('/clerk', async (req, res) => {
+  let event;
+
+  try {
+    event = await verifyWebhook(req);
+  } catch (error) {
+    console.error('Clerk webhook signature verification failed:', error.message);
+    return res.status(400).json({ error: 'Invalid webhook signature' });
+  }
+
+  try {
+    const result = await handleClerkWebhookEvent(event, db);
+
+    if (result.handled) {
+      console.log(`Clerk user deletion recorded for ${result.clerkUserId}; application user found: ${result.userFound}`);
+    }
+
+    return res.json({ received: true });
+  } catch (error) {
+    console.error(`Error handling Clerk webhook event ${event.type}:`, error);
+    return res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
 
 // Stripe webhook endpoint
 router.post('/stripe', async (req, res) => {
