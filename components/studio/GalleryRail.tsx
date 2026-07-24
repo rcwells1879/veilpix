@@ -2,8 +2,8 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * The creations rail: a full-height, scrollable column of thumbnails on the
- * right side of the studio. Renders as a slide-in drawer on small screens.
+ * The creations gallery: a full-height rail on desktop and an inline grid
+ * below the studio or Video Editor on smaller screens.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -45,9 +45,7 @@ export interface GalleryReferenceTarget {
 }
 
 export interface GalleryRailProps {
-  variant: 'rail' | 'drawer';
   refreshTrigger?: number;
-  onClose?: () => void;
   onSelectImage: (file: File, prompt: string) => void;
   onSelectVideo: (details: GalleryVideoDetails) => void;
   onUseImageAsReference: (file: File, prompt: string) => void;
@@ -66,9 +64,7 @@ interface ContextMenuState {
 }
 
 const GalleryRail: React.FC<GalleryRailProps> = ({
-  variant,
   refreshTrigger,
-  onClose,
   onSelectImage,
   onSelectVideo,
   onUseImageAsReference,
@@ -197,10 +193,13 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
   };
 
   const content = (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex min-h-0 flex-col md:h-full">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-4">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500">Creations</span>
+      <div className="flex shrink-0 items-center justify-between px-4 pb-3 pt-6 md:pb-2 md:pt-4">
+        <span className="text-sm font-semibold tracking-tight text-gray-300 md:text-[11px] md:uppercase md:tracking-[0.16em] md:text-gray-500">
+          <span className="md:hidden">My Creations</span>
+          <span className="hidden md:inline">Creations</span>
+        </span>
         <div className="flex items-center gap-1.5">
           {items.length > 0 && !clearConfirm && (
             <button
@@ -211,16 +210,7 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
               Clear
             </button>
           )}
-          {variant === 'drawer' && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close gallery"
-              className="edge glass-chip flex h-7 w-7 items-center justify-center rounded-full text-gray-400 hover:text-white"
-            >
-              <XIcon className="h-3.5 w-3.5" />
-            </button>
-          )}
+
         </div>
       </div>
 
@@ -234,12 +224,12 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
         </div>
       )}
 
-      {/* Thumbnails */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-6 pt-1">
+      {/* Thumbnails: production-style grid on mobile, vertical rail on desktop. */}
+      <div className="grid grid-cols-2 gap-3 overflow-visible px-4 pb-6 pt-1 sm:grid-cols-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:gap-4 md:overflow-y-auto">
         {loading ? (
-          <p className="pt-4 text-center text-[11px] text-gray-600">Loading…</p>
+          <p className="col-span-full rounded-2xl border border-white/[0.05] bg-black/10 py-6 text-center text-[11px] text-gray-600">Loading…</p>
         ) : items.length === 0 ? (
-          <p className="pt-4 text-center text-[11px] leading-relaxed text-gray-600">
+          <p className="col-span-full rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-6 text-center text-[11px] leading-relaxed text-gray-500 md:border-0 md:bg-transparent md:pt-4 md:text-gray-600">
             Your creations will appear here
           </p>
         ) : (
@@ -394,20 +384,13 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
     );
   }
 
-  if (variant === 'drawer') {
-    return (
-      <div className="fixed inset-0 z-[70] md:hidden" role="dialog" aria-label="Creations gallery" data-dropdown-keep-open="">
-        <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
-        <div className="glass-sheet edge absolute inset-y-0 right-0 w-48 max-w-[70vw] animate-fade-in-fast">
-          {content}
-        </div>
-        {contextMenuNode}
-      </div>
-    );
-  }
-
   return (
-    <aside className="hidden h-full w-40 shrink-0 md:block lg:w-48" aria-label="Creations gallery" data-dropdown-keep-open="">
+    <aside
+      id="creations-gallery"
+      className="w-full shrink-0 scroll-mt-4 border-t border-white/[0.06] bg-black/[0.06] pb-4 md:h-full md:w-40 md:border-t-0 md:bg-transparent md:pb-0 lg:w-48"
+      aria-label="Creations gallery"
+      data-dropdown-keep-open=""
+    >
       {content}
       {contextMenuNode}
     </aside>

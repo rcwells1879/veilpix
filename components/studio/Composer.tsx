@@ -352,7 +352,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
         rows={3}
         maxLength={5000}
         disabled={isLoading}
-        className="max-h-64 min-h-24 w-full resize-none bg-transparent px-1.5 py-1 text-base leading-relaxed text-gray-100 placeholder:text-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-28"
+        className="composer-prompt-input max-h-64 min-h-24 w-full resize-none bg-transparent px-1.5 py-1 text-base leading-relaxed text-gray-100 placeholder:text-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-28"
       />
 
       {/* Settings pills + generate */}

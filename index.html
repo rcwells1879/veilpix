@@ -110,7 +110,7 @@
         "Text-to-video generation with Wan 2.7",
         "Image-to-video generation with Wan 2.6 Flash",
         "Reference-to-video generation from image and video references",
-        "Planned Seedance 2.0 video generation support",
+        "Seedance 2.0 multimodal video generation with image, video, and audio references",
         "Nano Banana 2 (Gemini 3.1 Flash) - fast AI editing",
         "Seedream 5 Lite/Pro (ByteDance) - high-quality image generation",
         "Wan 2.7 Image - image generation and editing",
@@ -177,6 +177,61 @@
     }
     </script>
 
+    <!-- Structured Data - Visible AI editing examples -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      "@id": "https://veilstudio.io/veilpix/#examples",
+      "name": "VeilPix AI image editing examples",
+      "description": "Before-and-after examples created from reference images and natural-language editing prompts in VeilPix.",
+      "isPartOf": {
+        "@id": "https://veilstudio.io/veilpix/#webpage"
+      },
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "item": {
+            "@type": "CreativeWork",
+            "name": "Transform a complete scene",
+            "description": "Replace an old car with an Audi sports car while preserving the person and composition.",
+            "image": [
+              "https://veilstudio.io/veilpix/showcase/civic-800w.webp",
+              "https://veilstudio.io/veilpix/showcase/audi-800w.webp"
+            ]
+          }
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "item": {
+            "@type": "CreativeWork",
+            "name": "Turn plans into visual concepts",
+            "description": "Transform an architectural floor plan into a furnished photorealistic 3D model.",
+            "image": [
+              "https://veilstudio.io/veilpix/showcase/blueprint-800w.webp",
+              "https://veilstudio.io/veilpix/showcase/3d-model-800w.webp"
+            ]
+          }
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "item": {
+            "@type": "CreativeWork",
+            "name": "Explore a new point of view",
+            "description": "Reframe an aerial architectural reference as an eye-level view from the back deck.",
+            "image": [
+              "https://veilstudio.io/veilpix/showcase/3dfloorplan-800w.webp",
+              "https://veilstudio.io/veilpix/showcase/deckview-800w.webp"
+            ]
+          }
+        }
+      ]
+    }
+    </script>
+
     <!-- FAQ Structured Data - Synced with FAQ.tsx -->
     <script type="application/ld+json">
     {
@@ -214,7 +269,7 @@
           "name": "Can VeilPix generate videos?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Yes. VeilPix supports Wan 2.7 text-to-video, Wan 2.6 Flash image-to-video, Seedance 2.0 multimodal video generation, and reference workflows that can use images, video, and audio as creative guidance."
+            "text": "Yes. VeilPix supports Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, Wan 2.7 reference-to-video, Seedance 2.0 multimodal video generation, and reference workflows that can use images, video, and audio as creative guidance."
           }
         },
         {
@@ -222,7 +277,7 @@
           "name": "What makes VeilPix different from other AI photo editors?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "VeilPix brings image editing, text-to-image generation, and AI video generation into one privacy-focused creative tool. Creation history and prompts stay in the user's browser rather than an account-synced VeilPix gallery, while generation requests are proxied to cloud AI providers."
+            "text": "VeilPix brings image editing, text-to-image generation, and AI video generation into one privacy-focused creative tool. Your creation history and prompts stay in your browser instead of an account-synced VeilPix gallery, and cloud AI requests are proxied so the model gateway does not receive your direct browser IP or VeilPix account identity."
           }
         },
         {
@@ -246,7 +301,7 @@
           "name": "How do you handle my photos, videos, and prompts?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "Privacy is a core priority. Uploaded photos, videos, and prompts are sent only for the requested generation or edit, then discarded rather than stored as a user library. VeilPix avoids advertising trackers and is designed around private creative workflows."
+            "text": "Uploaded media and prompts are sent through VeilPix to the selected cloud AI provider for the requested generation or edit. Your creation history and prompts are saved locally in your browser rather than in a server-side VeilPix creative library. Provider retention still applies; see the VeilPix Privacy page for the current data flow and retention details."
           }
         },
         {
@@ -262,7 +317,7 @@
           "name": "What AI models does VeilPix use?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "VeilPix uses Nano Banana 2, Seedream 5 Lite/Pro, and Wan 2.7 Image for image generation and editing, plus Wan 2.7 and Wan 2.6 Flash for video workflows."
+            "text": "VeilPix uses Nano Banana 2, Seedream 5 Lite/Pro, and Wan 2.7 Image for image generation and editing, plus Wan 2.6, Wan 2.7, and Seedance 2.0 for video workflows."
           }
         },
         {

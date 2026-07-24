@@ -20,6 +20,7 @@ import {
   CropIcon,
   ResetIcon,
   PhotoIcon,
+  VideoIcon,
 } from '../icons';
 import type { StudioMode, StageTool } from './types';
 
@@ -89,6 +90,7 @@ export interface ResultStageProps {
   videoUrl: string | null;
   onVideoDownload: () => void;
   onContinueFromLastFrame: () => void;
+  onOpenVideoEditor: () => void;
   isExtractingLastFrame: boolean;
 }
 
@@ -107,7 +109,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
     activeTool, onToolChange, displayHotspot, onImageClick, imgRef,
     crop, onCropChange, onCropComplete, aspect, onAspectChange, onApplyCrop, cropReady,
     onUndo, onRedo, onReset, onDownload,
-    videoUrl, onVideoDownload, onContinueFromLastFrame, isExtractingLastFrame,
+    videoUrl, onVideoDownload, onContinueFromLastFrame, onOpenVideoEditor, isExtractingLastFrame,
   } = props;
 
   const showVideo = mode === 'video' && Boolean(videoUrl);
@@ -155,6 +157,18 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
                 <PhotoIcon className="h-4 w-4" />
               )}
               {isExtractingLastFrame ? 'Extracting…' : 'Continue from last frame'}
+            </button>
+            <button
+              type="button"
+              onClick={onOpenVideoEditor}
+              disabled={isLoading}
+              className="edge glass-chip flex h-10 items-center gap-2 rounded-full px-4 text-[13px] font-medium text-gray-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <VideoIcon className="h-4 w-4" />
+              Video Editor
+              <span className="rounded-full bg-accent-300/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-accent-300">
+                New
+              </span>
             </button>
             <ToolButton label="Download video" onClick={onVideoDownload}>
               <DownloadIcon className="h-4.5 w-4.5" />

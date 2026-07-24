@@ -34,6 +34,7 @@ import {
   useUsageStats
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
+import Footer from './components/Footer';
 import Spinner from './components/Spinner';
 import type { SettingsState } from './components/SettingsMenu';
 import {
@@ -60,6 +61,7 @@ const PaymentSuccess = lazy(() => import('./components/PaymentSuccess').then(mod
 const PaymentCancelled = lazy(() => import('./components/PaymentCancelled').then(module => ({ default: module.PaymentCancelled })));
 const PricingModal = lazy(() => import('./components/PricingModal').then(module => ({ default: module.PricingModal })));
 const VideoEditor = lazy(() => import('./components/studio/VideoEditor'));
+const StudioBelowFold = lazy(() => import('./components/studio/StudioBelowFold'));
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
@@ -217,7 +219,6 @@ const App: React.FC = () => {
   const [editHotspot, setEditHotspot] = useState<{ x: number; y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number; y: number } | null>(null);
   const [showSignupPrompt, setShowSignupPrompt] = useState<boolean>(false);
-  const [isGalleryDrawerOpen, setIsGalleryDrawerOpen] = useState(false);
   const [webcamTarget, setWebcamTarget] = useState<'base' | 'style' | null>(null);
   const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
   const [isVideoEditorOpen, setIsVideoEditorOpen] = useState(false);
@@ -1106,7 +1107,6 @@ const App: React.FC = () => {
     setStyleImage(null);
     resetImageTools();
     setError(null);
-    setIsGalleryDrawerOpen(false);
   }, [isVideoEditorRendering, resetImageTools]);
 
   const handleGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
@@ -1143,20 +1143,17 @@ const App: React.FC = () => {
       showRemoteVideoResult(details.videoUrl);
     }
     setVideoError(null);
-    setIsGalleryDrawerOpen(false);
   }, [showGalleryVideoResult, showRemoteVideoResult, videoProvider]);
 
   const handleEditorGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
     if (isVideoEditorRendering) return;
     setIncomingEditorVideo(details);
-    setIsGalleryDrawerOpen(false);
   }, [isVideoEditorRendering]);
 
   const handleOpenVideoEditor = useCallback(() => {
     setIncomingEditorVideo(null);
     setIsVideoEditorRendering(false);
     setIsVideoEditorOpen(true);
-    setIsGalleryDrawerOpen(false);
   }, []);
 
   const handleCloseVideoEditor = useCallback(() => {
@@ -1179,7 +1176,6 @@ const App: React.FC = () => {
       const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
       setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
     }
-    setIsGalleryDrawerOpen(false);
   }, [studioMode, currentImage, handleGallerySelectImage, videoProvider, referenceVideoFile, referenceVideoUrl]);
 
   const handleGalleryUseVideoAsReference = useCallback((details: GalleryVideoDetails) => {
@@ -1198,7 +1194,6 @@ const App: React.FC = () => {
     }
     clearVideoResult();
     setVideoError(null);
-    setIsGalleryDrawerOpen(false);
   }, [clearVideoResult, videoProvider]);
 
   /* Right-click "send to" targets — adapt to the active mode, model, and settings */
@@ -1253,7 +1248,6 @@ const App: React.FC = () => {
         setVideoError(null);
         break;
     }
-    setIsGalleryDrawerOpen(false);
   }, [handleBaseImageSelect, handleStyleImageSelect, referenceVideoFile, referenceVideoUrl]);
 
   const handleGalleryVideoReferenceAction = useCallback((targetId: string, details: GalleryVideoDetails) => {
@@ -1345,22 +1339,24 @@ const App: React.FC = () => {
 
   /* ---------------- render ---------------- */
   return (
-    <div className="flex h-dvh flex-col text-gray-100">
+    <div className="min-h-dvh text-gray-100">
       {isLoaded && isSignedIn && (
         <link rel="preconnect" href="https://api.veilstudio.io" crossOrigin="anonymous" />
       )}
 
+      {/* The working studio occupies exactly the initial viewport above the persistent footer. */}
+      <div className="studio-with-footer flex h-dvh flex-col">
       <Header
         onShowPricing={() => setShowPricingModal(true)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
         hasPurchasedCredits={hasPurchasedCredits}
-        onToggleGallery={() => setIsGalleryDrawerOpen(true)}
+        onToggleGallery={() => document.getElementById('creations-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
         {/* Main column: stage + composer */}
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-3 pb-6 sm:px-6 sm:pb-10">
+        <main className="flex min-h-full min-w-0 shrink-0 flex-col overflow-visible px-3 pb-9 sm:px-6 sm:pb-12 md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto md:overflow-x-hidden">
           {isVideoEditorOpen ? (
             <Suspense fallback={<div className="flex flex-1 items-center justify-center"><Spinner /></div>}>
               <VideoEditor
@@ -1407,6 +1403,7 @@ const App: React.FC = () => {
             videoUrl={videoUrl}
             onVideoDownload={handleVideoDownload}
             onContinueFromLastFrame={handleContinueFromLastFrame}
+            onOpenVideoEditor={handleOpenVideoEditor}
             isExtractingLastFrame={isExtractingLastFrame}
           />
 
@@ -1460,38 +1457,10 @@ const App: React.FC = () => {
           </div>
             </>
           )}
-
-          {/* Tool entry + slim footer */}
-          <footer className="flex shrink-0 flex-col items-center justify-between gap-3 px-2 pb-2 pt-6 text-[11px] text-gray-600 sm:flex-row">
-            <button
-              type="button"
-              onClick={isVideoEditorOpen ? handleCloseVideoEditor : handleOpenVideoEditor}
-              disabled={isVideoEditorOpen && isVideoEditorRendering}
-              className={`edge glass-chip flex min-h-11 items-center gap-2 rounded-full px-4 text-[12px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                isVideoEditorOpen ? 'glass-chip-active text-white' : 'text-gray-300 hover:text-white'
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-4 w-4" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h16M4 16.5h16M8 4v16m8-16v16" />
-              </svg>
-              {isVideoEditorOpen ? 'Back to studio' : 'Video Editor'}
-              {!isVideoEditorOpen && (
-                <span className="rounded-full bg-accent-300/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-accent-300">New</span>
-              )}
-            </button>
-            <span className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:justify-end">
-              <span>© {new Date().getFullYear()} VeilStudio</span>
-              <a href="/veilpix/privacy/" className="transition hover:text-gray-400">Privacy</a>
-              <a href="/veilpix/terms/" className="transition hover:text-gray-400">Terms</a>
-              <a href="https://veilstudio.io/veilpix/blog/" className="transition hover:text-gray-400">Blog</a>
-              <button type="button" onClick={() => setShowPricingModal(true)} className="transition hover:text-gray-400">Pricing</button>
-            </span>
-          </footer>
         </main>
 
         {/* Creations rail (desktop) */}
         <GalleryRail
-          variant="rail"
           refreshTrigger={galleryRefreshTrigger}
           onSelectImage={handleGallerySelectImage}
           onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
@@ -1504,24 +1473,14 @@ const App: React.FC = () => {
           onVideoReferenceAction={handleGalleryVideoReferenceAction}
         />
       </div>
+      </div>
 
-      {/* Creations drawer (mobile) */}
-      {isGalleryDrawerOpen && (
-        <GalleryRail
-          variant="drawer"
-          refreshTrigger={galleryRefreshTrigger}
-          onClose={() => setIsGalleryDrawerOpen(false)}
-          onSelectImage={handleGallerySelectImage}
-          onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
-          onUseImageAsReference={handleGalleryUseImageAsReference}
-          onUseVideoAsReference={!isVideoEditorOpen && studioMode === 'video' ? handleGalleryUseVideoAsReference : undefined}
-          showReferenceActions={!isVideoEditorOpen}
-          imageReferenceTargets={galleryImageReferenceTargets}
-          videoReferenceTargets={galleryVideoReferenceTargets}
-          onImageReferenceAction={handleGalleryImageReferenceAction}
-          onVideoReferenceAction={handleGalleryVideoReferenceAction}
-        />
-      )}
+      {/* Crawlable supporting content begins below the complete studio viewport. */}
+      <Suspense fallback={null}>
+        <StudioBelowFold />
+      </Suspense>
+
+      <Footer onShowPricing={() => setShowPricingModal(true)} />
 
       {/* Webcam overlay */}
       {webcamTarget && (
