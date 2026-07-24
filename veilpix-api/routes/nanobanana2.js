@@ -285,7 +285,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
     let uploadedFilename = null;
 
     try {
-        const { prompt, x, y, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { prompt, x, y, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -386,7 +386,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { filterType, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { filterType, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -474,7 +474,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { adjustment, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { adjustment, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -566,7 +566,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
     try {
         const prompt = req.body?.prompt;
         const resolution = req.body?.resolution || '2K';
-        const aspectRatio = req.body?.aspectRatio || '1:1';
+        const aspectRatio = req.body?.aspectRatio || 'auto';
         const imageFiles = req.files?.images || [];
 
         if (!imageFiles || imageFiles.length < 2) {
@@ -658,7 +658,7 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
     let usageLogged = false;
 
     try {
-        const { prompt, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { prompt, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         console.log('Starting Nano Banana 2 text-to-image generation');
         console.log('Nano Banana 2 request summary:', { resolution, aspectRatio });

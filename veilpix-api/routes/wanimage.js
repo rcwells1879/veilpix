@@ -285,7 +285,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
     let uploadedFilename = null;
 
     try {
-        const { prompt, x, y, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'false' } = req.body;
+        const { prompt, x, y, resolution = '2K', aspectRatio = 'auto', nsfwFilterEnabled = 'false' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -376,7 +376,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { filterType, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = 'false' } = req.body;
+        const { filterType, resolution = '2K', aspectRatio = 'auto', nsfwFilterEnabled = 'false' } = req.body;
         const nsfwFilter = nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true;
 
         if (!req.file) {
@@ -478,8 +478,8 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
 
         uploadedFilename = uploadResult.filename;
 
-        // Wan uses direct aspect ratio strings
-        const imageSize = aspectRatio || '1:1';
+        // "auto" is translated to an omitted aspect_ratio so Wan follows the input image.
+        const imageSize = aspectRatio || 'auto';
         if (aspectRatio) {
             console.log(`📐 Aspect ratio requested: ${aspectRatio}`);
         }
@@ -544,7 +544,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
     try {
         const prompt = req.body?.prompt;
         const resolution = req.body?.resolution || '2K';
-        const aspectRatio = req.body?.aspectRatio || '1:1';
+        const aspectRatio = req.body?.aspectRatio || 'auto';
         const nsfwFilterRaw = req.body?.nsfwFilterEnabled ?? 'false';
         const nsfwFilter = nsfwFilterRaw === 'true' || nsfwFilterRaw === true;
         const imageFiles = req.files?.images || [];
@@ -629,7 +629,7 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
     let usageLogged = false;
 
     try {
-        const { prompt, resolution = '2K', aspectRatio = '1:1', nsfwFilterEnabled = false } = req.body;
+        const { prompt, resolution = '2K', aspectRatio = 'auto', nsfwFilterEnabled = false } = req.body;
         const nsfwFilter = nsfwFilterEnabled === true || nsfwFilterEnabled === 'true';
 
         if (!prompt) {

@@ -26,6 +26,8 @@ interface RatioOption {
   label: string;
 }
 
+const AUTO_ASPECT_RATIO: RatioOption = { value: 'auto', label: 'Auto' };
+
 interface ResolutionOption {
   value: ImageResolution;
   label: string;
@@ -86,8 +88,9 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
     sublabel: 'Gemini 3.1 Flash',
     settingsLabel: 'Resolution',
     defaultResolution: '2K',
-    defaultAspectRatio: '1:1',
+    defaultAspectRatio: 'auto',
     aspectRatios: [
+      AUTO_ASPECT_RATIO,
       { value: '1:1', label: '1:1' },
       { value: '16:9', label: '16:9' },
       { value: '9:16', label: '9:16' },
@@ -102,7 +105,6 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
       { value: '1:4', label: '1:4' },
       { value: '8:1', label: '8:1' },
       { value: '1:8', label: '1:8' },
-      { value: 'auto', label: 'Auto' },
     ],
     resolutions: [
       { value: '1K', label: '1K' },
@@ -141,8 +143,9 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
     sublabel: 'Kie image',
     settingsLabel: 'Resolution',
     defaultResolution: '2K',
-    defaultAspectRatio: '1:1',
+    defaultAspectRatio: 'auto',
     aspectRatios: [
+      AUTO_ASPECT_RATIO,
       { value: '1:1', label: '1:1' },
       { value: '16:9', label: '16:9' },
       { value: '9:16', label: '9:16' },
@@ -278,7 +281,7 @@ export const ImageModelSelector: React.FC<ImageModelSelectorProps> = ({ title, v
   const normalizedValue = normalizeImageGenerationOptions(value, workflow);
 
   const handleProviderChange = (provider: ImageProvider) => {
-    onChange(normalizeImageGenerationOptions({ ...normalizedValue, provider }, workflow));
+    onChange(normalizeImageGenerationOptions({ ...normalizedValue, provider, aspectRatio: undefined }, workflow));
   };
 
   return (

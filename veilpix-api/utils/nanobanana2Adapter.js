@@ -40,7 +40,7 @@ function mapAspectRatio(aspectRatio) {
         return aspectRatio;
     }
 
-    return '1:1'; // Default to square
+    return 'auto';
 }
 
 /**
@@ -51,10 +51,10 @@ function mapAspectRatio(aspectRatio) {
  * @param {string} resolution - '1K', '2K', or '4K'
  * @param {number} x - X coordinate for localized edit (optional)
  * @param {number} y - Y coordinate for localized edit (optional)
- * @param {string} aspectRatio - Aspect ratio string (optional, defaults to '1:1')
+ * @param {string} aspectRatio - Aspect ratio string (optional, defaults to 'auto')
  * @returns {object} Nano Banana 2 API request body (input parameters)
  */
-function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = '1:1') {
+function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = 'auto') {
     const enhancedPrompt = x !== null && y !== null
         ? `${prompt}. Focus the edit on the area around coordinates (${x}, ${y}).`
         : prompt;
@@ -74,10 +74,10 @@ function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, asp
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} filterType - The filter description
  * @param {string} resolution - '1K', '2K', or '4K'
- * @param {string} aspectRatio - Aspect ratio string (optional, defaults to '1:1')
+ * @param {string} aspectRatio - Aspect ratio string (optional, defaults to 'auto')
  * @returns {object} Nano Banana 2 API request body (input parameters)
  */
-function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1') {
+function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = 'auto') {
     return {
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
         image_input: imageUrls,
@@ -93,10 +93,10 @@ function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:
  * @param {string[]} imageUrls - Array of public image URLs
  * @param {string} adjustmentPrompt - The adjustment instruction
  * @param {string} resolution - '1K', '2K', or '4K'
- * @param {string} aspectRatio - Aspect ratio string (optional, defaults to '1:1')
+ * @param {string} aspectRatio - Aspect ratio string (optional, defaults to 'auto')
  * @returns {object} Nano Banana 2 API request body (input parameters)
  */
-function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1') {
+function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = 'auto') {
     return {
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
         image_input: imageUrls,
@@ -113,10 +113,10 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio
  * @param {string[]} imageUrls - Array of public image URLs (up to 14 images)
  * @param {string} prompt - The combination instruction
  * @param {string} resolution - '1K', '2K', or '4K'
- * @param {string} aspectRatio - Aspect ratio string (optional, defaults to '1:1')
+ * @param {string} aspectRatio - Aspect ratio string (optional, defaults to 'auto')
  * @returns {object} Nano Banana 2 API request body (input parameters)
  */
-function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1') {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = 'auto') {
     return {
         prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
         image_input: imageUrls,
@@ -132,10 +132,10 @@ function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1')
  *
  * @param {string} prompt - The image generation prompt
  * @param {string} resolution - '1K', '2K', or '4K'
- * @param {string} aspectRatio - Aspect ratio string (optional, defaults to '1:1')
+ * @param {string} aspectRatio - Aspect ratio string (optional, defaults to 'auto')
  * @returns {object} Nano Banana 2 API request body (input parameters)
  */
-function buildTextToImageRequest(prompt, resolution = '2K', aspectRatio = '1:1') {
+function buildTextToImageRequest(prompt, resolution = '2K', aspectRatio = 'auto') {
     return {
         prompt: prompt,
         aspect_ratio: mapAspectRatio(aspectRatio),

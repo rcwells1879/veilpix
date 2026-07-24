@@ -19,6 +19,13 @@ function latestImageOnly(imageUrls) {
     return latestImageUrl ? [latestImageUrl] : [];
 }
 
+function withAspectRatio(request, aspectRatio) {
+    if (aspectRatio && aspectRatio !== 'auto') {
+        request.aspect_ratio = aspectRatio;
+    }
+    return request;
+}
+
 /**
  * Build Wan 2.7 Image API request for localized editing
  *
@@ -27,84 +34,79 @@ function latestImageOnly(imageUrls) {
  * @param {string} resolution - '1K', '2K', or '4K'
  * @param {number} x - X coordinate for localized edit (optional)
  * @param {number} y - Y coordinate for localized edit (optional)
- * @param {string} aspectRatio - Aspect ratio format (optional, defaults to '1:1')
+ * @param {string} aspectRatio - Aspect ratio format (optional, defaults to automatic input matching)
  * @param {boolean} nsfwFilterEnabled - Whether to enable NSFW filter
  * @returns {object} Wan Image API request body
  */
-function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = '1:1', nsfwFilterEnabled = false) {
+function buildEditRequest(imageUrls, prompt, resolution, x = null, y = null, aspectRatio = 'auto', nsfwFilterEnabled = false) {
     const enhancedPrompt = x !== null && y !== null
         ? `${prompt}. Focus the edit on the area around coordinates (${x}, ${y}).`
         : prompt;
 
-    return {
+    return withAspectRatio({
         prompt: enhancedPrompt,
         input_urls: latestImageOnly(imageUrls),
-        aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
         watermark: false,
         nsfw_checker: nsfwFilterEnabled
-    };
+    }, aspectRatio);
 }
 
 /**
  * Build Wan 2.7 Image API request for filter application
  */
-function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = '1:1', nsfwFilterEnabled = false) {
-    return {
+function buildFilterRequest(imageUrls, filterType, resolution, aspectRatio = 'auto', nsfwFilterEnabled = false) {
+    return withAspectRatio({
         prompt: `Apply the following style filter to the entire image: ${filterType}. Maintain the original composition and content, only change the style.`,
         input_urls: latestImageOnly(imageUrls),
-        aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
         watermark: false,
         nsfw_checker: nsfwFilterEnabled
-    };
+    }, aspectRatio);
 }
 
 /**
  * Build Wan 2.7 Image API request for global adjustments
  */
-function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = false) {
-    return {
+function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio = 'auto', nsfwFilterEnabled = false) {
+    return withAspectRatio({
         prompt: `${adjustmentPrompt}. Apply this adjustment globally across the entire image while maintaining photorealism.`,
         input_urls: latestImageOnly(imageUrls),
-        aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
         watermark: false,
         nsfw_checker: nsfwFilterEnabled
-    };
+    }, aspectRatio);
 }
 
 /**
  * Build Wan 2.7 Image API request for combining multiple images
  */
-function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = false) {
-    return {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = 'auto', nsfwFilterEnabled = false) {
+    return withAspectRatio({
         prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
         input_urls: imageUrls,
-        aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
         watermark: false,
         nsfw_checker: nsfwFilterEnabled
-    };
+    }, aspectRatio);
 }
 
 /**
  * Build Wan 2.7 Image API request for text-to-image generation (no reference image)
  */
-function buildTextToImageRequest(prompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = false) {
-    return {
+function buildTextToImageRequest(prompt, resolution, aspectRatio = 'auto', nsfwFilterEnabled = false) {
+    return withAspectRatio({
         prompt,
-        aspect_ratio: aspectRatio,
         resolution: resolution || '2K',
         n: 1,
         watermark: false,
         nsfw_checker: nsfwFilterEnabled,
         thinking_mode: true
-    };
+    }, aspectRatio);
 }
 
 /**
