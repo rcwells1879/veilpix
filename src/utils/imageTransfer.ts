@@ -2,6 +2,19 @@ import { getGalleryImage } from './workflowStorage';
 
 export const VEILPIX_GALLERY_IMAGE_TYPE = 'application/x-veilpix-gallery-image';
 export const VEILPIX_GALLERY_IMAGE_PREFIX = 'veilpix-gallery-image:';
+export const VEILPIX_GALLERY_VIDEO_TYPE = 'application/x-veilpix-gallery-video';
+export const VEILPIX_GALLERY_VIDEO_PREFIX = 'veilpix-gallery-video:';
+
+/** Resolve a gallery video drag payload to its gallery id, if present. */
+export function getGalleryVideoDragId(dataTransfer: DataTransfer): number | null {
+  const customValue = dataTransfer.getData(VEILPIX_GALLERY_VIDEO_TYPE);
+  const plainValue = dataTransfer.getData('text/plain');
+  const rawId = customValue || (plainValue.startsWith(VEILPIX_GALLERY_VIDEO_PREFIX)
+    ? plainValue.slice(VEILPIX_GALLERY_VIDEO_PREFIX.length)
+    : '');
+  const id = Number(rawId);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 const IMAGE_FILE_EXTENSION = /\.(avif|gif|heic|heif|jpe?g|png|webp)$/i;
 

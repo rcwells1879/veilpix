@@ -2,33 +2,27 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * VeilPix - AI-Powered Image Editor
- * Main application component managing the entire image editing workflow
+ * VeilPix Studio - single-page AI image & video workspace.
  *
  * Architecture:
- * - State management via React hooks (no external state library)
- * - History-based undo/redo system with File objects
- * - Optimistic UI updates for perceived performance
- * - Authentication-gated features via Clerk
- * - Backend API for all AI operations (Nano Banana 2, Seedream 5, Wan 2.7 Image)
+ * - One screen: result stage above a prompt composer, gallery rail on the right.
+ * - Two modes (image / video); composer dropdowns adapt to the selected model.
+ * - History-based undo/redo with File objects; compare slider; retouch; crop.
+ * - Authentication-gated features via Clerk; all AI calls proxied by the backend.
  */
 
-import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
-import { formatCreditLabel } from './src/utils/creditFormatting';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, Suspense, lazy } from 'react';
 import type { Crop, PixelCrop } from 'react-image-crop';
 import { useUser, useClerk } from '@clerk/clerk-react';
 import {
   useGenerateEditNanoBanana2,
-  useGenerateFilterNanoBanana2,
   useGenerateAdjustNanoBanana2,
   useGenerateCompositeNanoBanana2,
   useGenerateTextToImage,
   useGenerateEditSeeDream,
-  useGenerateFilterSeeDream,
   useGenerateAdjustSeeDream,
   useGenerateCompositeSeeDream,
   useGenerateEditWanImage,
-  useGenerateFilterWanImage,
   useGenerateAdjustWanImage,
   useGenerateCompositeWanImage,
   useGenerateTextToImageSeeDream,
@@ -40,40 +34,36 @@ import {
   useUsageStats
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
-import Footer from './components/Footer';
 import Spinner from './components/Spinner';
-import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon, DownloadIcon, PhotoIcon } from './components/icons';
-import StartScreen from './components/StartScreen';
-import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import type { SettingsState } from './components/SettingsMenu';
 import {
   getImageCreditCost,
-  ImageModelSelector,
-  ImageModelSettings,
   normalizeImageGenerationOptions,
   type ImageGenerationOptions,
   type ImageProvider,
+  type ImageWorkflow,
 } from './components/ImageModelControlsPanel';
+import Composer from './components/studio/Composer';
+import ResultStage from './components/studio/ResultStage';
+import GalleryRail, { type GalleryReferenceTarget } from './components/studio/GalleryRail';
+import type { StudioMode, StageTool, VideoProvider, SeedanceInputMode, VideoGenerateOptions } from './components/studio/types';
+import { getWanMaxReferenceImages, SEEDANCE_MAX_REFERENCE_IMAGES } from './components/studio/videoPricing';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
 import { extractLastVideoFrame } from './src/utils/videoFrameExtraction';
 
-type VideoProvider = 'wan' | 'seedance';
-type SeedanceVariant = 'regular' | 'fast' | 'mini';
-type SeedanceInputMode = 'frames' | 'references';
+/* ------------------------------------------------------------------ */
+/* Lazy-loaded chunks                                                   */
+/* ------------------------------------------------------------------ */
+const WebcamCapture = lazy(() => import('./components/WebcamCapture'));
+const SignupPromptModal = lazy(() => import('./components/SignupPromptModal'));
+const PaymentSuccess = lazy(() => import('./components/PaymentSuccess').then(module => ({ default: module.PaymentSuccess })));
+const PaymentCancelled = lazy(() => import('./components/PaymentCancelled').then(module => ({ default: module.PaymentCancelled })));
+const PricingModal = lazy(() => import('./components/PricingModal').then(module => ({ default: module.PricingModal })));
+const VideoEditor = lazy(() => import('./components/studio/VideoEditor'));
 
-interface VideoGenerateOptions {
-  provider: VideoProvider;
-  prompt: string;
-  duration: number;
-  resolution: string;
-  ratio: string;
-  wanAudio?: boolean;
-  wanMultiShots?: boolean;
-  seedanceVariant?: SeedanceVariant;
-  seedanceInputMode?: SeedanceInputMode;
-  seedanceGenerateAudio?: boolean;
-  seedanceWebSearch?: boolean;
-}
+/* ------------------------------------------------------------------ */
+/* Helpers                                                              */
+/* ------------------------------------------------------------------ */
 
 function getVideoDurationSeconds(source: File | string): Promise<number | null> {
   return new Promise((resolve) => {
@@ -101,57 +91,21 @@ function getVideoDurationSeconds(source: File | string): Promise<number | null> 
   });
 }
 
-// Lazy-loaded components for video and composite-from-editor modes
-const VideoControlsPanel = lazy(() => import('./components/VideoControlsPanel'));
-const CompositeEditorOverlay = lazy(() => import('./components/CompositeEditorOverlay'));
-const AdjustmentPanel = lazy(() => import('./components/AdjustmentPanel'));
-const BeforeAfterSlider = lazy(() => import('./components/BeforeAfterSlider'));
-const CropEditor = lazy(() => import('./components/CropEditor'));
-const CropPanel = lazy(() => import('./components/CropPanel'));
-const FilterPanel = lazy(() => import('./components/FilterPanel'));
-const Gallery = lazy(() => import('./components/Gallery'));
-const SignupPromptModal = lazy(() => import('./components/SignupPromptModal'));
-
-/**
- * Lazy-loaded components for better initial bundle size
- * These components are only loaded when their respective features are accessed
- * - WebcamCapture: Heavy library (react-webcam) only needed for webcam mode
- * - CompositeScreen: Only needed for multi-image composition workflow
- * - Payment/Pricing modals: Rarely used, safe to code-split
- */
-const WebcamCapture = lazy(() => import('./components/WebcamCapture'));
-const CompositeScreen = lazy(() => import('./components/CompositeScreen'));
-const PaymentSuccess = lazy(() => import('./components/PaymentSuccess').then(module => ({ default: module.PaymentSuccess })));
-const PaymentCancelled = lazy(() => import('./components/PaymentCancelled').then(module => ({ default: module.PaymentCancelled })));
-const PricingModal = lazy(() => import('./components/PricingModal').then(module => ({ default: module.PricingModal })));
-// HEIC converter is dynamically imported only when HEIC files are detected (rare on web)
-
-/**
- * Converts a data URL string to a File object
- * Used primarily for crop operations where canvas.toDataURL() produces a data URL
- * that needs to be converted back to a File for consistency with history management
- *
- * @param dataurl - Base64 encoded data URL (format: "data:image/png;base64,...")
- * @param filename - Desired filename for the resulting File object
- * @returns File object suitable for storing in history array
- * @throws Error if data URL format is invalid or MIME type cannot be parsed
- */
 const dataURLtoFile = (dataurl: string, filename: string): File => {
-    const arr = dataurl.split(',');
-    if (arr.length < 2) throw new Error("Invalid data URL");
-    const mimeMatch = arr[0].match(/:(.*?);/);
-    if (!mimeMatch || !mimeMatch[1]) throw new Error("Could not parse MIME type from data URL");
+  const arr = dataurl.split(',');
+  if (arr.length < 2) throw new Error('Invalid data URL');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!mimeMatch || !mimeMatch[1]) throw new Error('Could not parse MIME type from data URL');
 
-    const mime = mimeMatch[1];
-    const bstr = atob(arr[1]); // Decode base64 string
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    // Convert binary string to byte array (working backwards for efficiency)
-    while(n--){
-        u8arr[n] = bstr.charCodeAt(n);
-    }
-    return new File([u8arr], filename, {type:mime});
-}
+  const mime = mimeMatch[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+};
 
 const generatedImageToFile = async (
   image: { data: string; mimeType?: string },
@@ -179,133 +133,59 @@ const generatedImageToFile = async (
   );
 };
 
-/**
- * Detects if an error message indicates a content safety filter violation
- * Google's Gemini API filters content for safety (NSFW, violence, policy violations)
- * This helps provide user-friendly messaging for safety-related failures vs technical errors
- *
- * @param errorMessage - The error message string to analyze
- * @returns true if the error appears to be safety-related, false otherwise
- *
- * Note: Includes '500' and 'internal server error' as safety keywords because
- * Google's API sometimes returns 500 errors for safety violations without clear messaging
- */
 const CONTENT_POLICY_ERROR_CODE = 'CONTENT_POLICY_VIOLATION';
 const CONTENT_POLICY_ERROR_MESSAGE = 'Content policy violation: this request was flagged by the content moderation provider.';
 
 const getApiErrorMessage = (error: unknown): string => {
-    if (typeof error === 'string') {
-        return error;
-    }
+  if (typeof error === 'string') return error;
 
-    if (error && typeof error === 'object') {
-        const apiError = error as {
-            message?: string;
-            data?: { message?: string; error?: string };
-        };
+  if (error && typeof error === 'object') {
+    const apiError = error as {
+      message?: string;
+      data?: { message?: string; error?: string };
+    };
 
-        return apiError.data?.message
-            || apiError.data?.error
-            || apiError.message
-            || 'An unknown error occurred.';
-    }
+    return apiError.data?.message
+      || apiError.data?.error
+      || apiError.message
+      || 'An unknown error occurred.';
+  }
 
-    return 'An unknown error occurred.';
+  return 'An unknown error occurred.';
 };
 
-const isSafetyFilterError = (error: unknown, nsfwFilterEnabled: boolean): boolean => {
-    if (error && typeof error === 'object') {
-        const apiError = error as {
-            data?: { code?: string };
-        };
+const isSafetyFilterError = (error: unknown): boolean => {
+  if (error && typeof error === 'object') {
+    const apiError = error as { data?: { code?: string } };
+    if (apiError.data?.code === CONTENT_POLICY_ERROR_CODE) return true;
+  }
 
-        if (apiError.data?.code === CONTENT_POLICY_ERROR_CODE) {
-            return true;
-        }
-    }
+  const safetyKeywords = [
+    'safety', 'blocked', 'flagged', 'inappropriate', 'policy', 'violation',
+    'nsfw', 'harmful', 'terms of service', 'content policy', 'not allowed',
+    'not approved', 'moderation provider', 'failed the review'
+  ];
 
-    const safetyKeywords = [
-        'safety',
-        'blocked',
-        'flagged',
-        'inappropriate',
-        'policy',
-        'violation',
-        'nsfw',
-        'harmful',
-        'terms of service',
-        'content policy',
-        'not allowed',
-        'not approved',
-        'moderation provider',
-        'failed the review'
-    ];
+  const lowerError = getApiErrorMessage(error).toLowerCase();
+  if (safetyKeywords.some(keyword => lowerError.includes(keyword))) return true;
 
-    const lowerError = getApiErrorMessage(error).toLowerCase();
+  // Kie.ai returns generic "Internal Error" for content-filtered requests.
+  if (lowerError.includes('internal error') || lowerError.includes('500')) return true;
 
-    // Direct safety keyword match
-    if (safetyKeywords.some(keyword => lowerError.includes(keyword))) {
-        return true;
-    }
-
-    // Kie.ai returns generic "Internal Error" for content-filtered requests.
-    // When the NSFW filter is ON: "Internal Error" likely means content was blocked by kie.ai's filter.
-    // When the NSFW filter is OFF (After Dark): "Internal Error" likely means the underlying model
-    // (e.g., SeeDream/ByteDance) has its own content filter that can't be disabled via nsfw_checker.
-    // In both cases, treat as a safety error since normal prompts work fine with the same settings.
-    if (lowerError.includes('internal error') || lowerError.includes('500')) {
-        return true;
-    }
-
-    return false;
-}
-
-const getGenerationErrorMessage = (
-    error: unknown,
-    fallbackPrefix: string,
-    nsfwFilterEnabled: boolean
-): string => {
-    if (isSafetyFilterError(error, nsfwFilterEnabled)) {
-        return CONTENT_POLICY_ERROR_MESSAGE;
-    }
-
-    return `${fallbackPrefix} ${getApiErrorMessage(error)}`;
+  return false;
 };
 
-/**
- * DEPRECATED - Legacy function no longer used in production
- * Previously attempted to parse natural language adjustment prompts into structured values
- * Now replaced by direct prompt-to-API approach where Gemini interprets prompts natively
- *
- * Kept for reference but not actively called in the codebase
- */
-const parseAdjustmentPrompt = (prompt: string) => {
-  const adjustments: any = {};
+const getGenerationErrorMessage = (error: unknown, fallbackPrefix: string): string => {
+  if (isSafetyFilterError(error)) return CONTENT_POLICY_ERROR_MESSAGE;
+  return `${fallbackPrefix} ${getApiErrorMessage(error)}`;
+};
 
-  // Simple parsing logic - in production you might want more sophisticated parsing
-  if (prompt.toLowerCase().includes('bright')) {
-    adjustments.brightness = 0.2; // Default adjustment value
-  }
-  if (prompt.toLowerCase().includes('contrast')) {
-    adjustments.contrast = 0.2;
-  }
-  if (prompt.toLowerCase().includes('saturat')) {
-    adjustments.saturation = 0.2;
-  }
-  if (prompt.toLowerCase().includes('warm') || prompt.toLowerCase().includes('cool')) {
-    adjustments.temperature = prompt.toLowerCase().includes('warm') ? 0.2 : -0.2;
-  }
+/* ------------------------------------------------------------------ */
+/* Settings persistence                                                 */
+/* ------------------------------------------------------------------ */
 
-  return adjustments;
-}
-
-type Tab = 'retouch' | 'adjust' | 'filters' | 'crop';
-type View = 'start' | 'webcam' | 'editor' | 'composite';
-
-// LocalStorage keys for settings persistence
 const SETTINGS_STORAGE_KEY = 'veilpix-settings';
 
-// Default settings
 const DEFAULT_SETTINGS: SettingsState = {
   apiProvider: 'seedream',
   resolution: '2K',
@@ -315,187 +195,134 @@ const DEFAULT_SETTINGS: SettingsState = {
   nsfwFilterEnabled: true
 };
 
+/* ------------------------------------------------------------------ */
+
 const App: React.FC = () => {
   const { isSignedIn, isLoaded } = useUser();
   const clerk = useClerk();
   const openedProfileRef = useRef(false);
   const { data: usageStats } = useUsageStats();
   const hasPurchasedCredits = (usageStats?.totalCreditsPurchased ?? 0) > 0;
-  const [view, setView] = useState<View>('start');
+
+  /* ---------------- studio state ---------------- */
+  const [studioMode, setStudioMode] = useState<StudioMode>('image');
   const [history, setHistory] = useState<File[]>([]);
   const [historyPrompts, setHistoryPrompts] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
-  const [prompt, setPrompt] = useState<string>('');
-  const [restoredVideoPrompt, setRestoredVideoPrompt] = useState<string>('');
-  const [videoPromptRecallKey, setVideoPromptRecallKey] = useState(0);
+  const [imagePrompt, setImagePrompt] = useState<string>('');
+  const [videoPrompt, setVideoPrompt] = useState<string>('');
+  const [styleImage, setStyleImage] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
-  const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('adjust');
+  const [activeTool, setActiveTool] = useState<StageTool>('none');
+  const [editHotspot, setEditHotspot] = useState<{ x: number; y: number } | null>(null);
+  const [displayHotspot, setDisplayHotspot] = useState<{ x: number; y: number } | null>(null);
   const [showSignupPrompt, setShowSignupPrompt] = useState<boolean>(false);
+  const [isGalleryDrawerOpen, setIsGalleryDrawerOpen] = useState(false);
+  const [webcamTarget, setWebcamTarget] = useState<'base' | 'style' | null>(null);
+  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
+  const [isVideoEditorOpen, setIsVideoEditorOpen] = useState(false);
+  const [isVideoEditorRendering, setIsVideoEditorRendering] = useState(false);
+  const [incomingEditorVideo, setIncomingEditorVideo] = useState<GalleryVideoDetails | null>(null);
+  const [isProcessingFile] = useState(false);
 
+  /* crop */
+  const [crop, setCrop] = useState<Crop>();
+  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
+  const [aspect, setAspect] = useState<number | undefined>();
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  /* compare */
+  const [isComparing, setIsComparing] = useState<boolean>(false);
+  const [showSlider, setShowSlider] = useState<boolean>(false);
+  const [sliderCompareMode, setSliderCompareMode] = useState<'original' | 'previous'>('original');
+
+  /* Hide the static SEO hero once the app owns the screen */
   useLayoutEffect(() => {
     const startHero = document.getElementById('veilpix-start-hero');
-    if (startHero) startHero.hidden = view !== 'start';
-  }, [view]);
+    if (startHero) startHero.hidden = true;
+  }, []);
 
-  // Settings state with localStorage persistence
+  /* ---------------- settings ---------------- */
   const [settings, setSettings] = useState<SettingsState>(() => {
     try {
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        console.log('📋 Loaded settings from localStorage:', parsed);
-        const normalizedImageOptions = normalizeImageGenerationOptions({
-          provider: parsed.apiProvider,
-          resolution: parsed.resolution,
-          aspectRatio: parsed.imageAspectRatio,
-          seedreamTier: parsed.seedreamTier,
-          outputFormat: parsed.imageOutputFormat,
-        });
-        return {
-          ...DEFAULT_SETTINGS,
-          ...parsed,
-          apiProvider: normalizedImageOptions.provider,
-          resolution: normalizedImageOptions.resolution,
-          imageAspectRatio: normalizedImageOptions.aspectRatio,
-          seedreamTier: normalizedImageOptions.seedreamTier,
-          imageOutputFormat: normalizedImageOptions.outputFormat,
-        };
+        // Stored values are kept as-is; provider/workflow clamping happens at
+        // read time so user preferences survive model and workflow switches.
+        return { ...DEFAULT_SETTINGS, ...parsed };
       }
-    } catch (error) {
-      console.error('Failed to load settings from localStorage:', error);
+    } catch (storageError) {
+      console.error('Failed to load settings from localStorage:', storageError);
     }
     return DEFAULT_SETTINGS;
   });
-  const imageGenerationOptions = normalizeImageGenerationOptions({
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch (storageError) {
+      console.error('Failed to save settings to localStorage:', storageError);
+    }
+  }, [settings]);
+
+  // Enforce NSFW filter for confirmed non-purchasers only. While usage stats
+  // are still loading (undefined), do nothing — otherwise every page load
+  // would momentarily see "no purchases" and wipe a purchaser's After Dark
+  // setting before the stats arrive.
+  useEffect(() => {
+    if (usageStats && !hasPurchasedCredits && !settings.nsfwFilterEnabled) {
+      setSettings(prev => ({ ...prev, nsfwFilterEnabled: true }));
+    }
+  }, [usageStats, hasPurchasedCredits, settings.nsfwFilterEnabled]);
+
+  const handleSettingsChange = useCallback((newSettings: SettingsState) => {
+    setSettings(newSettings);
+  }, []);
+
+  const handleImageOptionsChange = useCallback((options: ImageGenerationOptions) => {
+    setSettings(prev => ({
+      ...prev,
+      apiProvider: options.provider,
+      resolution: options.resolution,
+      imageAspectRatio: options.aspectRatio,
+      seedreamTier: options.seedreamTier,
+      imageOutputFormat: options.outputFormat,
+    }));
+  }, []);
+
+  // Raw user preferences — normalization/clamping happens where requests are
+  // built and where options are displayed, never against the stored values.
+  const imageGenerationOptions: ImageGenerationOptions = {
     provider: settings.apiProvider,
     resolution: settings.resolution,
     aspectRatio: settings.imageAspectRatio,
     seedreamTier: settings.seedreamTier,
     outputFormat: settings.imageOutputFormat,
-  });
-  const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'text-to-image', imageGenerationOptions.seedreamTier);
-  const imageEditCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier);
-  const imageEditCreditLabel = formatCreditLabel(imageEditCreditCost);
+  };
 
-  // Persist settings to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-      console.log('💾 Saved settings to localStorage:', settings);
-    } catch (error) {
-      console.error('Failed to save settings to localStorage:', error);
-    }
-  }, [settings]);
+  /* ---------------- clerk / payment plumbing ---------------- */
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+  const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
+  const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
+  const [showPricingModal, setShowPricingModal] = useState(false);
 
-  // Enforce NSFW filter for non-purchasers: if user hasn't bought credits,
-  // force the filter ON regardless of what's stored in localStorage
-  useEffect(() => {
-    if (!hasPurchasedCredits && !settings.nsfwFilterEnabled) {
-      setSettings(prev => ({ ...prev, nsfwFilterEnabled: true }));
-    }
-  }, [hasPurchasedCredits, settings.nsfwFilterEnabled]);
-
-  // Workflow restoration disabled - app always starts at landing page
-  // Users requested fresh start on every visit instead of session persistence
-  // useEffect(() => {
-  //   const restoreWorkflow = async () => {
-  //     try {
-  //       const savedWorkflow = await loadWorkflow();
-  //       if (savedWorkflow && savedWorkflow.history.length > 0) {
-  //         console.log('🔄 Restoring workflow from IndexedDB:', savedWorkflow.history.length, 'images');
-  //         setHistory(savedWorkflow.history);
-  //         setHistoryIndex(savedWorkflow.historyIndex);
-  //         setView('editor');
-  //       }
-  //     } catch (error) {
-  //       console.error('Failed to restore workflow:', error);
-  //     }
-  //   };
-  //   restoreWorkflow();
-  // }, []);
-
-  // Auto-save workflow to IndexedDB when history changes (debounced)
-  useEffect(() => {
-    if (history.length > 0) {
-      debouncedSaveWorkflow(history, historyIndex, historyPrompts);
-    }
-  }, [history, historyIndex, historyPrompts]);
-
-  const handleSettingsChange = useCallback((newSettings: SettingsState) => {
-    const normalizedImageOptions = normalizeImageGenerationOptions({
-      provider: newSettings.apiProvider,
-      resolution: newSettings.resolution,
-      aspectRatio: newSettings.imageAspectRatio,
-      seedreamTier: newSettings.seedreamTier,
-      outputFormat: newSettings.imageOutputFormat,
-    });
-    const normalizedSettings = {
-      ...newSettings,
-      apiProvider: normalizedImageOptions.provider,
-      resolution: normalizedImageOptions.resolution,
-      imageAspectRatio: normalizedImageOptions.aspectRatio,
-      seedreamTier: normalizedImageOptions.seedreamTier,
-      imageOutputFormat: normalizedImageOptions.outputFormat,
-    };
-    setSettings(normalizedSettings);
-    console.log('⚙️ Settings updated:', newSettings);
-  }, []);
-
-  const handleImageOptionsChange = useCallback((options: ImageGenerationOptions) => {
-    const normalizedImageOptions = normalizeImageGenerationOptions(options);
-    setSettings(prev => ({
-      ...prev,
-      apiProvider: normalizedImageOptions.provider,
-      resolution: normalizedImageOptions.resolution,
-      imageAspectRatio: normalizedImageOptions.aspectRatio,
-      seedreamTier: normalizedImageOptions.seedreamTier,
-      imageOutputFormat: normalizedImageOptions.outputFormat,
-    }));
-  }, []);
-
-  // Smart preloading for lazy components
-  useEffect(() => {
-    // Preload CompositeScreen when user first uploads an image
-    if (history.length > 0) {
-      import('./components/CompositeScreen');
-    }
-  }, [history.length]);
-
-  // Debug: Log auth state on every load to diagnose OAuth redirects
-  useEffect(() => {
-    console.log('🔍 Auth debug:', {
-      url: window.location.href,
-      search: window.location.search,
-      hash: window.location.hash,
-      isSignedIn,
-      isLoaded,
-      clerkLoaded: clerk.loaded
-    });
-  }, [isSignedIn, isLoaded, clerk.loaded]);
-
-  // Handle SSO callback from OAuth providers (Google, GitHub, etc.)
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const isSSOCallback = window.location.hash.includes('/sso-callback') ||
-                          window.location.pathname.includes('/sso-callback') ||
-                          searchParams.has('__clerk_status') ||
-                          searchParams.has('__clerk_created_session') ||
-                          searchParams.has('__clerk_ticket');
-
-    console.log('🔄 SSO check:', { isSSOCallback, clerkLoaded: clerk.loaded });
+      window.location.pathname.includes('/sso-callback') ||
+      searchParams.has('__clerk_status') ||
+      searchParams.has('__clerk_created_session') ||
+      searchParams.has('__clerk_ticket');
 
     if (isSSOCallback && clerk.loaded) {
-      console.log('🔄 Handling SSO callback...');
       clerk.handleRedirectCallback({
         signInForceRedirectUrl: '/veilpix/',
         signUpForceRedirectUrl: '/veilpix/',
       }).then(() => {
-        console.log('✅ SSO callback handled successfully');
         window.history.replaceState({}, '', window.location.pathname);
       }).catch((err) => {
-        console.error('❌ SSO callback error:', err);
+        console.error('SSO callback error:', err);
       });
     }
   }, [clerk.loaded]);
@@ -515,22 +342,25 @@ const App: React.FC = () => {
     }
   }, [clerk, isLoaded, isSignedIn]);
 
-  // Payment flow state
-  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
-  const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
-  const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
-  const [showPricingModal, setShowPricingModal] = useState(false);
-  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+    const cancelled = urlParams.get('cancelled');
 
-  // TanStack Query mutations — call ALL hooks unconditionally (Rules of Hooks compliant),
-  // then select the active one based on the chosen provider
+    if (sessionId) {
+      setPaymentSessionId(sessionId);
+      setShowPaymentSuccess(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (cancelled === 'true') {
+      setShowPaymentCancelled(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  /* ---------------- mutations ---------------- */
   const editNB2 = useGenerateEditNanoBanana2();
   const editSeeDream = useGenerateEditSeeDream();
   const editWan = useGenerateEditWanImage();
-
-  const filterNB2 = useGenerateFilterNanoBanana2();
-  const filterSeeDream = useGenerateFilterSeeDream();
-  const filterWan = useGenerateFilterWanImage();
 
   const adjustNB2 = useGenerateAdjustNanoBanana2();
   const adjustSeeDream = useGenerateAdjustSeeDream();
@@ -545,49 +375,37 @@ const App: React.FC = () => {
   const textToImageWan = useGenerateTextToImageWanImage();
 
   const imageMutationsByProvider = {
-    nanobanana2: {
-      edit: editNB2,
-      filter: filterNB2,
-      adjust: adjustNB2,
-      composite: compositeNB2,
-      textToImage: textToImageNB2,
-    },
-    seedream: {
-      edit: editSeeDream,
-      filter: filterSeeDream,
-      adjust: adjustSeeDream,
-      composite: compositeSeeDream,
-      textToImage: textToImageSeeDream,
-    },
-    wanimage: {
-      edit: editWan,
-      filter: filterWan,
-      adjust: adjustWan,
-      composite: compositeWan,
-      textToImage: textToImageWan,
-    },
+    nanobanana2: { edit: editNB2, adjust: adjustNB2, composite: compositeNB2, textToImage: textToImageNB2 },
+    seedream: { edit: editSeeDream, adjust: adjustSeeDream, composite: compositeSeeDream, textToImage: textToImageSeeDream },
+    wanimage: { edit: editWan, adjust: adjustWan, composite: compositeWan, textToImage: textToImageWan },
   } satisfies Record<ImageProvider, {
     edit: typeof editNB2;
-    filter: typeof filterNB2;
     adjust: typeof adjustNB2;
     composite: typeof compositeNB2;
     textToImage: typeof textToImageNB2;
   }>;
 
-  // Select active mutation based on provider
   const activeImageMutations = imageMutationsByProvider[imageGenerationOptions.provider] ?? imageMutationsByProvider.seedream;
-  const editMutation = activeImageMutations.edit;
-  const filterMutation = activeImageMutations.filter;
-  const adjustMutation = activeImageMutations.adjust;
-  const compositeMutation = activeImageMutations.composite;
 
   const videoMutation = useGenerateVideo();
   const referenceVideoMutation = useGenerateReferenceToVideo();
   const textToVideoMutation = useGenerateTextToVideo();
   const seedanceVideoMutation = useGenerateSeedanceVideo();
 
-  // Video generation state
-  const [videoProvider, setVideoProvider] = useState<VideoProvider>('wan');
+  /* ---------------- video state ---------------- */
+  const [videoProvider, setVideoProvider] = useState<VideoProvider>(() => {
+    try {
+      const stored = localStorage.getItem('veilpix-video-provider');
+      if (stored === 'wan' || stored === 'seedance') return stored;
+    } catch { /* storage unavailable */ }
+    return 'seedance';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('veilpix-video-provider', videoProvider);
+    } catch { /* storage unavailable */ }
+  }, [videoProvider]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [galleryVideoFile, setGalleryVideoFile] = useState<File | null>(null);
   const galleryVideoObjectUrlRef = useRef<string | null>(null);
@@ -606,42 +424,77 @@ const App: React.FC = () => {
   const [seedanceReferenceVideoDuration, setSeedanceReferenceVideoDuration] = useState<number | null>(null);
   const [seedanceReferenceAudioFile, setSeedanceReferenceAudioFile] = useState<File | null>(null);
 
-  // React 19 optimistic state for immediate UI feedback
-  const [optimisticHistory, setOptimisticHistory] = useOptimistic(
-    history,
-    (currentHistory, newImage: File) => [...currentHistory, newImage]
-  );
+  const isVideoPending = videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending;
+  const isImagePending = editNB2.isPending || editSeeDream.isPending || editWan.isPending
+    || adjustNB2.isPending || adjustSeeDream.isPending || adjustWan.isPending
+    || compositeNB2.isPending || compositeSeeDream.isPending || compositeWan.isPending
+    || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending;
+  const isLoading = isImagePending || isVideoPending || isProcessingFile;
 
-  // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending || isProcessingFile;
+  const loadingLabel = isProcessingFile
+    ? 'Processing image…'
+    : isVideoPending
+      ? 'Rendering your video — this can take a few minutes.'
+      : 'Creating…';
 
-  const [sourceImage1, setSourceImage1] = useState<File | null>(null);
-  const [sourceImage2, setSourceImage2] = useState<File | null>(null);
-  const [isWebcamForComposite, setIsWebcamForComposite] = useState(false);
-  const [isWebcamForCompositeSecond, setIsWebcamForCompositeSecond] = useState(false);
-  const [creativeMode, setCreativeMode] = useState<CreativeMode>('single');
-  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
-  
-  const [crop, setCrop] = useState<Crop>();
-  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
-  const [aspect, setAspect] = useState<number | undefined>();
-  const [isComparing, setIsComparing] = useState<boolean>(false);
-  const [showSlider, setShowSlider] = useState<boolean>(false);
-  const [sliderCompareMode, setSliderCompareMode] = useState<'original' | 'previous'>('original');
-  const imgRef = useRef<HTMLImageElement>(null);
-
-  // Optimistic history is display-only. Provider requests use canonical history.
-  const displayHistory = optimisticHistory.length > history.length ? optimisticHistory : history;
+  /* ---------------- derived image state ---------------- */
   const currentImage = history[historyIndex] ?? null;
-  const displayedImage = displayHistory[historyIndex] ?? currentImage;
   const originalImage = history[0] ?? null;
+  const previousImage = historyIndex > 0 ? history[historyIndex - 1] : null;
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
+  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
+  const [previousImageUrl, setPreviousImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    if (currentImage) {
+      const url = URL.createObjectURL(currentImage);
+      setCurrentImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setCurrentImageUrl(null);
+  }, [currentImage]);
+
+  useEffect(() => {
+    if (originalImage) {
+      const url = URL.createObjectURL(originalImage);
+      setOriginalImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setOriginalImageUrl(null);
+  }, [originalImage]);
+
+  useEffect(() => {
+    if (previousImage) {
+      const url = URL.createObjectURL(previousImage);
+      setPreviousImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setPreviousImageUrl(null);
+  }, [previousImage]);
+
+  // Auto-close slider when history changes
+  useEffect(() => {
+    setShowSlider(false);
+  }, [historyIndex]);
+
+  // Recall the prompt that produced the displayed image on undo/redo
+  useEffect(() => {
     if (historyIndex >= 0) {
-      setPrompt(historyPrompts[historyIndex] ?? '');
+      setImagePrompt(historyPrompts[historyIndex] ?? '');
     }
   }, [historyIndex, historyPrompts]);
 
+  // Persist workflow locally
+  useEffect(() => {
+    if (history.length > 0) {
+      debouncedSaveWorkflow(history, historyIndex, historyPrompts);
+    }
+  }, [history, historyIndex, historyPrompts]);
+
+  /* ---------------- video result helpers ---------------- */
   const revokeGalleryVideoObjectUrl = useCallback(() => {
     if (galleryVideoObjectUrlRef.current) {
       URL.revokeObjectURL(galleryVideoObjectUrlRef.current);
@@ -673,863 +526,173 @@ const App: React.FC = () => {
     return () => revokeGalleryVideoObjectUrl();
   }, [revokeGalleryVideoObjectUrl]);
 
-  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
-  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
-
-  // Effect to create and revoke object URLs safely for the current image
-  useEffect(() => {
-    if (displayedImage) {
-      const url = URL.createObjectURL(displayedImage);
-      setCurrentImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setCurrentImageUrl(null);
+  /* ---------------- shared helpers ---------------- */
+  const requireAuth = useCallback((): boolean => {
+    if (isLoaded && !isSignedIn) {
+      setShowSignupPrompt(true);
+      return false;
     }
-  }, [displayedImage]);
-  
-  // Effect to create and revoke object URLs safely for the original image
-  useEffect(() => {
-    if (originalImage) {
-      const url = URL.createObjectURL(originalImage);
-      setOriginalImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setOriginalImageUrl(null);
-    }
-  }, [originalImage]);
+    return true;
+  }, [isLoaded, isSignedIn]);
 
-  // Previous image for slider comparison (one step back in history)
-  const previousImage = historyIndex > 0 ? history[historyIndex - 1] : null;
-  const [previousImageUrl, setPreviousImageUrl] = useState<string | null>(null);
-
-  // Effect to create and revoke object URLs safely for the previous image
-  useEffect(() => {
-    if (previousImage) {
-      const url = URL.createObjectURL(previousImage);
-      setPreviousImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setPreviousImageUrl(null);
-    }
-  }, [previousImage]);
-
-  // Auto-close slider when history changes (new edit made)
-  useEffect(() => {
-    setShowSlider(false);
-  }, [historyIndex]);
-
-  // Effect to handle URL parameters for payment success/cancel
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sessionId = urlParams.get('session_id');
-    const cancelled = urlParams.get('cancelled');
-    
-    if (sessionId) {
-      setPaymentSessionId(sessionId);
-      setShowPaymentSuccess(true);
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (cancelled === 'true') {
-      setShowPaymentCancelled(true);
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
+  const resetImageTools = useCallback(() => {
+    setActiveTool('none');
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    setCrop(undefined);
+    setCompletedCrop(undefined);
   }, []);
 
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < history.length - 1;
-
-  const addImageToHistory = useCallback((newImageFile: File, imagePrompt = historyPrompts[historyIndex] ?? '') => {
+  const addImageToHistory = useCallback((newImageFile: File, prompt = historyPrompts[historyIndex] ?? '') => {
     const newHistory = history.slice(0, historyIndex + 1);
     const newHistoryPrompts = historyPrompts.slice(0, historyIndex + 1);
     newHistory.push(newImageFile);
-    newHistoryPrompts.push(imagePrompt);
+    newHistoryPrompts.push(prompt);
     setHistory(newHistory);
     setHistoryPrompts(newHistoryPrompts);
     setHistoryIndex(newHistory.length - 1);
-    // Reset transient states after an action
     setCrop(undefined);
     setCompletedCrop(undefined);
-    // Save AI-generated image to gallery
-    saveToGallery(newImageFile, imagePrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
+    saveToGallery(newImageFile, prompt).then(() => setGalleryRefreshTrigger(n => n + 1));
   }, [history, historyIndex, historyPrompts]);
 
-  const handleImageUpload = useCallback(async (file: File) => {
-    setError(null);
+  /* ---------------- image reference handlers ---------------- */
+  const handleBaseImageSelect = useCallback((file: File | null) => {
+    if (file && !requireAuth()) return;
 
-    // Dynamically import HEIC converter when needed
-    const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-
-    // Check if it's a HEIC file
-    const isHeicFile = await isHEIC(file);
-
-    if (isHeicFile) {
-      setIsProcessingFile(true);
-      try {
-        // Process file (convert HEIC to WebP)
-        const processedFile = await processFileForUpload(file);
-
-        setHistory([processedFile]);
-        setHistoryPrompts(['']);
-        setHistoryIndex(0);
-        setPrompt('');
-        setEditHotspot(null);
-        setDisplayHotspot(null);
-        setActiveTab('adjust');
-        setCrop(undefined);
-        setCompletedCrop(undefined);
-        setView('editor');
-        // Save to gallery
-        saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-      } catch (error) {
-        console.error('Failed to process HEIC file:', error);
-        setError(`Failed to process HEIC image: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
-        setIsProcessingFile(false);
-      }
-    } else {
-      // For non-HEIC files, use directly
+    if (file) {
       setHistory([file]);
       setHistoryPrompts(['']);
       setHistoryIndex(0);
-      setPrompt('');
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setActiveTab('adjust');
-      setCrop(undefined);
-      setCompletedCrop(undefined);
-      setView('editor');
-      // Save to gallery
+      setImagePrompt('');
       saveToGallery(file).then(() => setGalleryRefreshTrigger(n => n + 1));
-    }
-  }, []);
-
-  // Handle selecting an image from the gallery
-  const handleSelectGalleryImage = useCallback((file: File, savedPrompt: string) => {
-    clearVideoResult();
-    setCreativeMode('single');
-    setHistory([file]);
-    setHistoryPrompts([savedPrompt]);
-    setHistoryIndex(0);
-    setPrompt(savedPrompt);
-    setEditHotspot(null);
-    setDisplayHotspot(null);
-    setActiveTab('adjust');
-    setCrop(undefined);
-    setCompletedCrop(undefined);
-    setView('editor');
-  }, [clearVideoResult]);
-
-  const handleMakeGalleryImageReference = useCallback((file: File, savedPrompt: string) => {
-    setPrompt(savedPrompt);
-    setRestoredVideoPrompt(savedPrompt);
-    setVideoPromptRecallKey(key => key + 1);
-    if (creativeMode === 'single') {
-      clearVideoResult();
-      setHistory([file]);
-      setHistoryPrompts([savedPrompt]);
-      setHistoryIndex(0);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setActiveTab('adjust');
-      setCrop(undefined);
-      setCompletedCrop(undefined);
-      setView('editor');
-      return;
-    }
-
-    if (creativeMode === 'composite') {
-      const baseImage = sourceImage1 ?? currentImage;
-      if (!baseImage) {
-        setSourceImage1(file);
-        setView('start');
-        return;
-      }
-      setSourceImage1(baseImage);
-      setSourceImage2(file);
-      setView('composite');
-      return;
-    }
-
-    setCreativeMode('video');
-    if (videoProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceImages(prev => [...prev, file].slice(0, 9));
-    } else {
-      const maxImages = referenceVideoFile || referenceVideoUrl ? 4 : 5;
-      setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
-    }
-    clearVideoResult();
-    setVideoError(null);
-    setView('editor');
-  }, [clearVideoResult, creativeMode, currentImage, referenceVideoFile, referenceVideoUrl, sourceImage1, videoProvider]);
-
-  // Handle selecting a generated video from the gallery for viewing/reuse
-  const handleSelectGalleryVideo = useCallback((details: GalleryVideoDetails) => {
-    const selectedProvider = details.provider ?? videoProvider;
-    const referenceImages = details.referenceImages.length > 0
-      ? details.referenceImages
-      : details.referenceImage
-        ? [details.referenceImage]
-        : [];
-
-    setHistory([]);
-    setHistoryPrompts([]);
-    setHistoryIndex(-1);
-    setRestoredVideoPrompt(details.prompt);
-    setVideoPromptRecallKey(key => key + 1);
-    setEditHotspot(null);
-    setDisplayHotspot(null);
-    setCreativeMode('video');
-    setVideoProvider(selectedProvider);
-    setReferenceVideoFile(null);
-    setReferenceVideoUrl(null);
-    setReferenceVideoDuration(null);
-    setSeedanceReferenceVideoFile(null);
-    setSeedanceReferenceVideoUrl(null);
-    setSeedanceReferenceVideoDuration(null);
-    setSeedanceReferenceAudioFile(null);
-    setSeedanceFirstFrame(null);
-    setSeedanceLastFrame(null);
-    if (selectedProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceImages(referenceImages.slice(0, 9));
-      setWanReferenceImages([]);
-    } else {
-      setWanReferenceImages(referenceImages.slice(0, 5));
-      setSeedanceReferenceImages([]);
-    }
-    if (details.videoFile) {
-      showGalleryVideoResult(details.videoFile);
-    } else {
-      showRemoteVideoResult(details.videoUrl);
-    }
-    setVideoError(null);
-    setView('editor');
-  }, [showGalleryVideoResult, showRemoteVideoResult, videoProvider]);
-
-  // Start a new reference-to-video flow from an existing gallery video
-  const handleMakeGalleryVideoReference = useCallback((details: GalleryVideoDetails) => {
-    setEditHotspot(null);
-    setDisplayHotspot(null);
-    setCreativeMode('video');
-    setRestoredVideoPrompt(details.prompt);
-    setVideoPromptRecallKey(key => key + 1);
-    if (videoProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceVideoFile(details.videoFile);
-      setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
-      setSeedanceReferenceVideoDuration(details.videoDuration ?? null);
     } else {
       setHistory([]);
       setHistoryPrompts([]);
       setHistoryIndex(-1);
-      setReferenceVideoFile(details.videoFile);
-      setReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
-      setReferenceVideoDuration(details.videoDuration ?? null);
-      setWanReferenceImages(prev => prev.slice(0, 4));
+      setStyleImage(null);
     }
-    clearVideoResult();
-    setVideoError(null);
-    setView('editor');
-  }, [clearVideoResult, videoProvider]);
-
-  const generateCompositeFromFiles = useCallback(async (
-    image1: File | null,
-    image2: File | null,
-    compositePrompt: string,
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    console.log('ðŸŽ¯ generateCompositeFromFiles called with prompt:', compositePrompt);
-    console.log('ðŸ–¼ï¸ Source image 1:', image1?.name, image1?.size);
-    console.log('ðŸ–¼ï¸ Source image 2:', image2?.name, image2?.size);
-
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
-
-    if (!image1 || !image2) {
-        setError('Two source images are required to generate a composite.');
-        return;
-    }
-
-    const normalizedImageOptions = normalizeImageGenerationOptions(options, 'image-to-image');
-    const selectedCompositeMutation = imageMutationsByProvider[normalizedImageOptions.provider].composite;
-
+    resetImageTools();
     setError(null);
+  }, [requireAuth, resetImageTools]);
 
-    try {
-        console.log('ðŸš€ About to call composite mutation...');
-        const response = await selectedCompositeMutation.mutateAsync({
-            image1,
-            image2,
-            prompt: compositePrompt,
-            resolution: normalizedImageOptions.resolution,
-            aspectRatio: normalizedImageOptions.aspectRatio,
-            seedreamTier: normalizedImageOptions.seedreamTier,
-            outputFormat: normalizedImageOptions.outputFormat,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-        console.log('âœ… composite mutation returned:', response);
+  const handleStyleImageSelect = useCallback((file: File | null) => {
+    if (file && !requireAuth()) return;
+    setStyleImage(file);
+  }, [requireAuth]);
 
-        if (response.success && response.image) {
-            const newImageFile = await generatedImageToFile(response.image, 'composite');
-
-            setHistory([newImageFile]);
-            setHistoryPrompts([compositePrompt]);
-            setHistoryIndex(0);
-            setPrompt(compositePrompt);
-            setCreativeMode('single');
-            setView('editor');
-            setSourceImage1(null);
-            setSourceImage2(null);
-            saveToGallery(newImageFile, compositePrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } else {
-            throw new Error(response.message || 'Failed to generate composite image');
-        }
-    } catch (err: any) {
-        setError(getGenerationErrorMessage(
-          err,
-          'Failed to generate the composite image.',
-          settings.nsfwFilterEnabled
-        ));
-        console.error(err);
-    }
-  }, [imageGenerationOptions, imageMutationsByProvider, isLoaded, isSignedIn, settings.nsfwFilterEnabled]);
-
-  const handleCompositeSelect = useCallback(async (
-    file1: File,
-    file2: File,
-    compositePrompt = '',
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    // Check if user is authenticated, if not show signup prompt
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
-
-    setError(null);
-
-    // Dynamically import HEIC converter when needed
-    const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-
-    const needsProcessing = await isHEIC(file1) || await isHEIC(file2);
-
-    if (needsProcessing) {
-      setIsProcessingFile(true);
-      try {
-        // Process both files (convert HEIC to WebP if needed)
-        const [processedFile1, processedFile2] = await Promise.all([
-          processFileForUpload(file1),
-          processFileForUpload(file2)
-        ]);
-
-        setSourceImage1(processedFile1);
-        setSourceImage2(processedFile2);
-        setHistory([]);
-        setHistoryPrompts([]);
-        setHistoryIndex(-1);
-        if (compositePrompt.trim()) {
-          await generateCompositeFromFiles(processedFile1, processedFile2, compositePrompt.trim(), options);
-        } else {
-          setView('composite');
-        }
-      } catch (error) {
-        console.error('Failed to process composite files:', error);
-        setError(`Failed to process images: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
-        setIsProcessingFile(false);
-      }
-    } else {
-      // No processing needed for non-HEIC files
-      setSourceImage1(file1);
-      setSourceImage2(file2);
-      setHistory([]);
-      setHistoryPrompts([]);
-      setHistoryIndex(-1);
-      if (compositePrompt.trim()) {
-        await generateCompositeFromFiles(file1, file2, compositePrompt.trim(), options);
-      } else {
-        setView('composite');
-      }
-    }
-  }, [generateCompositeFromFiles, imageGenerationOptions, isLoaded, isSignedIn]);
+  const handleOpenWebcam = useCallback((target: 'base' | 'style') => {
+    if (!requireAuth()) return;
+    setWebcamTarget(target);
+  }, [requireAuth]);
 
   const handleWebcamCapture = useCallback((file: File) => {
-    if (isWebcamForCompositeSecond) {
-      // Webcam capture for composite second image from editor overlay
-      setIsWebcamForCompositeSecond(false);
-      if (currentImage) {
-        setSourceImage1(currentImage);
-        setSourceImage2(file);
-        setView('composite');
-      }
-    } else if (isWebcamForComposite) {
-      setSourceImage1(file);
-      setIsWebcamForComposite(false);
-      setView('start'); // This will show the start screen but with composite tab active and sourceImage1 set
+    if (webcamTarget === 'style') {
+      setStyleImage(file);
     } else {
-      handleImageUpload(file);
+      handleBaseImageSelect(file);
     }
-  }, [isWebcamForComposite, isWebcamForCompositeSecond, currentImage, handleImageUpload]);
+    setWebcamTarget(null);
+  }, [webcamTarget, handleBaseImageSelect]);
 
-  const handleUseWebcamClick = useCallback(() => {
-    // Debug authentication state
-    console.log('🔍 Webcam Debug:', { isLoaded, isSignedIn, showSignupPrompt });
+  /* ---------------- image generation ---------------- */
+  const handleGenerateImage = useCallback(async () => {
+    if (!requireAuth()) return;
 
-    // Check if user is authenticated, if not show signup prompt
-    if (isLoaded && !isSignedIn) {
-      console.log('🚨 User not authenticated, showing signup prompt for webcam');
-      setShowSignupPrompt(true);
+    const trimmedPrompt = imagePrompt.trim();
+    if (!trimmedPrompt) {
+      setError('Describe what you want to create.');
       return;
     }
-    console.log('✅ User authenticated, opening webcam');
-    setView('webcam');
-  }, [isLoaded, isSignedIn]);
 
-  const handleUseWebcamForCompositeClick = useCallback(() => {
-    // Check if user is authenticated, if not show signup prompt
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
-    setIsWebcamForComposite(true);
-    setCreativeMode('composite');
-    setView('webcam');
-  }, [isLoaded, isSignedIn]);
-
-  const handleGenerate = useCallback(async () => {
-    if (!currentImage) {
-      setError('No image loaded to edit.');
-      return;
-    }
-    
-    if (!prompt.trim()) {
-        setError('Please enter a description for your edit.');
-        return;
-    }
-
-    if (!editHotspot) {
-        setError('Please click on the image to select an area to edit.');
-        return;
-    }
-
-    setError(null);
-    
-    // Create optimistic preview file
-    const optimisticFile = new File([currentImage], `optimistic-${Date.now()}.png`, { type: currentImage.type });
-    
-    startTransition(() => {
-      // Add optimistic update immediately for UI feedback
-      setOptimisticHistory(optimisticFile);
-    });
-
-    try {
-      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
-      const response = await editMutation.mutateAsync({
-        image: currentImage,
-        prompt,
-        x: editHotspot.x,
-        y: editHotspot.y,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'edited');
-        addImageToHistory(newImageFile, prompt);
-        setEditHotspot(null);
-        setDisplayHotspot(null);
-      } else {
-        throw new Error(response.message || 'Failed to generate image');
-      }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to generate the image.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error(err);
-    }
-  }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
-
-  const handleGenerateComposite = useCallback(async (
-    compositePrompt: string,
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    await generateCompositeFromFiles(sourceImage1, sourceImage2, compositePrompt, options);
-  }, [generateCompositeFromFiles, imageGenerationOptions, sourceImage1, sourceImage2]);
-  
-  const handleApplyFilter = useCallback(async (filterPrompt: string) => {
-    if (!currentImage) {
-      setError('No image loaded to apply a filter to.');
-      return;
-    }
-    
-    setError(null);
-    
-    // Add optimistic update for immediate feedback
-    const optimisticFile = new File([currentImage], `optimistic-filtered-${Date.now()}.png`, { type: currentImage.type });
-    startTransition(() => {
-      setOptimisticHistory(optimisticFile);
-    });
-
-    try {
-      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
-      const response = await filterMutation.mutateAsync({
-        image: currentImage,
-        filterType: filterPrompt,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'filtered');
-        addImageToHistory(newImageFile, filterPrompt);
-      } else {
-        throw new Error(response.message || 'Failed to apply filter');
-      }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to apply the filter.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error(err);
-    }
-  }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
-  
-  const handleApplyAdjustment = useCallback(async (adjustmentPrompt: string) => {
-    if (!currentImage) {
-      setError('No image loaded to apply an adjustment to.');
-      return;
-    }
+    const workflow: ImageWorkflow = currentImage ? 'image-to-image' : 'text-to-image';
+    const options = normalizeImageGenerationOptions(imageGenerationOptions, workflow);
+    const requestBase = {
+      resolution: options.resolution,
+      aspectRatio: options.aspectRatio,
+      seedreamTier: options.seedreamTier,
+      outputFormat: options.outputFormat,
+      nsfwFilterEnabled: settings.nsfwFilterEnabled,
+    };
 
     setError(null);
 
-    // Add optimistic update for immediate feedback
-    const optimisticFile = new File([currentImage], `optimistic-adjusted-${Date.now()}.png`, { type: currentImage.type });
-    startTransition(() => {
-      setOptimisticHistory(optimisticFile);
-    });
-
     try {
-      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
-      // Send the prompt directly to the API
-      const response = await adjustMutation.mutateAsync({
-        image: currentImage,
-        prompt: adjustmentPrompt,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'adjusted');
-        addImageToHistory(newImageFile, adjustmentPrompt);
-      } else {
-        throw new Error(response.message || 'Failed to apply adjustment');
-      }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to apply the adjustment.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error(err);
-    }
-  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
-
-  const handleTextToImageGenerate = useCallback(async (
-    textPrompt: string,
-    onSuccess?: (file: File) => void,
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    const normalizedImageOptions = normalizeImageGenerationOptions(options, 'text-to-image');
-    const selectedTextToImageMutation = imageMutationsByProvider[normalizedImageOptions.provider].textToImage;
-
-    console.log('🎨 Starting text-to-image generation with provider:', normalizedImageOptions.provider, 'prompt:', textPrompt);
-
-    setError(null);
-
-    // Add optimistic update for immediate feedback (only if not using callback)
-    if (!onSuccess) {
-      const optimisticFile = new File([new Blob()], `optimistic-text-to-image-${Date.now()}.png`, { type: 'image/png' });
-      startTransition(() => {
-        setOptimisticHistory(optimisticFile);
-      });
-    }
-
-    try {
-      const response = await selectedTextToImageMutation.mutateAsync({
-        prompt: textPrompt,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'text-to-image');
-
-        if (onSuccess) {
-          // Callback mode: Pass the file to the callback (for composite mode)
-          onSuccess(newImageFile);
-          console.log('✅ Text-to-image generation successful, file passed to callback');
+      if (activeTool === 'retouch' && currentImage) {
+        if (!editHotspot) {
+          setError('Tap a point on the image to select an area to edit.');
+          return;
+        }
+        const response = await activeImageMutations.edit.mutateAsync({
+          image: currentImage,
+          prompt: trimmedPrompt,
+          x: editHotspot.x,
+          y: editHotspot.y,
+          ...requestBase,
+        });
+        if (response.success && response.image) {
+          const newImageFile = await generatedImageToFile(response.image, 'edited');
+          addImageToHistory(newImageFile, trimmedPrompt);
+          setEditHotspot(null);
+          setDisplayHotspot(null);
+          setActiveTool('none');
         } else {
-          // Default mode: Start a new editing session with the generated image (for single photo mode)
-          setHistory([newImageFile]);
-          setHistoryPrompts([textPrompt]);
-          setHistoryIndex(0);
-          setPrompt(textPrompt);
-          setActiveTab('adjust');
-          setView('editor');
-          // Save text-to-image result to gallery
-          saveToGallery(newImageFile, textPrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
-          console.log('✅ Text-to-image generation successful, image added to history');
+          throw new Error(response.message || 'Failed to generate image');
+        }
+      } else if (currentImage && styleImage) {
+        const response = await activeImageMutations.composite.mutateAsync({
+          image1: currentImage,
+          image2: styleImage,
+          prompt: trimmedPrompt,
+          ...requestBase,
+        });
+        if (response.success && response.image) {
+          const newImageFile = await generatedImageToFile(response.image, 'composite');
+          addImageToHistory(newImageFile, trimmedPrompt);
+          setStyleImage(null);
+        } else {
+          throw new Error(response.message || 'Failed to combine the images');
+        }
+      } else if (currentImage) {
+        const response = await activeImageMutations.adjust.mutateAsync({
+          image: currentImage,
+          prompt: trimmedPrompt,
+          ...requestBase,
+        });
+        if (response.success && response.image) {
+          const newImageFile = await generatedImageToFile(response.image, 'adjusted');
+          addImageToHistory(newImageFile, trimmedPrompt);
+        } else {
+          throw new Error(response.message || 'Failed to apply the edit');
         }
       } else {
-        throw new Error(response.message || 'Failed to generate image from text');
+        const response = await activeImageMutations.textToImage.mutateAsync({
+          prompt: trimmedPrompt,
+          ...requestBase,
+        });
+        if (response.success && response.image) {
+          const newImageFile = await generatedImageToFile(response.image, 'text-to-image');
+          setHistory([newImageFile]);
+          setHistoryPrompts([trimmedPrompt]);
+          setHistoryIndex(0);
+          saveToGallery(newImageFile, trimmedPrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
+        } else {
+          throw new Error(response.message || 'Failed to generate image from text');
+        }
       }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to generate image from text.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error('💥 Text-to-image generation failed:', err);
+    } catch (err) {
+      setError(getGenerationErrorMessage(err, 'Failed to generate the image.'));
+      console.error(err);
     }
-  }, [imageGenerationOptions, imageMutationsByProvider, setOptimisticHistory, settings.nsfwFilterEnabled]);
+  }, [
+    requireAuth, imagePrompt, currentImage, styleImage, activeTool, editHotspot,
+    imageGenerationOptions, settings.nsfwFilterEnabled, activeImageMutations, addImageToHistory,
+  ]);
 
-  const handleApplyCrop = useCallback(() => {
-    if (!completedCrop || !imgRef.current) {
-        setError('Please select an area to crop.');
-        return;
-    }
-
-    const image = imgRef.current;
-    const canvas = document.createElement('canvas');
-    const scaleX = image.naturalWidth / image.width;
-    const scaleY = image.naturalHeight / image.height;
-    
-    canvas.width = completedCrop.width;
-    canvas.height = completedCrop.height;
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-        setError('Could not process the crop.');
-        return;
-    }
-
-    const pixelRatio = window.devicePixelRatio || 1;
-    canvas.width = completedCrop.width * pixelRatio;
-    canvas.height = completedCrop.height * pixelRatio;
-    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    ctx.imageSmoothingQuality = 'high';
-
-    ctx.drawImage(
-      image,
-      completedCrop.x * scaleX,
-      completedCrop.y * scaleY,
-      completedCrop.width * scaleX,
-      completedCrop.height * scaleY,
-      0,
-      0,
-      completedCrop.width,
-      completedCrop.height,
-    );
-    
-    const croppedImageUrl = canvas.toDataURL('image/png');
-    const newImageFile = dataURLtoFile(croppedImageUrl, `cropped-${Date.now()}.png`);
-    addImageToHistory(newImageFile);
-
-  }, [completedCrop, addImageToHistory]);
-
-  const handleUndo = useCallback(() => {
-    if (canUndo) {
-      setHistoryIndex(historyIndex - 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-    }
-  }, [canUndo, historyIndex]);
-  
-  const handleRedo = useCallback(() => {
-    if (canRedo) {
-      setHistoryIndex(historyIndex + 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-    }
-  }, [canRedo, historyIndex]);
-
-  const handleToggleSlider = useCallback(() => {
-    setShowSlider(prev => !prev);
-  }, []);
-
-  const handleReset = useCallback(() => {
-    if (history.length > 0) {
-      setHistoryIndex(0);
-      setError(null);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-    }
-  }, [history]);
-
-  const handleUploadNew = useCallback(() => {
-      setHistory([]);
-      setHistoryPrompts([]);
-      setHistoryIndex(-1);
-      setError(null);
-      setPrompt('');
-      setRestoredVideoPrompt('');
-      setVideoPromptRecallKey(key => key + 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setSourceImage1(null);
-      setSourceImage2(null);
-      setCreativeMode('single');
-      clearVideoResult();
-      setVideoError(null);
-      setWanReferenceImages([]);
-      setReferenceVideoFile(null);
-      setReferenceVideoUrl(null);
-      setReferenceVideoDuration(null);
-      setSeedanceInputMode('references');
-      setSeedanceFirstFrame(null);
-      setSeedanceLastFrame(null);
-      setSeedanceReferenceImages([]);
-      setSeedanceReferenceVideoFile(null);
-      setSeedanceReferenceVideoUrl(null);
-      setSeedanceReferenceVideoDuration(null);
-      setSeedanceReferenceAudioFile(null);
-      setView('start');
-  }, [clearVideoResult]);
-
-  const handleDownload = useCallback(() => {
-      if (currentImage) {
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(currentImage);
-          link.download = `edited-${currentImage.name}`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(link.href);
-      }
-  }, [currentImage]);
-
-  const handleVideoDownload = useCallback(async () => {
-    if (!videoUrl) return;
-
-    try {
-      const response = await fetch(videoUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = objectUrl;
-      link.download = `veilpix-video-${Date.now()}.mp4`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-    } catch {
-      window.open(videoUrl, '_blank', 'noopener,noreferrer');
-    }
-  }, [videoUrl]);
-
-  const handleContinueFromLastFrame = useCallback(async () => {
-    const source = galleryVideoFile || videoUrl;
-    if (!source) return;
-
-    setIsExtractingLastFrame(true);
-    setVideoError(null);
-
-    try {
-      const frameFile = await extractLastVideoFrame(source);
-      setVideoProvider('seedance');
-      setSeedanceInputMode('frames');
-      setSeedanceFirstFrame(frameFile);
-      setSeedanceLastFrame(null);
-      clearVideoResult();
-    } catch (error) {
-      const details = error instanceof Error ? error.message : 'Please try again.';
-      setVideoError(`Could not extract the last frame. ${details}`);
-    } finally {
-      setIsExtractingLastFrame(false);
-    }
-  }, [clearVideoResult, galleryVideoFile, videoUrl]);
-
-  // Handle creative mode switching (single/composite/video)
-  const handleModeChange = useCallback((newMode: CreativeMode) => {
-    setCreativeMode(newMode);
-
-    // Clear video state when leaving video mode
-    if (newMode !== 'video') {
-      clearVideoResult();
-      setVideoError(null);
-      setReferenceVideoFile(null);
-      setReferenceVideoUrl(null);
-      setReferenceVideoDuration(null);
-      setSeedanceInputMode('references');
-      setSeedanceFirstFrame(null);
-      setSeedanceLastFrame(null);
-      setSeedanceReferenceImages([]);
-      setSeedanceReferenceVideoFile(null);
-      setSeedanceReferenceVideoUrl(null);
-      setSeedanceReferenceVideoDuration(null);
-      setSeedanceReferenceAudioFile(null);
-    }
-
-    if (view === 'editor' && currentImage) {
-      if (newMode === 'composite') {
-        // Current image becomes base image for composite
-        setSourceImage1(currentImage);
-        setSourceImage2(null);
-      }
-      // For 'single' and 'video' — just switch the panel, no state changes
-    }
-
-    if (newMode === 'video' && view === 'editor' && currentImage && videoProvider === 'wan') {
-      setWanReferenceImages(prev => prev.length > 0 ? prev : [currentImage]);
-    }
-
-    if (newMode === 'video' && view === 'editor' && currentImage) {
-      setRestoredVideoPrompt(historyPrompts[historyIndex] ?? '');
-      setVideoPromptRecallKey(key => key + 1);
-    }
-  }, [clearVideoResult, view, currentImage, videoProvider, historyIndex, historyPrompts]);
-
-  // Handle combining from the editor overlay
-  const handleCompositeFromEditor = useCallback((file2: File) => {
-    if (currentImage) {
-      setSourceImage1(currentImage);
-      setSourceImage2(file2);
-      setView('composite');
-    }
-  }, [currentImage]);
-
-  // Handle webcam for composite second image (from editor overlay)
-  const handleWebcamForCompositeSecond = useCallback(() => {
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
-    setIsWebcamForCompositeSecond(true);
-    setView('webcam');
-  }, [isLoaded, isSignedIn]);
-
-  // Handle video generation
+  /* ---------------- video generation ---------------- */
   const handleGenerateVideo = useCallback(async (options: VideoGenerateOptions) => {
+    if (!requireAuth()) return;
+
     const {
       provider,
       prompt,
@@ -1545,8 +708,8 @@ const App: React.FC = () => {
     } = options;
 
     setVideoError(null);
-    setRestoredVideoPrompt(prompt);
-    setVideoPromptRecallKey(key => key + 1);
+    setError(null);
+    setVideoPrompt(prompt);
     clearVideoResult();
 
     try {
@@ -1557,21 +720,21 @@ const App: React.FC = () => {
       if (provider === 'seedance') {
         const usesFrameMode = selectedSeedanceInputMode === 'frames';
         response = await seedanceVideoMutation.mutateAsync({
-            firstFrame: usesFrameMode ? seedanceFirstFrame : null,
-            lastFrame: usesFrameMode ? seedanceLastFrame : null,
-            referenceImages: usesFrameMode ? [] : seedanceReferenceImages,
-            referenceVideo: usesFrameMode ? null : seedanceReferenceVideoFile,
-            referenceVideoUrl: usesFrameMode ? null : seedanceReferenceVideoUrl,
-            referenceVideoDuration: usesFrameMode ? null : seedanceReferenceVideoDuration,
-            referenceAudio: usesFrameMode ? null : seedanceReferenceAudioFile,
-            prompt,
-            variant: seedanceVariant,
-            duration,
-            resolution,
-            aspectRatio: ratio,
-            generateAudio: seedanceGenerateAudio,
-            webSearch: seedanceWebSearch,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
+          firstFrame: usesFrameMode ? seedanceFirstFrame : null,
+          lastFrame: usesFrameMode ? seedanceLastFrame : null,
+          referenceImages: usesFrameMode ? [] : seedanceReferenceImages,
+          referenceVideo: usesFrameMode ? null : seedanceReferenceVideoFile,
+          referenceVideoUrl: usesFrameMode ? null : seedanceReferenceVideoUrl,
+          referenceVideoDuration: usesFrameMode ? null : seedanceReferenceVideoDuration,
+          referenceAudio: usesFrameMode ? null : seedanceReferenceAudioFile,
+          prompt,
+          variant: seedanceVariant,
+          duration,
+          resolution,
+          aspectRatio: ratio,
+          generateAudio: seedanceGenerateAudio,
+          webSearch: seedanceWebSearch,
+          nsfwFilterEnabled: settings.nsfwFilterEnabled
         });
       } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
         response = await textToVideoMutation.mutateAsync({
@@ -1626,9 +789,9 @@ const App: React.FC = () => {
       } else {
         throw new Error(response.message || 'Failed to generate video');
       }
-    } catch (err: any) {
+    } catch (err) {
       const errorMessage = getApiErrorMessage(err);
-      if (isSafetyFilterError(err, settings.nsfwFilterEnabled)) {
+      if (isSafetyFilterError(err)) {
         setError(CONTENT_POLICY_ERROR_MESSAGE);
       } else {
         setVideoError(`Failed to generate video. ${errorMessage}`);
@@ -1636,7 +799,7 @@ const App: React.FC = () => {
       console.error('Video generation error:', err);
     }
   }, [
-    currentImage,
+    requireAuth,
     referenceVideoFile,
     referenceVideoUrl,
     wanReferenceImages,
@@ -1656,37 +819,12 @@ const App: React.FC = () => {
     settings.nsfwFilterEnabled
   ]);
 
-  const handleStartScreenVideoGenerate = useCallback((options: VideoGenerateOptions) => {
-    setCreativeMode('video');
-    setView('editor');
-    handleGenerateVideo(options);
-  }, [handleGenerateVideo]);
-
-  const handleReferenceImageSelect = useCallback((file: File | null) => {
-    if (file) {
-      setHistory([file]);
-      setHistoryPrompts(['']);
-      setHistoryIndex(0);
-      setPrompt('');
-      setRestoredVideoPrompt('');
-      setVideoPromptRecallKey(key => key + 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setCrop(undefined);
-      setCompletedCrop(undefined);
-    } else {
-      setHistory([]);
-      setHistoryPrompts([]);
-      setHistoryIndex(0);
-    }
-  }, []);
-
+  /* ---------------- video reference handlers ---------------- */
   const handleWanReferenceImagesChange = useCallback((images: File[]) => {
     const hasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
-    setWanReferenceImages(images.slice(0, hasReferenceVideo ? 4 : 5));
-    clearVideoResult();
+    setWanReferenceImages(images.slice(0, getWanMaxReferenceImages(hasReferenceVideo)));
     setVideoError(null);
-  }, [clearVideoResult, referenceVideoFile, referenceVideoUrl]);
+  }, [referenceVideoFile, referenceVideoUrl]);
 
   const handleReferenceVideoSelect = useCallback(async (file: File | null) => {
     setReferenceVideoFile(file);
@@ -1695,58 +833,50 @@ const App: React.FC = () => {
     if (file) {
       setWanReferenceImages(prev => prev.slice(0, 4));
     }
-    clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleSeedanceInputModeChange = useCallback((mode: SeedanceInputMode) => {
     setSeedanceInputMode(mode);
-    clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleSeedanceFirstFrameSelect = useCallback((file: File | null) => {
     setSeedanceFirstFrame(file);
     if (!file) setSeedanceLastFrame(null);
-    clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleSeedanceLastFrameSelect = useCallback((file: File | null) => {
     setSeedanceLastFrame(file);
-    clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleSeedanceReferenceImagesChange = useCallback((images: File[]) => {
-    setSeedanceReferenceImages(images.slice(0, 9));
-    clearVideoResult();
+    setSeedanceReferenceImages(images.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleSeedanceReferenceVideoSelect = useCallback(async (file: File | null) => {
     setSeedanceInputMode('references');
     setSeedanceReferenceVideoFile(file);
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
-    clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleSeedanceReferenceVideoUrlRemove = useCallback(() => {
     setSeedanceReferenceVideoFile(null);
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(null);
-    clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleSeedanceReferenceAudioSelect = useCallback((file: File | null) => {
     setSeedanceInputMode('references');
     setSeedanceReferenceAudioFile(file);
-    clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult]);
+  }, []);
 
   const handleUseGeneratedVideoAsReference = useCallback(() => {
     if (!videoUrl) return;
@@ -1765,708 +895,644 @@ const App: React.FC = () => {
     setVideoError(null);
   }, [clearVideoResult, galleryVideoFile, videoProvider, videoUrl]);
 
-  const handleFileSelect = async (files: FileList | null) => {
-    if (files && files[0]) {
-      // Debug authentication state
-      console.log('🔍 Authentication Debug:', { isLoaded, isSignedIn, showSignupPrompt });
+  const handleContinueFromLastFrame = useCallback(async () => {
+    const source = galleryVideoFile || videoUrl;
+    if (!source) return;
 
-      // Check if user is authenticated, if not show signup prompt
-      if (isLoaded && !isSignedIn) {
-        console.log('🚨 User not authenticated, showing signup prompt');
-        setShowSignupPrompt(true);
-        return;
-      }
-      console.log('✅ User authenticated, proceeding with upload');
-      if (creativeMode === 'video' && videoProvider === 'seedance') {
-        const file = files[0];
-        setIsProcessingFile(true);
-        try {
-          const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-          const processedFile = await isHEIC(file) ? await processFileForUpload(file) : file;
-          setSeedanceInputMode('references');
-          setSeedanceReferenceImages(prev => [...prev, processedFile].slice(0, 9));
-          clearVideoResult();
-          setVideoError(null);
-          setView('editor');
-          saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } catch (error) {
-          console.error('Failed to process Seedance reference image:', error);
-          setError(`Failed to process reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        } finally {
-          setIsProcessingFile(false);
-        }
-        return;
-      }
+    setIsExtractingLastFrame(true);
+    setVideoError(null);
 
-      if (creativeMode === 'video' && videoProvider === 'wan') {
-        const file = files[0];
-        setIsProcessingFile(true);
-        try {
-          const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-          const processedFile = await isHEIC(file) ? await processFileForUpload(file) : file;
-          const maxImages = referenceVideoFile || referenceVideoUrl ? 4 : 5;
-          setWanReferenceImages(prev => [...prev, processedFile].slice(0, maxImages));
-          clearVideoResult();
-          setVideoError(null);
-          saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } catch (error) {
-          console.error('Failed to process Wan reference image:', error);
-          setError(`Failed to process reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        } finally {
-          setIsProcessingFile(false);
-        }
-        return;
-      }
-
-      await handleImageUpload(files[0]);
+    try {
+      const frameFile = await extractLastVideoFrame(source);
+      setVideoProvider('seedance');
+      setSeedanceInputMode('frames');
+      setSeedanceFirstFrame(frameFile);
+      setSeedanceLastFrame(null);
+      clearVideoResult();
+    } catch (extractError) {
+      const details = extractError instanceof Error ? extractError.message : 'Please try again.';
+      setVideoError(`Could not extract the last frame. ${details}`);
+    } finally {
+      setIsExtractingLastFrame(false);
     }
-  };
+  }, [clearVideoResult, galleryVideoFile, videoUrl]);
 
-  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (activeTab !== 'retouch') return;
-    
+  /* ---------------- mode + session ---------------- */
+  const handleModeChange = useCallback((mode: StudioMode) => {
+    setStudioMode(mode);
+    setError(null);
+
+    // Flow the current image into the video workflow as the start-image reference
+    if (mode === 'video' && currentImage) {
+      if (videoProvider === 'seedance') {
+        const seedanceHasInputs = Boolean(seedanceFirstFrame)
+          || seedanceReferenceImages.length > 0
+          || Boolean(seedanceReferenceVideoFile || seedanceReferenceVideoUrl);
+        if (!seedanceHasInputs) {
+          setSeedanceInputMode('frames');
+          setSeedanceFirstFrame(currentImage);
+        }
+      } else if (wanReferenceImages.length === 0 && !referenceVideoFile && !referenceVideoUrl) {
+        setWanReferenceImages([currentImage]);
+      }
+    }
+  }, [
+    videoProvider, currentImage, wanReferenceImages.length, referenceVideoFile, referenceVideoUrl,
+    seedanceFirstFrame, seedanceReferenceImages.length, seedanceReferenceVideoFile, seedanceReferenceVideoUrl,
+  ]);
+
+  const handleNewSession = useCallback(() => {
+    setHistory([]);
+    setHistoryPrompts([]);
+    setHistoryIndex(-1);
+    setImagePrompt('');
+    setVideoPrompt('');
+    setStyleImage(null);
+    setError(null);
+    setVideoError(null);
+    resetImageTools();
+    clearVideoResult();
+    setWanReferenceImages([]);
+    setReferenceVideoFile(null);
+    setReferenceVideoUrl(null);
+    setReferenceVideoDuration(null);
+    setSeedanceInputMode('references');
+    setSeedanceFirstFrame(null);
+    setSeedanceLastFrame(null);
+    setSeedanceReferenceImages([]);
+    setSeedanceReferenceVideoFile(null);
+    setSeedanceReferenceVideoUrl(null);
+    setSeedanceReferenceVideoDuration(null);
+    setSeedanceReferenceAudioFile(null);
+  }, [clearVideoResult, resetImageTools]);
+
+  /* ---------------- stage tools ---------------- */
+  const handleToolChange = useCallback((tool: StageTool) => {
+    setActiveTool(tool);
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    if (tool !== 'crop') {
+      setCrop(undefined);
+      setCompletedCrop(undefined);
+    }
+    if (tool !== 'none') setShowSlider(false);
+  }, []);
+
+  const handleImageClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
+    if (activeTool !== 'retouch') return;
+
     const img = e.currentTarget;
     const rect = img.getBoundingClientRect();
-
     const offsetX = e.clientX - rect.left;
     const offsetY = e.clientY - rect.top;
-    
+
     setDisplayHotspot({ x: offsetX, y: offsetY });
 
     const { naturalWidth, naturalHeight, clientWidth, clientHeight } = img;
     const scaleX = naturalWidth / clientWidth;
     const scaleY = naturalHeight / clientHeight;
 
-    const originalX = Math.round(offsetX * scaleX);
-    const originalY = Math.round(offsetY * scaleY);
+    setEditHotspot({ x: Math.round(offsetX * scaleX), y: Math.round(offsetY * scaleY) });
+  }, [activeTool]);
 
-    setEditHotspot({ x: originalX, y: originalY });
-};
+  const handleApplyCrop = useCallback(() => {
+    if (!completedCrop || !imgRef.current) {
+      setError('Select an area to crop first.');
+      return;
+    }
 
-  const renderContent = () => {
-    if (error) {
-       const isSafetyIssue = isSafetyFilterError(error, settings.nsfwFilterEnabled);
+    const image = imgRef.current;
+    const canvas = document.createElement('canvas');
+    const scaleX = image.naturalWidth / image.width;
+    const scaleY = image.naturalHeight / image.height;
 
-       return (
-           <div className={`text-center animate-fade-in p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4 ${
-             isSafetyIssue
-               ? 'bg-yellow-500/10 border border-yellow-500/20'
-               : 'bg-red-500/10 border border-red-500/20'
-            }`}>
-            <h2 className={`text-2xl font-bold ${isSafetyIssue ? 'text-yellow-300' : 'text-red-300'}`}>
-              {isSafetyIssue
-                ? (hasPurchasedCredits ? 'Content Warning' : 'Age Verification Required')
-                : 'An Error Occurred'}
-            </h2>
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setError('Could not process the crop.');
+      return;
+    }
 
-            {isSafetyIssue ? (
-              <div className="flex flex-col gap-3 text-md text-yellow-200">
-                {hasPurchasedCredits && !settings.nsfwFilterEnabled ? (
-                  <>
-                    <p>
-                      Your request was blocked by the AI provider's built-in content filter. Although VeilStudio's content filter is disabled, the underlying model may enforce its own restrictions that cannot be overridden.
-                    </p>
-                    <p className="text-sm text-yellow-300/80">
-                      Try rephrasing your prompt, or switch to a different AI provider in the Settings menu. Different models have different content policies.
-                    </p>
-                  </>
-                ) : hasPurchasedCredits ? (
-                  <>
-                    <p>
-                      Your request was flagged while the content filter is enabled. For supported consensual adult content, you can turn on After Dark by disabling the content filter in Settings.
-                    </p>
-                    <p className="text-sm text-yellow-300/80">
-                      Individual AI providers may still enforce restrictions that VeilPix cannot override.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      Your request appears to contain adult content. VeilPix requires an account and age verification before supported consensual adult content can be generated.
-                    </p>
-                    <p className="text-sm text-yellow-300/80">
-                      Age verification is completed when you purchase credits. After verification, you can control the content filter from the Settings menu.
-                    </p>
-                  </>
-                )}
-                <p className="text-sm font-medium text-yellow-100">
-                  VeilPix strictly prohibits child sexual abuse material (CSAM) and non-consensual intimate imagery under all circumstances.
-                </p>
-              </div>
+    const pixelRatio = window.devicePixelRatio || 1;
+    canvas.width = completedCrop.width * pixelRatio;
+    canvas.height = completedCrop.height * pixelRatio;
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.drawImage(
+      image,
+      completedCrop.x * scaleX,
+      completedCrop.y * scaleY,
+      completedCrop.width * scaleX,
+      completedCrop.height * scaleY,
+      0,
+      0,
+      completedCrop.width,
+      completedCrop.height,
+    );
+
+    const croppedImageUrl = canvas.toDataURL('image/png');
+    const newImageFile = dataURLtoFile(croppedImageUrl, `cropped-${Date.now()}.png`);
+    addImageToHistory(newImageFile);
+    setActiveTool('none');
+  }, [completedCrop, addImageToHistory]);
+
+  const handleUndo = useCallback(() => {
+    if (canUndo) {
+      setHistoryIndex(historyIndex - 1);
+      setEditHotspot(null);
+      setDisplayHotspot(null);
+    }
+  }, [canUndo, historyIndex]);
+
+  const handleRedo = useCallback(() => {
+    if (canRedo) {
+      setHistoryIndex(historyIndex + 1);
+      setEditHotspot(null);
+      setDisplayHotspot(null);
+    }
+  }, [canRedo, historyIndex]);
+
+  const handleReset = useCallback(() => {
+    if (history.length > 0) {
+      setHistoryIndex(0);
+      setError(null);
+      setEditHotspot(null);
+      setDisplayHotspot(null);
+    }
+  }, [history]);
+
+  const handleDownload = useCallback(() => {
+    if (currentImage) {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(currentImage);
+      link.download = `edited-${currentImage.name}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    }
+  }, [currentImage]);
+
+  const handleVideoDownload = useCallback(async () => {
+    if (!videoUrl) return;
+
+    try {
+      const response = await fetch(videoUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `veilpix-video-${Date.now()}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      window.open(videoUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, [videoUrl]);
+
+  /* ---------------- gallery handlers ---------------- */
+  const handleGallerySelectImage = useCallback((file: File, savedPrompt: string) => {
+    if (isVideoEditorRendering) return;
+    setIsVideoEditorOpen(false);
+    setIncomingEditorVideo(null);
+    setStudioMode('image');
+    setHistory([file]);
+    setHistoryPrompts([savedPrompt]);
+    setHistoryIndex(0);
+    setImagePrompt(savedPrompt);
+    setStyleImage(null);
+    resetImageTools();
+    setError(null);
+    setIsGalleryDrawerOpen(false);
+  }, [isVideoEditorRendering, resetImageTools]);
+
+  const handleGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
+    const selectedProvider = details.provider ?? videoProvider;
+    const referenceImages = details.referenceImages.length > 0
+      ? details.referenceImages
+      : details.referenceImage
+        ? [details.referenceImage]
+        : [];
+
+    setStudioMode('video');
+    setVideoProvider(selectedProvider);
+    setVideoPrompt(details.prompt);
+    setReferenceVideoFile(null);
+    setReferenceVideoUrl(null);
+    setReferenceVideoDuration(null);
+    setSeedanceReferenceVideoFile(null);
+    setSeedanceReferenceVideoUrl(null);
+    setSeedanceReferenceVideoDuration(null);
+    setSeedanceReferenceAudioFile(null);
+    setSeedanceFirstFrame(null);
+    setSeedanceLastFrame(null);
+    if (selectedProvider === 'seedance') {
+      setSeedanceInputMode('references');
+      setSeedanceReferenceImages(referenceImages.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+      setWanReferenceImages([]);
+    } else {
+      setWanReferenceImages(referenceImages.slice(0, 5));
+      setSeedanceReferenceImages([]);
+    }
+    if (details.videoFile) {
+      showGalleryVideoResult(details.videoFile);
+    } else {
+      showRemoteVideoResult(details.videoUrl);
+    }
+    setVideoError(null);
+    setIsGalleryDrawerOpen(false);
+  }, [showGalleryVideoResult, showRemoteVideoResult, videoProvider]);
+
+  const handleEditorGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
+    if (isVideoEditorRendering) return;
+    setIncomingEditorVideo(details);
+    setIsGalleryDrawerOpen(false);
+  }, [isVideoEditorRendering]);
+
+  const handleOpenVideoEditor = useCallback(() => {
+    setIncomingEditorVideo(null);
+    setIsVideoEditorRendering(false);
+    setIsVideoEditorOpen(true);
+    setIsGalleryDrawerOpen(false);
+  }, []);
+
+  const handleCloseVideoEditor = useCallback(() => {
+    if (isVideoEditorRendering) return;
+    setIncomingEditorVideo(null);
+    setIsVideoEditorOpen(false);
+  }, [isVideoEditorRendering]);
+
+  const handleGalleryUseImageAsReference = useCallback((file: File, savedPrompt: string) => {
+    if (studioMode === 'image') {
+      if (!currentImage) {
+        handleGallerySelectImage(file, savedPrompt);
+        return;
+      }
+      setStyleImage(file);
+    } else if (videoProvider === 'seedance') {
+      setSeedanceInputMode('references');
+      setSeedanceReferenceImages(prev => [...prev, file].slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+    } else {
+      const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
+      setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
+    }
+    setIsGalleryDrawerOpen(false);
+  }, [studioMode, currentImage, handleGallerySelectImage, videoProvider, referenceVideoFile, referenceVideoUrl]);
+
+  const handleGalleryUseVideoAsReference = useCallback((details: GalleryVideoDetails) => {
+    setStudioMode('video');
+    setVideoPrompt(details.prompt);
+    if (videoProvider === 'seedance') {
+      setSeedanceInputMode('references');
+      setSeedanceReferenceVideoFile(details.videoFile);
+      setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
+      setSeedanceReferenceVideoDuration(details.videoDuration ?? null);
+    } else {
+      setReferenceVideoFile(details.videoFile);
+      setReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
+      setReferenceVideoDuration(details.videoDuration ?? null);
+      setWanReferenceImages(prev => prev.slice(0, 4));
+    }
+    clearVideoResult();
+    setVideoError(null);
+    setIsGalleryDrawerOpen(false);
+  }, [clearVideoResult, videoProvider]);
+
+  /* Right-click "send to" targets — adapt to the active mode, model, and settings */
+  const galleryImageReferenceTargets: GalleryReferenceTarget[] = isVideoEditorOpen
+    ? []
+    : studioMode === 'image'
+    ? [
+        { id: 'image-base', label: 'Use as base image' },
+        ...(currentImage ? [{ id: 'image-style', label: 'Use as style reference' }] : []),
+      ]
+    : videoProvider === 'seedance'
+      ? [
+          { id: 'seedance-first', label: 'Use as first frame' },
+          ...(seedanceFirstFrame ? [{ id: 'seedance-last', label: 'Use as last frame' }] : []),
+          { id: 'seedance-ref', label: 'Add as reference image' },
+        ]
+      : [{ id: 'wan-ref', label: 'Add as reference image' }];
+
+  const galleryVideoReferenceTargets: GalleryReferenceTarget[] = isVideoEditorOpen
+    ? [{ id: 'video-editor-add', label: 'Add to Video Editor' }]
+    : studioMode === 'video'
+      ? [{ id: 'video-ref', label: 'Use as reference video' }]
+      : [];
+
+  const handleGalleryImageReferenceAction = useCallback((targetId: string, file: File, _prompt: string) => {
+    switch (targetId) {
+      case 'image-base':
+        handleBaseImageSelect(file);
+        break;
+      case 'image-style':
+        handleStyleImageSelect(file);
+        break;
+      case 'wan-ref': {
+        const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
+        setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
+        setVideoError(null);
+        break;
+      }
+      case 'seedance-first':
+        setSeedanceInputMode('frames');
+        setSeedanceFirstFrame(file);
+        setVideoError(null);
+        break;
+      case 'seedance-last':
+        setSeedanceInputMode('frames');
+        setSeedanceLastFrame(file);
+        setVideoError(null);
+        break;
+      case 'seedance-ref':
+        setSeedanceInputMode('references');
+        setSeedanceReferenceImages(prev => [...prev, file].slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+        setVideoError(null);
+        break;
+    }
+    setIsGalleryDrawerOpen(false);
+  }, [handleBaseImageSelect, handleStyleImageSelect, referenceVideoFile, referenceVideoUrl]);
+
+  const handleGalleryVideoReferenceAction = useCallback((targetId: string, details: GalleryVideoDetails) => {
+    if (targetId === 'video-editor-add') {
+      handleEditorGallerySelectVideo(details);
+      return;
+    }
+    handleGalleryUseVideoAsReference(details);
+  }, [handleEditorGallerySelectVideo, handleGalleryUseVideoAsReference]);
+
+  /* ---------------- credit costs ---------------- */
+  const imageWorkflow: ImageWorkflow = currentImage ? 'image-to-image' : 'text-to-image';
+  const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, imageWorkflow);
+  const imageActionCreditCost = getImageCreditCost(
+    normalizedImageOptions.provider,
+    normalizedImageOptions.resolution,
+    imageWorkflow,
+    normalizedImageOptions.seedreamTier,
+    currentImage && styleImage ? 2 : 0
+  );
+
+  /* ---------------- error banner ---------------- */
+  const activeError = error || videoError;
+  const isSafetyIssue = Boolean(error) && error === CONTENT_POLICY_ERROR_MESSAGE;
+
+  const errorBanner = activeError ? (
+    <div className={`glass-panel edge mx-auto mb-3 w-full max-w-3xl shrink-0 rounded-2xl p-4 animate-fade-in ${isSafetyIssue ? '' : ''}`} role="alert">
+      <div className="flex flex-col gap-2.5">
+        <p className={`text-sm font-semibold ${isSafetyIssue ? 'text-amber-200' : 'text-red-300'}`}>
+          {isSafetyIssue
+            ? (hasPurchasedCredits ? 'Content warning' : 'Age verification required')
+            : 'Something went wrong'}
+        </p>
+
+        {isSafetyIssue ? (
+          <div className="flex flex-col gap-2 text-[13px] leading-relaxed text-gray-300">
+            {hasPurchasedCredits && !settings.nsfwFilterEnabled ? (
+              <p>
+                Your request was blocked by the AI provider's built-in content filter. Although VeilStudio's
+                content filter is disabled, the underlying model may enforce restrictions that cannot be
+                overridden. Try rephrasing your prompt or switching models.
+              </p>
+            ) : hasPurchasedCredits ? (
+              <p>
+                Your request was flagged while the content filter is enabled. For supported consensual adult
+                content, you can turn on After Dark by disabling the content filter in Settings. Individual
+                providers may still enforce their own restrictions.
+              </p>
             ) : (
-              <p className="text-md text-red-400">{error}</p>
+              <p>
+                Your request appears to contain adult content. VeilPix requires an account and age
+                verification before supported consensual adult content can be generated. Age verification is
+                completed when you purchase credits.
+              </p>
             )}
-
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                  onClick={() => {
-                    setError(null);
-                    if (!currentImage) {
-                      handleUploadNew();
-                    }
-                  }}
-                  className={`font-bold py-2 px-6 rounded-lg text-md transition-colors ${
-                    isSafetyIssue
-                      ? 'bg-yellow-500 hover:bg-yellow-600 text-gray-900'
-                      : 'bg-red-500 hover:bg-red-600 text-white'
-                  }`}
-                >
-                  Try Again
-              </button>
-              {isSafetyIssue && !hasPurchasedCredits && (
-                <button
-                  onClick={() => {
-                    setError(null);
-                    setShowPricingModal(true);
-                  }}
-                  className="font-bold py-2 px-6 rounded-lg text-md transition-all bg-gradient-to-br from-purple-600 to-pink-600 text-white hover:shadow-lg hover:-translate-y-px active:scale-95"
-                >
-                  Verify Age &amp; Purchase Credits
-                </button>
-              )}
-            </div>
+            <p className="text-xs font-medium text-gray-400">
+              VeilPix strictly prohibits child sexual abuse material (CSAM) and non-consensual intimate
+              imagery under all circumstances.
+            </p>
           </div>
-        );
-    }
-    
-    if (view === 'start') {
-      return <StartScreen
-        onFileSelect={handleFileSelect}
-        onCompositeSelect={handleCompositeSelect}
-        onUseWebcamClick={handleUseWebcamClick}
-        onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
-        onTextToImageGenerate={handleTextToImageGenerate}
-        imageOptions={imageGenerationOptions}
-        onImageOptionsChange={handleImageOptionsChange}
-        onVideoGenerate={handleStartScreenVideoGenerate}
-        onReferenceVideoSelect={handleReferenceVideoSelect}
-        onWanReferenceImagesChange={handleWanReferenceImagesChange}
-        wanReferenceImages={wanReferenceImages}
-        referenceVideoFile={referenceVideoFile}
-        referenceVideoUrl={referenceVideoUrl}
-        referenceVideoDuration={referenceVideoDuration}
-        onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
-        seedanceInputMode={seedanceInputMode}
-        seedanceFirstFrame={seedanceFirstFrame}
-        seedanceLastFrame={seedanceLastFrame}
-        seedanceReferenceImages={seedanceReferenceImages}
-        seedanceReferenceVideoFile={seedanceReferenceVideoFile}
-        seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
-        seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
-        seedanceReferenceAudioFile={seedanceReferenceAudioFile}
-        onSeedanceInputModeChange={handleSeedanceInputModeChange}
-        onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
-        onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
-        onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
-        onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
-        onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
-        videoProvider={videoProvider}
-        onVideoProviderChange={setVideoProvider}
-        activeMode={creativeMode}
-        onModeChange={handleModeChange}
-        compositeFile1={sourceImage1}
-        isAuthenticated={isLoaded && isSignedIn}
-        onShowSignupPrompt={() => setShowSignupPrompt(true)}
-        isGeneratingImage={isLoading}
-        imageCreditCost={getImageCreditCost(
-          imageGenerationOptions.provider,
-          imageGenerationOptions.resolution,
-          creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
-          imageGenerationOptions.seedreamTier,
-          creativeMode === 'composite' ? 2 : 0
+        ) : (
+          <p className="text-[13px] leading-relaxed text-gray-300">{activeError}</p>
         )}
-        onSelectGalleryImage={handleSelectGalleryImage}
-        onSelectGalleryVideo={handleSelectGalleryVideo}
-        onMakeGalleryImageReference={handleMakeGalleryImageReference}
-        onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
-        galleryRefreshTrigger={galleryRefreshTrigger}
-        videoError={videoError}
-      />;
-    }
 
-    if (view === 'webcam') {
-        return (
-          <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Spinner /></div>}>
-            <WebcamCapture onCapture={handleWebcamCapture} onBack={handleUploadNew} />
-          </Suspense>
-        );
-    }
-
-    if (view === 'composite' && sourceImage1 && sourceImage2) {
-      return (
-        <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Spinner /></div>}>
-          <CompositeScreen
-            sourceImage1={sourceImage1}
-            sourceImage2={sourceImage2}
-            imageOptions={imageGenerationOptions}
-            onImageOptionsChange={handleImageOptionsChange}
-            imageCreditCost={getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier, 2)}
-            onGenerate={handleGenerateComposite}
-            isLoading={isLoading}
-            onBack={handleUploadNew}
-          />
-        </Suspense>
-      );
-    }
-
-    if (view === 'editor' && (currentImageUrl || creativeMode === 'video')) {
-      // Determine which "before" image to show in slider based on compare mode
-      const sliderBeforeImage = sliderCompareMode === 'original' ? originalImageUrl : previousImageUrl;
-      const sliderBeforeLabel = sliderCompareMode === 'original' ? 'Original' : 'Previous';
-      const hasGeneratedVideoPreview = creativeMode === 'video' && Boolean(videoUrl);
-
-      const imageDisplay = currentImageUrl && showSlider && canUndo && activeTab !== 'crop' && sliderBeforeImage ? (
-        <Suspense fallback={<div className="min-h-[20rem] w-full rounded-xl bg-black/20" />}>
-          <BeforeAfterSlider
-            beforeImage={sliderBeforeImage}
-            afterImage={currentImageUrl}
-            beforeLabel={sliderBeforeLabel}
-            afterLabel="Current"
-          />
-        </Suspense>
-      ) : currentImageUrl ? (
-        <div className="relative">
-          {/* Base image is the original, only shown when comparing and current image exists */}
-          {originalImageUrl && isComparing && canUndo && (
-              <img
-                  key={originalImageUrl}
-                  src={originalImageUrl}
-                  alt="Original"
-                  className="w-full h-auto object-contain max-h-[60vh] rounded-xl pointer-events-none"
-              />
-          )}
-          {/* The current image */}
-          <img
-              ref={imgRef}
-              key={currentImageUrl}
-              src={currentImageUrl}
-              alt="Current"
-              onClick={handleImageClick}
-              className={`${originalImageUrl && isComparing && canUndo ? 'absolute top-0 left-0' : ''} w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing && canUndo ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
-          />
-        </div>
-      ) : null;
-      
-      return (
-        <div className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 animate-fade-in">
-          {/* Persistent Mode Selector */}
-          <div className="w-full bg-gray-800/50 border border-gray-700/80 rounded-xl p-2 backdrop-blur-sm">
-            <ModeSelector activeMode={creativeMode} onModeChange={handleModeChange} />
-          </div>
-
-          {hasGeneratedVideoPreview ? (
-            <div className="relative w-full overflow-hidden rounded-xl bg-black/30 shadow-2xl">
-              <video
-                src={videoUrl || undefined}
-                controls
-                playsInline
-                className="max-h-[70vh] w-full bg-black object-contain"
-              />
-              <div className="absolute left-3 top-3 rounded-md bg-black/60 px-3 py-1 text-sm text-gray-200 backdrop-blur-sm">
-                Generated Video
-              </div>
-              <div className="absolute bottom-3 right-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2">
-                <button
-                  onClick={handleContinueFromLastFrame}
-                  disabled={isExtractingLastFrame || isLoading}
-                  className="flex min-w-0 items-center gap-2 rounded-md border border-white bg-black/60 px-3 py-2 text-sm font-semibold text-white backdrop-blur-sm transition-all duration-200 ease-in-out hover:bg-black/75 active:scale-95 disabled:cursor-wait disabled:opacity-70"
-                  aria-label="Use the last frame as the start frame for a new video"
-                >
-                  {isExtractingLastFrame ? (
-                    <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />
-                  ) : (
-                    <PhotoIcon className="h-4 w-4 shrink-0 text-white" />
-                  )}
-                  <span className="truncate">{isExtractingLastFrame ? 'Extracting...' : 'Continue from Last Frame'}</span>
-                </button>
-                <button
-                  onClick={handleVideoDownload}
-                  className="shrink-0 rounded-md border border-white bg-black/60 p-2 backdrop-blur-sm transition-all duration-200 ease-in-out hover:bg-black/75 active:scale-95"
-                  aria-label="Download video"
-                >
-                  <DownloadIcon className="h-5 w-5 text-white" />
-                </button>
-              </div>
-            </div>
-          ) : currentImageUrl ? (
-            <div className="relative w-full overflow-hidden rounded-xl bg-black/20 shadow-2xl">
-                {isLoading && (
-                    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/70 animate-fade-in">
-                        <Spinner />
-                        <p className="text-gray-300">
-                          {isProcessingFile
-                            ? 'Processing image...'
-                            : creativeMode === 'video'
-                              ? 'AI is generating your video...'
-                              : 'AI is working its magic...'}
-                        </p>
-                    </div>
-                )}
-
-                {activeTab === 'crop' && creativeMode === 'single' ? (
-                  <div className="flex w-full items-center justify-center">
-                    <Suspense fallback={(
-                      <img
-                        src={currentImageUrl}
-                        alt="Crop this image"
-                        className="w-full h-auto object-contain max-h-[60vh] rounded-xl"
-                      />
-                    )}>
-                      <CropEditor
-                        src={currentImageUrl}
-                        imageRef={imgRef}
-                        crop={crop}
-                        onChange={setCrop}
-                        onComplete={setCompletedCrop}
-                        aspect={aspect}
-                      />
-                    </Suspense>
-                  </div>
-                ) : imageDisplay }
-
-                {displayHotspot && !isLoading && activeTab === 'retouch' && creativeMode === 'single' && (
-                    <div
-                        className="absolute z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-500/50 pointer-events-none"
-                        style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
-                    >
-                        <div className="absolute inset-0 h-6 w-6 rounded-full bg-blue-400 animate-ping"></div>
-                    </div>
-                )}
-
-                {creativeMode === 'video' && !isLoading && (
-                  <div className="absolute left-3 top-3 z-20 rounded-md bg-black/60 px-3 py-1 text-sm text-gray-300 backdrop-blur-sm">
-                    Reference Image
-                  </div>
-                )}
-
-                {!isLoading && activeTab !== 'crop' && creativeMode === 'single' && (
-                  <button
-                    onClick={handleDownload}
-                    className="absolute bottom-3 right-3 z-20 rounded-md border border-white bg-transparent p-2 transition-all duration-200 ease-in-out hover:bg-white/10 active:scale-95"
-                    aria-label="Download image"
-                  >
-                    <DownloadIcon className="h-5 w-5 text-white" />
-                  </button>
-                )}
-            </div>
-          ) : creativeMode === 'video' && isLoading ? (
-            /* Loading state for text-to-video (no reference image) */
-            <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20 min-h-[200px] flex items-center justify-center">
-              <div className="flex flex-col items-center gap-4 animate-fade-in">
-                <Spinner />
-                <p className="text-gray-300">AI is generating your video...</p>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Image editing toolbar */}
-          {creativeMode === 'single' && (
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                  onClick={handleUndo}
-                  disabled={!canUndo}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                  aria-label="Undo last action"
-              >
-                  <UndoIcon className="w-5 h-5 mr-2" />
-                  Undo
-              </button>
-              <button
-                  onClick={handleRedo}
-                  disabled={!canRedo}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                  aria-label="Redo last action"
-              >
-                  <RedoIcon className="w-5 h-5 mr-2" />
-                  Redo
-              </button>
-
-              <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
-
-              {canUndo && (
-                <button
-                    onMouseDown={() => setIsComparing(true)}
-                    onMouseUp={() => setIsComparing(false)}
-                    onMouseLeave={() => setIsComparing(false)}
-                    onTouchStart={() => setIsComparing(true)}
-                    onTouchEnd={() => setIsComparing(false)}
-                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-                    aria-label="Press and hold to see original image"
-                >
-                    <EyeIcon className="w-5 h-5 mr-2" />
-                    Compare
-                </button>
-              )}
-
-              {/* Slider toggle and mode selector */}
-              {canUndo && activeTab !== 'crop' && (
-                <>
-                  <button
-                    onClick={handleToggleSlider}
-                    className={`flex items-center justify-center text-center ${showSlider ? 'bg-blue-600/30 border-blue-400 text-blue-300' : 'bg-white/10 border-white/20 text-gray-200'} border font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base`}
-                    aria-label="Toggle comparison slider"
-                    aria-pressed={showSlider}
-                  >
-                    <SlidersIcon className="w-5 h-5 mr-2" />
-                    Slider
-                  </button>
-
-                  {showSlider && (
-                    <select
-                      value={sliderCompareMode}
-                      onChange={(e) => setSliderCompareMode(e.target.value as 'original' | 'previous')}
-                      className="bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-3 rounded-md text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      aria-label="Select comparison mode"
-                    >
-                      <option value="original" className="bg-gray-800">vs Original</option>
-                      <option value="previous" className="bg-gray-800">vs Previous</option>
-                    </select>
-                  )}
-                </>
-              )}
-
-              <button
-                  onClick={handleReset}
-                  disabled={!canUndo}
-                  className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
-                >
-                  Reset
-              </button>
-              <button
-                  onClick={handleUploadNew}
-                  className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-              >
-                  Home/Gallery
-              </button>
-            </div>
-          )}
-
-          {creativeMode === 'video' && (
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                  onClick={handleUploadNew}
-                  className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-              >
-                  Home/Gallery
-              </button>
-            </div>
-          )}
-
-          {(creativeMode === 'single' || creativeMode === 'composite') && (
-            <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-4 sm:p-5 flex flex-col gap-4 backdrop-blur-sm">
-              <ImageModelSelector
-                title={creativeMode === 'composite' ? 'Combined Photos' : 'Single Photo'}
-                value={imageGenerationOptions}
-                onChange={handleImageOptionsChange}
-                isLoading={isLoading}
-                workflow="image-to-image"
-              />
-              <ImageModelSettings
-                value={imageGenerationOptions}
-                onChange={handleImageOptionsChange}
-                isLoading={isLoading}
-                workflow="image-to-image"
-              />
-            </div>
-          )}
-
-          {/* Mode-specific panels */}
-          {creativeMode === 'single' && (
-            <>
-              <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-2 flex items-center justify-center gap-1 sm:gap-2 backdrop-blur-sm">
-                  {(['adjust', 'crop', 'retouch', 'filters'] as Tab[]).map(tab => (
-                       <button
-                          key={tab}
-                          onClick={() => setActiveTab(tab)}
-                          className={`flex-1 capitalize font-semibold py-3 px-2 sm:px-5 rounded-md transition-all duration-200 text-sm sm:text-base ${
-                              activeTab === tab
-                              ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40'
-                              : 'text-gray-300 hover:text-white hover:bg-white/10'
-                          }`}
-                      >
-                          {tab}
-                      </button>
-                  ))}
-              </div>
-
-              <div className="w-full">
-                  {activeTab === 'retouch' && (
-                      <div className="flex flex-col items-center gap-4">
-                          <p className="text-md text-gray-400">
-                              {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
-                          </p>
-                          <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex flex-col gap-2 sm:flex-row sm:items-center">
-                              <input
-                                  type="text"
-                                  value={prompt}
-                                  onChange={(e) => setPrompt(e.target.value)}
-                                  placeholder={editHotspot ? "e.g., 'change my shirt color to blue'" : "First click a point on the image"}
-                                  className="flex-grow bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
-                                  disabled={isLoading || !editHotspot}
-                              />
-                              <button
-                                  type="submit"
-                                  className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-6 text-base rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none sm:w-auto sm:px-8 sm:text-lg"
-                                  disabled={isLoading || !prompt.trim() || !editHotspot}
-                              >
-                                  {isLoading ? `Generating... (${imageEditCreditLabel})` : `Generate - ${imageEditCreditLabel}`}
-                              </button>
-                          </form>
-                      </div>
-                  )}
-                  <Suspense fallback={<div className="min-h-24 w-full" />}>
-                    {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-                    {activeTab === 'adjust' && <AdjustmentPanel key={`adjust-${historyIndex}-${history.length}`} onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
-                    {activeTab === 'filters' && <FilterPanel key={`filter-${historyIndex}-${history.length}`} onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
-                  </Suspense>
-              </div>
-            </>
-          )}
-
-          {creativeMode === 'composite' && currentImageUrl && (
-            <Suspense fallback={<div className="flex items-center justify-center py-8"><Spinner /></div>}>
-              <CompositeEditorOverlay
-                baseImageUrl={currentImageUrl}
-                onCombine={handleCompositeFromEditor}
-                onCancel={() => setCreativeMode('single')}
-                onHomeGallery={handleUploadNew}
-                onWebcamClick={handleWebcamForCompositeSecond}
-                onTextToImageGenerate={handleTextToImageGenerate}
-                isAuthenticated={!!(isLoaded && isSignedIn)}
-                onShowSignupPrompt={() => setShowSignupPrompt(true)}
-                isGeneratingImage={isLoading}
-                imageCreditCost={imageCreditCost}
-              />
-            </Suspense>
-          )}
-
-          {creativeMode === 'video' && (
-            <Suspense fallback={<div className="flex items-center justify-center py-8"><Spinner /></div>}>
-              <VideoControlsPanel
-                isLoading={isLoading}
-                onGenerate={handleGenerateVideo}
-                videoProvider={videoProvider}
-                onVideoProviderChange={setVideoProvider}
-                videoUrl={videoUrl}
-                videoError={videoError}
-                restoredPrompt={restoredVideoPrompt}
-                promptRecallKey={videoPromptRecallKey}
-                referenceImage={null}
-                wanReferenceImages={wanReferenceImages}
-                referenceVideoFile={referenceVideoFile}
-                referenceVideoUrl={referenceVideoUrl}
-                referenceVideoDuration={referenceVideoDuration}
-                seedanceInputMode={seedanceInputMode}
-                seedanceFirstFrame={seedanceFirstFrame}
-                seedanceLastFrame={seedanceLastFrame}
-                seedanceReferenceImages={seedanceReferenceImages}
-                seedanceReferenceVideoFile={seedanceReferenceVideoFile}
-                seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
-                seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
-                seedanceReferenceAudioFile={seedanceReferenceAudioFile}
-                onReferenceImageSelect={handleReferenceImageSelect}
-                onWanReferenceImagesChange={handleWanReferenceImagesChange}
-                onReferenceVideoSelect={handleReferenceVideoSelect}
-                onSeedanceInputModeChange={handleSeedanceInputModeChange}
-                onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
-                onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
-                onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
-                onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
-                onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
-                onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
-                onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
-              />
-            </Suspense>
-          )}
-
-          {(creativeMode === 'single' || creativeMode === 'composite' || creativeMode === 'video') && (
-            <Suspense fallback={null}>
-              <Gallery
-                onSelectImage={handleSelectGalleryImage}
-                onSelectVideo={handleSelectGalleryVideo}
-                onMakeImageReference={handleMakeGalleryImageReference}
-                onMakeVideoReference={creativeMode === 'video' ? handleMakeGalleryVideoReference : undefined}
-                imageReferenceActionLabel={creativeMode === 'composite' ? 'Add Reference' : creativeMode === 'single' ? 'Use Photo' : 'Make Reference'}
-                refreshTrigger={galleryRefreshTrigger}
-              />
-            </Suspense>
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={() => { setError(null); setVideoError(null); }}
+            className="edge glass-chip h-9 rounded-full px-4 text-xs font-semibold text-gray-200 hover:text-white"
+          >
+            Dismiss
+          </button>
+          {isSafetyIssue && !hasPurchasedCredits && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setShowPricingModal(true);
+              }}
+              className="btn-porcelain edge-strong h-9 rounded-full px-4 text-xs font-semibold"
+            >
+              Verify age &amp; purchase credits
+            </button>
           )}
         </div>
-      );
-    }
-    
-    // Fallback just in case
-    return <StartScreen
-      onFileSelect={handleFileSelect}
-      onCompositeSelect={handleCompositeSelect}
-      onUseWebcamClick={handleUseWebcamClick}
-      onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
-      onTextToImageGenerate={handleTextToImageGenerate}
-      imageOptions={imageGenerationOptions}
-      onImageOptionsChange={handleImageOptionsChange}
-      onVideoGenerate={handleStartScreenVideoGenerate}
-      onReferenceVideoSelect={handleReferenceVideoSelect}
-      onWanReferenceImagesChange={handleWanReferenceImagesChange}
-      wanReferenceImages={wanReferenceImages}
-      referenceVideoFile={referenceVideoFile}
-      referenceVideoUrl={referenceVideoUrl}
-      referenceVideoDuration={referenceVideoDuration}
-      onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
-      seedanceInputMode={seedanceInputMode}
-      seedanceFirstFrame={seedanceFirstFrame}
-      seedanceLastFrame={seedanceLastFrame}
-      seedanceReferenceImages={seedanceReferenceImages}
-      seedanceReferenceVideoFile={seedanceReferenceVideoFile}
-      seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
-      seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
-      seedanceReferenceAudioFile={seedanceReferenceAudioFile}
-      onSeedanceInputModeChange={handleSeedanceInputModeChange}
-      onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
-      onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
-      onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
-      onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
-      onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
-      videoProvider={videoProvider}
-      onVideoProviderChange={setVideoProvider}
-      activeMode={creativeMode}
-      onModeChange={handleModeChange}
-      isAuthenticated={isLoaded && isSignedIn}
-      onShowSignupPrompt={() => setShowSignupPrompt(true)}
-      isGeneratingImage={isLoading}
-      imageCreditCost={getImageCreditCost(
-        imageGenerationOptions.provider,
-        imageGenerationOptions.resolution,
-        creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
-        imageGenerationOptions.seedreamTier,
-        creativeMode === 'composite' ? 2 : 0
-      )}
-      onSelectGalleryImage={handleSelectGalleryImage}
-      onSelectGalleryVideo={handleSelectGalleryVideo}
-      onMakeGalleryImageReference={handleMakeGalleryImageReference}
-      onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
-      galleryRefreshTrigger={galleryRefreshTrigger}
-      videoError={videoError}
-    />;
-  };
-  
+      </div>
+    </div>
+  ) : null;
 
+  /* ---------------- render ---------------- */
   return (
-    <div className="min-h-screen text-gray-100 flex flex-col">
+    <div className="flex h-dvh flex-col text-gray-100">
       {isLoaded && isSignedIn && (
         <link rel="preconnect" href="https://api.veilstudio.io" crossOrigin="anonymous" />
       )}
+
       <Header
         onShowPricing={() => setShowPricingModal(true)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
         hasPurchasedCredits={hasPurchasedCredits}
+        onToggleGallery={() => setIsGalleryDrawerOpen(true)}
       />
-      <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${view === 'editor' ? 'items-start' : 'items-center'}`}>
-        {renderContent()}
-      </main>
 
-      {/* Footer */}
-      <Footer onShowPricing={() => setShowPricingModal(true)} />
+      <div className="flex min-h-0 flex-1">
+        {/* Main column: stage + composer */}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-3 pb-6 sm:px-6 sm:pb-10">
+          {isVideoEditorOpen ? (
+            <Suspense fallback={<div className="flex flex-1 items-center justify-center"><Spinner /></div>}>
+              <VideoEditor
+                onClose={handleCloseVideoEditor}
+                incomingVideo={incomingEditorVideo}
+                onIncomingVideoConsumed={() => setIncomingEditorVideo(null)}
+                onSaved={() => setGalleryRefreshTrigger(n => n + 1)}
+                onRenderingChange={setIsVideoEditorRendering}
+              />
+            </Suspense>
+          ) : (
+            <>
+          <ResultStage
+            mode={studioMode}
+            isLoading={isLoading}
+            loadingLabel={loadingLabel}
+            currentImageUrl={currentImageUrl}
+            originalImageUrl={originalImageUrl}
+            previousImageUrl={previousImageUrl}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            isComparing={isComparing}
+            onComparingChange={setIsComparing}
+            showSlider={showSlider}
+            onToggleSlider={() => setShowSlider(prev => !prev)}
+            sliderCompareMode={sliderCompareMode}
+            onSliderCompareModeChange={setSliderCompareMode}
+            activeTool={activeTool}
+            onToolChange={handleToolChange}
+            displayHotspot={displayHotspot}
+            onImageClick={handleImageClick}
+            imgRef={imgRef}
+            crop={crop}
+            onCropChange={(c) => setCrop(c)}
+            onCropComplete={setCompletedCrop}
+            aspect={aspect}
+            onAspectChange={setAspect}
+            onApplyCrop={handleApplyCrop}
+            cropReady={!!completedCrop?.width && completedCrop.width > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onReset={handleReset}
+            onDownload={handleDownload}
+            videoUrl={videoUrl}
+            onVideoDownload={handleVideoDownload}
+            onContinueFromLastFrame={handleContinueFromLastFrame}
+            isExtractingLastFrame={isExtractingLastFrame}
+          />
+
+          {errorBanner}
+
+          <div className="mx-auto w-full max-w-[62rem] shrink-0">
+            <Composer
+              mode={studioMode}
+              onModeChange={handleModeChange}
+              isLoading={isLoading}
+              prompt={studioMode === 'video' ? videoPrompt : imagePrompt}
+              onPromptChange={studioMode === 'video' ? setVideoPrompt : setImagePrompt}
+              onNewSession={handleNewSession}
+              imageOptions={imageGenerationOptions}
+              onImageOptionsChange={handleImageOptionsChange}
+              baseImage={currentImage}
+              onBaseImageSelect={handleBaseImageSelect}
+              styleImage={styleImage}
+              onStyleImageSelect={handleStyleImageSelect}
+              onOpenWebcam={handleOpenWebcam}
+              retouchActive={activeTool === 'retouch'}
+              hasHotspot={Boolean(editHotspot)}
+              imageCreditCost={imageActionCreditCost}
+              onGenerateImage={handleGenerateImage}
+              videoProvider={videoProvider}
+              onVideoProviderChange={setVideoProvider}
+              onGenerateVideo={handleGenerateVideo}
+              hasGeneratedVideo={Boolean(videoUrl)}
+              onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
+              wanReferenceImages={wanReferenceImages}
+              onWanReferenceImagesChange={handleWanReferenceImagesChange}
+              referenceVideoFile={referenceVideoFile}
+              referenceVideoUrl={referenceVideoUrl}
+              onReferenceVideoSelect={handleReferenceVideoSelect}
+              seedanceInputMode={seedanceInputMode}
+              onSeedanceInputModeChange={handleSeedanceInputModeChange}
+              seedanceFirstFrame={seedanceFirstFrame}
+              onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
+              seedanceLastFrame={seedanceLastFrame}
+              onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
+              seedanceReferenceImages={seedanceReferenceImages}
+              onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
+              seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+              seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
+              onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+              onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
+              seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
+              seedanceReferenceAudioFile={seedanceReferenceAudioFile}
+              onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
+            />
+          </div>
+            </>
+          )}
+
+          {/* Tool entry + slim footer */}
+          <footer className="flex shrink-0 flex-col items-center justify-between gap-3 px-2 pb-2 pt-6 text-[11px] text-gray-600 sm:flex-row">
+            <button
+              type="button"
+              onClick={isVideoEditorOpen ? handleCloseVideoEditor : handleOpenVideoEditor}
+              disabled={isVideoEditorOpen && isVideoEditorRendering}
+              className={`edge glass-chip flex min-h-11 items-center gap-2 rounded-full px-4 text-[12px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                isVideoEditorOpen ? 'glass-chip-active text-white' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-4 w-4" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 7.5h16M4 16.5h16M8 4v16m8-16v16" />
+              </svg>
+              {isVideoEditorOpen ? 'Back to studio' : 'Video Editor'}
+              {!isVideoEditorOpen && (
+                <span className="rounded-full bg-accent-300/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-accent-300">New</span>
+              )}
+            </button>
+            <span className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:justify-end">
+              <span>© {new Date().getFullYear()} VeilStudio</span>
+              <a href="/veilpix/privacy/" className="transition hover:text-gray-400">Privacy</a>
+              <a href="/veilpix/terms/" className="transition hover:text-gray-400">Terms</a>
+              <a href="https://veilstudio.io/veilpix/blog/" className="transition hover:text-gray-400">Blog</a>
+              <button type="button" onClick={() => setShowPricingModal(true)} className="transition hover:text-gray-400">Pricing</button>
+            </span>
+          </footer>
+        </main>
+
+        {/* Creations rail (desktop) */}
+        <GalleryRail
+          variant="rail"
+          refreshTrigger={galleryRefreshTrigger}
+          onSelectImage={handleGallerySelectImage}
+          onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
+          onUseImageAsReference={handleGalleryUseImageAsReference}
+          onUseVideoAsReference={!isVideoEditorOpen && studioMode === 'video' ? handleGalleryUseVideoAsReference : undefined}
+          showReferenceActions={!isVideoEditorOpen}
+          imageReferenceTargets={galleryImageReferenceTargets}
+          videoReferenceTargets={galleryVideoReferenceTargets}
+          onImageReferenceAction={handleGalleryImageReferenceAction}
+          onVideoReferenceAction={handleGalleryVideoReferenceAction}
+        />
+      </div>
+
+      {/* Creations drawer (mobile) */}
+      {isGalleryDrawerOpen && (
+        <GalleryRail
+          variant="drawer"
+          refreshTrigger={galleryRefreshTrigger}
+          onClose={() => setIsGalleryDrawerOpen(false)}
+          onSelectImage={handleGallerySelectImage}
+          onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
+          onUseImageAsReference={handleGalleryUseImageAsReference}
+          onUseVideoAsReference={!isVideoEditorOpen && studioMode === 'video' ? handleGalleryUseVideoAsReference : undefined}
+          showReferenceActions={!isVideoEditorOpen}
+          imageReferenceTargets={galleryImageReferenceTargets}
+          videoReferenceTargets={galleryVideoReferenceTargets}
+          onImageReferenceAction={handleGalleryImageReferenceAction}
+          onVideoReferenceAction={handleGalleryVideoReferenceAction}
+        />
+      )}
+
+      {/* Webcam overlay */}
+      {webcamTarget && (
+        <div className="fixed inset-0 z-[80] overflow-y-auto bg-black/85 p-4 backdrop-blur-sm">
+          <div className="flex min-h-full items-center justify-center">
+            <Suspense fallback={<Spinner />}>
+              <WebcamCapture onCapture={handleWebcamCapture} onBack={() => setWebcamTarget(null)} />
+            </Suspense>
+          </div>
+        </div>
+      )}
 
       {/* Payment Success Modal */}
       {showPaymentSuccess && (
@@ -2486,10 +1552,7 @@ const App: React.FC = () => {
         <Suspense fallback={null}>
           <PaymentCancelled
             onClose={() => setShowPaymentCancelled(false)}
-            onRetry={() => {
-              setShowPaymentCancelled(false);
-              // Could trigger a new payment flow here if needed
-            }}
+            onRetry={() => setShowPaymentCancelled(false)}
           />
         </Suspense>
       )}
@@ -2509,10 +1572,7 @@ const App: React.FC = () => {
         <Suspense fallback={null}>
           <SignupPromptModal
             isOpen={showSignupPrompt}
-            onClose={() => {
-              console.log('🔴 Closing signup prompt modal');
-              setShowSignupPrompt(false);
-            }}
+            onClose={() => setShowSignupPrompt(false)}
           />
         </Suspense>
       )}

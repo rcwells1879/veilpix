@@ -39,7 +39,7 @@
     <meta property="twitter:image" content="https://veilstudio.io/veilpix/og-image.webp" />
 
     <!-- Additional Meta Tags -->
-    <meta name="theme-color" content="#00A6E8" />
+    <meta name="theme-color" content="#0A1629" />
     <meta name="application-name" content="VeilPix" />
     <meta name="apple-mobile-web-app-title" content="VeilPix" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -388,10 +388,60 @@ body {
     visibility: hidden;
 }
 
+/* The React app renders its own stage headline; hide the static hero once JS runs. */
+.js #veilpix-start-hero {
+    display: none;
+}
+
 @media (min-width: 640px) {
     #veilpix-start-hero {
         top: 5.75rem;
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Full-viewport production gradient from main. The wallpaper slot     */
+/* remains available for a future image layer above the gradient.      */
+/* ------------------------------------------------------------------ */
+.veilpix-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+    background: linear-gradient(
+        to bottom right,
+        #020106 0%,
+        #0A1629 33%,
+        #113652 67%,
+        #00A6E8 100%
+    );
+}
+
+#veilpix-wallpaper {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    /* background-image: url('/veilpix/wallpapers/studio-01.webp'); */
+}
+
+.veilpix-backdrop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.03), transparent);
+    animation: veilpix-gradient-pulse 6s ease-in-out infinite;
+}
+
+#root {
+    position: relative;
+    z-index: 1;
+}
+
+@keyframes veilpix-gradient-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 </style>
@@ -399,9 +449,8 @@ body {
   <link rel="stylesheet" href="/index.css">
 </head>
   <body>
-    <div class="fixed inset-0 -z-10">
-      <div class="absolute inset-0 bg-gradient-to-br from-[#020106] via-[#0A1629] via-[#113652] to-[#00A6E8]"></div>
-      <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/3 to-transparent animate-pulse [animation-duration:6s]"></div>
+    <div class="veilpix-backdrop" aria-hidden="true">
+      <div id="veilpix-wallpaper"></div>
     </div>
     <section id="veilpix-start-hero" class="flex flex-col items-center gap-6 text-center" aria-labelledby="veilpix-start-heading">
       <h1 id="veilpix-start-heading" class="text-5xl font-extrabold tracking-tight text-gray-100 sm:text-6xl md:text-7xl">

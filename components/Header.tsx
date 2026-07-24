@@ -5,6 +5,7 @@
 import React, { lazy, Suspense, useState } from 'react';
 import { AuthButton } from './AuthButton';
 import { UsageCounter } from './UsageCounter';
+import { GalleryIcon } from './icons';
 import type { SettingsState } from './SettingsMenu';
 
 const SettingsMenu = lazy(() => import('./SettingsMenu').then((module) => ({ default: module.SettingsMenu })));
@@ -14,6 +15,7 @@ interface HeaderProps {
   settings: SettingsState;
   onSettingsChange: (settings: SettingsState) => void;
   hasPurchasedCredits: boolean;
+  onToggleGallery?: () => void;
 }
 
 export const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -29,34 +31,45 @@ const SettingsIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const Header: React.FC<HeaderProps> = ({ onShowPricing, settings, onSettingsChange, hasPurchasedCredits }) => {
+const Header: React.FC<HeaderProps> = ({ onShowPricing, settings, onSettingsChange, hasPurchasedCredits, onToggleGallery }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   return (
-    <header className="w-full py-2 sm:py-4 px-4 sm:px-8 border-b border-gray-700 bg-gray-800/30 backdrop-blur-sm sticky top-0 z-50">
-      <div className="flex items-center justify-between w-full max-w-[1600px] mx-auto">
+    <header className="studio-header sticky top-0 z-50 w-full shrink-0 border-b border-white/[0.06] px-4 py-2 sm:px-6 sm:py-2.5">
+      <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between">
         {/* Logo */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <SparkleIcon className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
-          <h1 className="text-base sm:text-xl font-bold tracking-tight text-gray-100">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          <SparkleIcon className="h-5 w-5 text-accent-300 sm:h-5.5 sm:w-5.5" />
+          <h1 className="text-base font-semibold tracking-tight text-gray-100 sm:text-lg">
             VeilPix
           </h1>
         </div>
 
-        {/* Right side: Usage Stats, Settings, Authentication */}
-        <div className="flex items-center gap-2 sm:gap-4">
+        {/* Right side: Usage Stats, Gallery (mobile), Settings, Authentication */}
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Usage Stats */}
           <div className="flex-shrink">
             <UsageCounter onShowPricing={onShowPricing} />
           </div>
 
+          {/* Gallery toggle - mobile only */}
+          {onToggleGallery && (
+            <button
+              onClick={onToggleGallery}
+              className="edge glass-chip flex h-9 w-9 items-center justify-center rounded-full text-gray-300 hover:text-white md:hidden"
+              aria-label="Open creations gallery"
+            >
+              <GalleryIcon className="h-4.5 w-4.5" />
+            </button>
+          )}
+
           {/* Settings Button */}
           <div className="relative">
             <button
               onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-              className="p-2 rounded-lg bg-gray-700/50 hover:bg-gray-700 transition-colors duration-200 border border-gray-600 hover:border-gray-500"
+              className="edge glass-chip flex h-9 w-9 items-center justify-center rounded-full text-gray-300 hover:text-white"
               aria-label="Settings"
             >
-              <SettingsIcon className="w-5 h-5 text-gray-300" />
+              <SettingsIcon className="h-4.5 w-4.5" />
             </button>
 
             {isSettingsOpen && (

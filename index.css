@@ -1,1 +1,199 @@
 @import "tailwindcss";
+
+/*
+  VeilPix Studio design system
+  - Production blue viewport gradient with soft off-white type
+  - Liquid-glass surfaces with 1px light-to-dark gradient edges
+  - Muted teal controls with the established coral hero accent
+*/
+
+@theme {
+  --color-accent-200: #c9e6dd;
+  --color-accent-300: #a6d4c7;
+  --color-accent-400: #7fbcab;
+  --color-accent-500: #5fa38f;
+  --color-accent-600: #4a8674;
+
+  --color-ink-950: #0a0b0d;
+  --color-ink-900: #101114;
+  --color-ink-800: #17181c;
+
+  --animate-fade-in: veil-fade-in 0.35s ease both;
+  --animate-fade-in-fast: veil-fade-in 0.16s ease both;
+}
+
+@keyframes veil-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: #0a0b0d;
+  color: #e9eaec;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(127, 188, 171, 0.35);
+}
+
+/* ------------------------------------------------------------------ */
+/* 1px gradient edges - light catches the top, falls to shadow below. */
+/* Apply alongside a rounded-* class; the ring follows border-radius. */
+/* ------------------------------------------------------------------ */
+/* Layered default so positioning utilities (`absolute`, `fixed`) can override.
+   Unlayered rules would beat @layer utilities regardless of specificity. */
+@layer components {
+  .edge,
+  .edge-strong,
+  .edge-mute {
+    position: relative;
+  }
+}
+
+.edge::before,
+.edge-strong::before,
+.edge-mute::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.30) 0%,
+    rgba(255, 255, 255, 0.07) 32%,
+    rgba(0, 0, 0, 0.38) 78%,
+    rgba(255, 255, 255, 0.09) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.edge-strong::before {
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.14) 34%,
+    rgba(0, 0, 0, 0.35) 80%,
+    rgba(255, 255, 255, 0.18) 100%
+  );
+}
+
+.edge-mute::before {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------------------------ */
+/* Glass surfaces                                                      */
+/* ------------------------------------------------------------------ */
+.glass-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
+    rgba(13, 14, 17, 0.72);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  box-shadow:
+    0 30px 80px -32px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.glass-sheet {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)),
+    rgba(16, 17, 20, 0.92);
+  backdrop-filter: blur(32px) saturate(140%);
+  -webkit-backdrop-filter: blur(32px) saturate(140%);
+  box-shadow: 0 24px 70px -20px rgba(0, 0, 0, 0.9);
+}
+
+/* The production gradient remains visible beneath the header. */
+.studio-header {
+  background: rgba(12, 18, 27, 0.32);
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.10);
+}
+
+.glass-chip {
+  background: rgba(255, 255, 255, 0.055);
+  transition: background 160ms ease, transform 120ms ease;
+}
+
+.glass-chip:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.105);
+}
+
+.glass-chip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.glass-chip-active,
+.glass-chip-active:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Porcelain primary action - solid, calm, no gradient. */
+.btn-porcelain {
+  background: #eceae4;
+  color: #16171b;
+  transition: background 160ms ease, transform 120ms ease, box-shadow 160ms ease;
+  box-shadow: 0 10px 30px -12px rgba(236, 234, 228, 0.35);
+}
+
+.btn-porcelain:hover:not(:disabled) {
+  background: #f7f5ef;
+}
+
+.btn-porcelain:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-porcelain:disabled {
+  background: rgba(236, 234, 228, 0.16);
+  color: rgba(233, 234, 236, 0.38);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ */
+/* Chrome details                                                      */
+/* ------------------------------------------------------------------ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(127, 188, 171, 0.65);
+  outline-offset: 2px;
+}
+
+/* Respect users who prefer less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
