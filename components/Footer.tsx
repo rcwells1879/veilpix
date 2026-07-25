@@ -65,8 +65,8 @@ const socialLinks = [
 ];
 
 const Footer: React.FC<FooterProps> = ({ onShowPricing }) => (
-  <footer className="persistent-footer text-gray-300" aria-label="VeilPix footer">
-    <div className="mx-auto grid h-full w-full max-w-[1600px] grid-rows-2 gap-1 px-4 py-2 md:flex md:items-center md:justify-between md:gap-6 md:px-8">
+  <footer className="site-footer text-gray-300" aria-label="VeilPix footer">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between md:gap-6 md:px-8">
       <div className="flex min-w-0 items-center justify-between gap-3 md:shrink-0 md:justify-start">
         <div className="flex min-w-0 items-center gap-2.5">
           <a href="https://veilstudio.io" className="shrink-0 text-sm font-semibold tracking-tight text-white transition hover:text-accent-200">
@@ -93,7 +93,7 @@ const Footer: React.FC<FooterProps> = ({ onShowPricing }) => (
         </div>
       </div>
 
-      <nav className="footer-link-scroll flex min-w-0 items-center gap-4 overflow-x-auto whitespace-nowrap text-[11px] md:justify-end" aria-label="Footer navigation">
+      <nav className="flex min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px] md:justify-end" aria-label="Footer navigation">
         {footerLinks.slice(0, 4).map((item) => (
           <a
             key={item.name}

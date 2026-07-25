@@ -39,9 +39,9 @@ const Header: React.FC<HeaderProps> = ({ onShowPricing, settings, onSettingsChan
         {/* Logo */}
         <div className="flex items-center gap-2 sm:gap-2.5">
           <SparkleIcon className="h-5 w-5 text-accent-300 sm:h-5.5 sm:w-5.5" />
-          <h1 className="text-base font-semibold tracking-tight text-gray-100 sm:text-lg">
+          <span className="text-base font-semibold tracking-tight text-gray-100 sm:text-lg">
             VeilPix
-          </h1>
+          </span>
         </div>
 
         {/* Right side: Usage Stats, Gallery (mobile), Settings, Authentication */}

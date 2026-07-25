@@ -13,7 +13,7 @@ interface FAQItem {
 const faqData: FAQItem[] = [
   {
     question: 'What is VeilPix and how does it work?',
-    answer: 'VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, and reference-to-video clips with models including Nano Banana 2, Seedream 5, Wan 2.7, and Wan 2.6 Flash.',
+    answer: 'VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, and reference-to-video clips with models including Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, Wan 2.6, Wan 2.6 Flash, Wan 2.7, and Seedance 2.0.',
   },
   {
     question: 'What is VeilPix After Dark?',
@@ -58,7 +58,7 @@ const faqData: FAQItem[] = [
 ];
 
 const FAQ: React.FC = () => (
-  <section id="faq" aria-labelledby="faq-heading" className="scroll-mt-8 pb-24 pt-8 sm:pb-32 sm:pt-12">
+  <section id="faq" aria-labelledby="faq-heading" className="scroll-mt-8 pb-12 pt-8 sm:pb-16 sm:pt-12">
     <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
       <header className="text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent-300">

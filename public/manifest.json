@@ -1,14 +1,14 @@
 {
   "name": "VeilPix - AI Image and Video Generator",
   "short_name": "VeilPix",
-  "description": "Private AI image editing, text-to-image, text-to-video, image-to-video, and multimodal reference video generation with Wan 2.7 and Seedance 2.0.",
+  "description": "Private AI image editing and video generation with Nano Banana 2, Seedream 5, Wan 2.6/2.7, and Seedance 2.0.",
   "start_url": "/veilpix/",
   "display": "standalone",
   "background_color": "#020106",
-  "theme_color": "#00A6E8",
+  "theme_color": "#0A1629",
   "icons": [
-    {"src": "/veilpix/favicon.png", "sizes": "192x192", "type": "image/png"},
-    {"src": "/veilpix/apple-touch-icon-180x180.png", "sizes": "180x180", "type": "image/png"}
+    {"src": "/veilpix/icon-192x192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/veilpix/icon-512x512.png", "sizes": "512x512", "type": "image/png"}
   ],
   "categories": ["photo", "graphics", "video", "productivity"]
 }

@@ -1,42 +1,40 @@
 # VeilPix - AI Image and Video Generator
 
 ## Overview
-VeilPix is a free, privacy-focused AI image and video generator for photo editing, text-to-image creation, text-to-video generation, image-to-video animation, and reference-to-video workflows.
+VeilPix is a free-to-try, privacy-focused AI image and video generator for photo editing, text-to-image creation, text-to-video generation, image-to-video animation, and reference-to-video workflows.
 
 ## Key Facts
 - Free tier: 30 credits after sign-up
 - AI image models: Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image
-- AI video models: Wan 2.7 text-to-video and reference-to-video, Wan 2.6 Flash image-to-video
-- Video model support: Seedance 2.0
-- Privacy: Browser-local creative history, no public gallery, and AI requests proxied through VeilPix; provider retention applies
+- AI video models: Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, Wan 2.7 reference-to-video, and Seedance 2.0 multimodal video generation
+- Privacy: Browser-local creative history, no public creation feed, and AI requests proxied through VeilPix; provider retention applies
 - Formats: JPEG, PNG, WebP, HEIC (auto-converted), plus common video references such as MP4, WebM, and MOV
-- No watermarks on output
 
 ## Features
 1. AI Photo Editing - Retouch images, remove objects, change colors, and adjust lighting
-2. Text-to-Image - Generate new images from natural language prompts
+2. Text-to-Image - Generate new images from natural-language prompts
 3. Multi-image Composition - Combine reference images into new outputs
-4. Text-to-Video - Create Wan 2.7 videos from written prompts
-5. Image-to-Video - Animate still images with Wan 2.6 Flash
-6. Reference-to-Video - Use images, videos, or both as creative guidance
-7. Seedance 2.0 - Planned future video generation support
+4. Text-to-Video - Create Wan 2.6 or Seedance 2.0 videos from written prompts
+5. Image-to-Video - Animate still images with Wan 2.6 Flash or Seedance 2.0
+6. Reference-to-Video - Guide Wan 2.7 videos with image and video references
+7. Seedance 2.0 - Generate multimodal videos using text, image, video, and audio references
 8. Privacy-Focused Workflow - Creation history stays in the browser instead of a persistent VeilPix server-side library
 
 ## Age-Verified After Dark
 VeilPix includes an age-verified 18+ mode for private NSFW and adult creative workflows where supported by the selected model provider. VeilPix still applies account controls, provider safety systems, and misuse prevention.
 
 ## AI Models
-- Nano Banana 2: Gemini-powered fast image editing and generation
-- Seedream 5 Lite/Pro: ByteDance models for fast or higher-quality image generation
-- Wan 2.7 Image: Image generation and editing model for prompt and reference workflows
-- Wan 2.7 Image: Image generation and editing workflows
-- Wan 2.7 Video: Text-to-video and reference-to-video workflows
+- Nano Banana 2: Gemini-powered image editing and generation
+- Seedream 5 Lite/Pro: ByteDance models for economical high-resolution generation or higher-precision creative work
+- Wan 2.7 Image: Image generation and editing for prompt and reference workflows
+- Wan 2.6: Text-to-video generation
 - Wan 2.6 Flash: Image-to-video generation
-- Seedance 2.0: Planned future video generation support
+- Wan 2.7: Reference-to-video generation
+- Seedance 2.0: Multimodal video generation with text, image, video, and audio inputs
 
 ## Pricing
-- Free: 30 credits on sign-up
-- Credits: $0.10 per credit
+- Free to try: 30 credits after sign-up
+- Additional credits: Available in one-time packages at the current prices shown in VeilPix
 - No subscription required
 
 ## Use Cases

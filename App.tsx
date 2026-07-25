@@ -1344,8 +1344,8 @@ const App: React.FC = () => {
         <link rel="preconnect" href="https://api.veilstudio.io" crossOrigin="anonymous" />
       )}
 
-      {/* The working studio occupies exactly the initial viewport above the persistent footer. */}
-      <div className="studio-with-footer flex h-dvh flex-col">
+      {/* The working studio occupies the complete initial viewport. */}
+      <div className="flex h-dvh flex-col">
       <Header
         onShowPricing={() => setShowPricingModal(true)}
         settings={settings}
@@ -1409,7 +1409,7 @@ const App: React.FC = () => {
 
           {errorBanner}
 
-          <div className="mx-auto w-full max-w-[62rem] shrink-0">
+          <div className="mx-auto mb-[25px] w-full max-w-[62rem] shrink-0">
             <Composer
               mode={studioMode}
               onModeChange={handleModeChange}
