@@ -81,7 +81,6 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
     
     console.log('🌐 API Client making request to:', url)
     console.log('📤 Request method:', fetchOptions.method || 'GET')
-    console.log('📋 Request headers:', headers)
     console.log('📦 Request body type:', fetchOptions.body?.constructor.name)
     
     try {
