@@ -302,6 +302,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
 
   const generateDisabled = isLoading
     || !prompt.trim()
+    || (mode === 'video' && videoProvider === 'seedance' && seedanceInputMode === 'frames' && !seedanceFirstFrame)
     || (mode === 'image' && imageSupportsReferences && retouchActive && !hasHotspot);
 
   const placeholder = mode === 'video'

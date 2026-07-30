@@ -803,6 +803,7 @@ export interface GenerateSeedanceVideoRequest {
   referenceAudio?: File | null
   prompt: string
   variant?: 'regular' | 'fast' | 'mini'
+  inputMode?: 'frames' | 'references'
   duration?: number
   resolution?: string
   aspectRatio?: string
@@ -848,6 +849,7 @@ export function useGenerateSeedanceVideo() {
 
       formData.append('prompt', data.prompt)
       formData.append('variant', data.variant || 'regular')
+      formData.append('inputMode', data.inputMode || 'references')
       formData.append('duration', (data.duration || 5).toString())
       formData.append('resolution', data.resolution || '720p')
       formData.append('aspectRatio', data.aspectRatio || '16:9')

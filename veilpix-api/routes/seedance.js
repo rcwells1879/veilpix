@@ -19,6 +19,7 @@ const {
     normalizeResolution,
     normalizeSeedanceResponse,
     normalizeVariant,
+    resolveSeedanceInputMode,
     veilpixCreditsFromKieCredits
 } = require('../utils/seedanceAdapter');
 
@@ -310,6 +311,7 @@ router.post('/generate-video', upload.fields([
             aspectRatio = '16:9',
             referenceVideoUrl,
             referenceVideoDuration = '',
+            inputMode = '',
             generateAudio = 'false',
             webSearch = 'false',
             nsfwFilterEnabled = 'true'
@@ -330,8 +332,8 @@ router.post('/generate-video', upload.fields([
         const audioFile = req.files?.referenceAudio?.[0];
         const firstFrameFile = req.files?.firstFrame?.[0];
         const lastFrameFile = req.files?.lastFrame?.[0];
-        const hasFrameMode = Boolean(firstFrameFile || lastFrameFile);
         const hasMultimodalReferences = imageFiles.length > 0 || Boolean(videoFile || referenceVideoUrl || audioFile);
+        let resolvedInputMode;
 
         if (imageFiles.length > MAX_REFERENCE_IMAGES) {
             return res.status(400).json({ error: `Seedance supports up to ${MAX_REFERENCE_IMAGES} reference images in VeilPix` });
@@ -339,9 +341,28 @@ router.post('/generate-video', upload.fields([
         if (lastFrameFile && !firstFrameFile) {
             return res.status(400).json({ error: 'A last frame requires a first frame' });
         }
-        if (hasFrameMode && hasMultimodalReferences) {
-            return res.status(400).json({ error: 'Seedance frame mode cannot be combined with image, video, or audio references' });
+        try {
+            resolvedInputMode = resolveSeedanceInputMode(inputMode, {
+                hasFirstFrame: Boolean(firstFrameFile),
+                hasLastFrame: Boolean(lastFrameFile),
+                hasMultimodalReferences
+            });
+        } catch (modeError) {
+            return res.status(400).json({
+                error: 'Invalid Seedance references',
+                message: modeError.message
+            });
         }
+
+        console.log('Seedance input summary:', {
+            requestedMode: inputMode || null,
+            resolvedMode: resolvedInputMode,
+            firstFrameBytes: firstFrameFile?.size || 0,
+            lastFrameBytes: lastFrameFile?.size || 0,
+            referenceImageCount: imageFiles.length,
+            hasReferenceVideo: Boolean(videoFile || referenceVideoUrl),
+            hasReferenceAudio: Boolean(audioFile)
+        });
 
         const hasVideoReference = Boolean(videoFile || referenceVideoUrl);
         const measuredVideoDuration = hasVideoReference

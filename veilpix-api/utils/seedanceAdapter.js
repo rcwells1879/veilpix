@@ -94,6 +94,31 @@ function estimateSeedanceVeilPixCredits(options) {
     return veilpixCreditsFromKieCredits(estimateSeedanceKieCredits(options));
 }
 
+function resolveSeedanceInputMode(requestedMode, {
+    hasFirstFrame = false,
+    hasLastFrame = false,
+    hasMultimodalReferences = false
+} = {}) {
+    if (requestedMode && !['frames', 'references'].includes(requestedMode)) {
+        throw new Error('Invalid Seedance input mode');
+    }
+
+    const hasFrameInput = hasFirstFrame || hasLastFrame;
+    const resolvedMode = requestedMode || (hasFrameInput ? 'frames' : 'references');
+
+    if (resolvedMode === 'frames' && !hasFirstFrame) {
+        throw new Error('Seedance start/end-frame mode requires a start frame');
+    }
+    if (resolvedMode === 'references' && hasFrameInput) {
+        throw new Error('Seedance frame files were attached while style and character mode was selected');
+    }
+    if (hasFrameInput && hasMultimodalReferences) {
+        throw new Error('Seedance frame inputs cannot be combined with multimodal references');
+    }
+
+    return resolvedMode;
+}
+
 function buildSeedanceRequest(prompt, options = {}) {
     const {
         variant = 'regular',
@@ -193,6 +218,7 @@ module.exports = {
     normalizeResolution,
     normalizeSeedanceResponse,
     normalizeVariant,
+    resolveSeedanceInputMode,
     veilpixCreditsFromKieCredits,
     veilpixCreditsFromUsd
 };

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildSeedanceRequest } = require('./seedanceAdapter');
+const { buildSeedanceRequest, resolveSeedanceInputMode } = require('./seedanceAdapter');
 
 test('maps strict Seedance frame inputs to first and last frame fields', () => {
     const payload = buildSeedanceRequest('Move between the frames', {
@@ -43,5 +43,33 @@ test('rejects mixed strict frames and multimodal references', () => {
             referenceImages: ['https://example.com/style.png']
         }),
         /cannot be combined/
+    );
+});
+
+test('requires a start frame when the client selected strict frame mode', () => {
+    assert.throws(
+        () => resolveSeedanceInputMode('frames'),
+        /requires a start frame/
+    );
+});
+
+test('does not silently downgrade an explicit frame request to text-to-video', () => {
+    assert.equal(
+        resolveSeedanceInputMode('frames', { hasFirstFrame: true, hasLastFrame: true }),
+        'frames'
+    );
+});
+
+test('rejects frame files when the client selected multimodal reference mode', () => {
+    assert.throws(
+        () => resolveSeedanceInputMode('references', { hasFirstFrame: true }),
+        /style and character mode was selected/
+    );
+});
+
+test('keeps backward compatibility by inferring frame mode from older clients', () => {
+    assert.equal(
+        resolveSeedanceInputMode('', { hasFirstFrame: true }),
+        'frames'
     );
 });

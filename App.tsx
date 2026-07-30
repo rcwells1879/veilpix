@@ -761,6 +761,7 @@ const App: React.FC = () => {
           referenceAudio: usesFrameMode ? null : seedanceReferenceAudioFile,
           prompt,
           variant: seedanceVariant,
+          inputMode: selectedSeedanceInputMode,
           duration,
           resolution,
           aspectRatio: ratio,
@@ -871,6 +872,16 @@ const App: React.FC = () => {
 
   const handleSeedanceInputModeChange = useCallback((mode: SeedanceInputMode) => {
     setSeedanceInputMode(mode);
+    if (mode === 'frames') {
+      setSeedanceReferenceImages([]);
+      setSeedanceReferenceVideoFile(null);
+      setSeedanceReferenceVideoUrl(null);
+      setSeedanceReferenceVideoDuration(null);
+      setSeedanceReferenceAudioFile(null);
+    } else {
+      setSeedanceFirstFrame(null);
+      setSeedanceLastFrame(null);
+    }
     setVideoError(null);
   }, []);
 
