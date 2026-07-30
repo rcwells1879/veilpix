@@ -50,6 +50,9 @@ const VEILPIX_CREDIT_USD = 0.0699;
 const TARGET_MARGIN = 0.12;
 const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
 const KIE_CREDIT_USD = 0.005;
+const IMAGE_MINIMUM_VEILPIX_CREDITS: Partial<Record<ImageProvider, number>> = {
+  zimage: 0.1,
+};
 
 export const IMAGE_KIE_CREDIT_PRICING: Record<ImageProvider, Partial<Record<ImageResolution, number>>> = {
   nanobanana2: {
@@ -244,7 +247,10 @@ export function getImageKieCreditCost(provider: ImageProvider, resolution?: Imag
 }
 
 export function getImageCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite', imageCount = 0): number {
-  return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow, seedreamTier, imageCount));
+  const calculatedCredits = veilpixCreditsFromKieCredits(
+    getImageKieCreditCost(provider, resolution, workflow, seedreamTier, imageCount)
+  );
+  return Math.max(calculatedCredits, IMAGE_MINIMUM_VEILPIX_CREDITS[provider] ?? 0);
 }
 
 export function normalizeImageGenerationOptions(options?: Partial<ImageGenerationOptions>, workflow?: ImageWorkflow): ImageGenerationOptions {

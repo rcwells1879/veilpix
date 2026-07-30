@@ -23,7 +23,7 @@ const CASES = [
     ['Seedream 5 Pro 2K', 'seedream', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'pro', 0, 2],
     ['Wan 2.7 standard', 'wanimage', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.4],
     ['Wan 2.7 Pro 4K', 'wanimage', '4K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.98],
-    ['Z-Image Turbo', 'zimage', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.07]
+    ['Z-Image Turbo', 'zimage', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.1]
 ];
 
 test('uses fractional credits only when the unrounded charge is below one credit', () => {
@@ -43,6 +43,14 @@ for (const [name, provider, resolution, workflow, tier, imageCount, expectedCred
 
 test('the customer credit value remains tied to the 100-credit package', () => {
     assert.equal(VEILPIX_CREDIT_USD, 0.0699);
+});
+
+test('Z-Image minimum charge preserves the underlying Kie cost', () => {
+    const details = getImageCreditDetails('zimage', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE);
+    assert.equal(details.kieCredits, 0.8);
+    assert.equal(details.costUsd, 0.004);
+    assert.equal(details.credits, 0.1);
+    assert.equal(details.chargedAmountUsd, 0.007);
 });
 
 test('fractional migration uses an atomic conditional deduction', () => {

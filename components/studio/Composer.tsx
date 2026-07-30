@@ -6,8 +6,9 @@
  * real time to the selected model, for both image and video workflows.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatCreditAmount } from '../../src/utils/creditFormatting';
+import { getSubmittedPrompt } from '../../src/utils/promptSubmission';
 import {
   getImageCreditCost,
   getImageModelResolutions,
@@ -94,7 +95,7 @@ export interface ComposerProps {
   retouchActive: boolean;
   hasHotspot: boolean;
   imageCreditCost: number;
-  onGenerateImage: () => void;
+  onGenerateImage: (prompt: string) => void;
 
   /* video workflow */
   videoProvider: VideoProvider;
@@ -168,6 +169,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
     seedanceReferenceVideoFile, seedanceReferenceVideoUrl, onSeedanceReferenceVideoSelect, onSeedanceReferenceVideoUrlRemove,
     seedanceReferenceVideoDuration, seedanceReferenceAudioFile, onSeedanceReferenceAudioSelect,
   } = props;
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
+  const latestPromptRef = useRef(prompt);
 
   /* --------------------------- video settings --------------------------- */
   const [wanDuration, setWanDuration] = useState<number>(storedVideoSettings.wanDuration ?? 5);
@@ -253,6 +256,10 @@ const Composer: React.FC<ComposerProps> = (props) => {
     seedanceGenerateAudio, seedanceWebSearch,
   ]);
 
+  useEffect(() => {
+    latestPromptRef.current = prompt;
+  }, [prompt]);
+
   /* --------------------------- handlers --------------------------- */
   const updateImageOptions = (partial: Partial<ImageGenerationOptions>) => {
     // Merge onto the raw stored options (not the workflow-clamped view) so a
@@ -261,9 +268,10 @@ const Composer: React.FC<ComposerProps> = (props) => {
   };
 
   const handleGenerate = () => {
-    const trimmed = prompt.trim();
+    const trimmed = getSubmittedPrompt(promptInputRef.current?.value, latestPromptRef.current);
     if (mode === 'image') {
-      onGenerateImage();
+      if (!trimmed) return;
+      onGenerateImage(trimmed);
       return;
     }
     if (!trimmed) return;
@@ -343,8 +351,12 @@ const Composer: React.FC<ComposerProps> = (props) => {
 
       {/* Prompt */}
       <textarea
+        ref={promptInputRef}
         value={prompt}
-        onChange={(event) => onPromptChange(event.target.value)}
+        onChange={(event) => {
+          latestPromptRef.current = event.target.value;
+          onPromptChange(event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !generateDisabled) {
             event.preventDefault();

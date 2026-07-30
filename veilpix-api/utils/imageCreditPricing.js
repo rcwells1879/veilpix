@@ -2,6 +2,9 @@ const VEILPIX_CREDIT_USD = 6.99 / 100;
 const TARGET_MARGIN = 0.12;
 const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
 const KIE_CREDIT_USD = 0.005;
+const IMAGE_MINIMUM_VEILPIX_CREDITS = {
+    zimage: 0.1
+};
 
 const IMAGE_WORKFLOWS = {
     TEXT_TO_IMAGE: 'text-to-image',
@@ -119,7 +122,11 @@ function getImageKieCreditCost(provider, resolution, workflow = IMAGE_WORKFLOWS.
 }
 
 function getImageCreditCost(provider, resolution, workflow = IMAGE_WORKFLOWS.TEXT_TO_IMAGE, seedreamTier = 'lite', imageCount = 0) {
-    return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow, seedreamTier, imageCount));
+    const selectedProvider = normalizeImageProvider(provider);
+    const calculatedCredits = veilpixCreditsFromKieCredits(
+        getImageKieCreditCost(selectedProvider, resolution, workflow, seedreamTier, imageCount)
+    );
+    return Math.max(calculatedCredits, IMAGE_MINIMUM_VEILPIX_CREDITS[selectedProvider] || 0);
 }
 
 function getImageCreditDetails(provider, resolution, workflow = IMAGE_WORKFLOWS.TEXT_TO_IMAGE, seedreamTier = 'lite', imageCount = 0) {
@@ -128,7 +135,13 @@ function getImageCreditDetails(provider, resolution, workflow = IMAGE_WORKFLOWS.
     const selectedTier = normalizeSeedreamTier(seedreamTier);
     const selectedResolution = normalizeImageResolution(selectedProvider, resolution, selectedWorkflow, selectedTier);
     const kieCredits = getImageKieCreditCost(selectedProvider, selectedResolution, selectedWorkflow, selectedTier, imageCount);
-    const credits = veilpixCreditsFromKieCredits(kieCredits);
+    const credits = getImageCreditCost(
+        selectedProvider,
+        selectedResolution,
+        selectedWorkflow,
+        selectedTier,
+        imageCount
+    );
 
     return {
         provider: selectedProvider,

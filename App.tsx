@@ -619,14 +619,15 @@ const App: React.FC = () => {
   }, [webcamTarget, handleBaseImageSelect]);
 
   /* ---------------- image generation ---------------- */
-  const handleGenerateImage = useCallback(async () => {
+  const handleGenerateImage = useCallback(async (submittedPrompt: string) => {
     if (!requireAuth()) return;
 
-    const trimmedPrompt = imagePrompt.trim();
+    const trimmedPrompt = submittedPrompt.trim();
     if (!trimmedPrompt) {
       setError('Describe what you want to create.');
       return;
     }
+    setImagePrompt(trimmedPrompt);
 
     const supportsReferences = imageProviderSupportsReferences(imageGenerationOptions.provider);
     const workflow: ImageWorkflow = supportsReferences && currentImage ? 'image-to-image' : 'text-to-image';
@@ -715,7 +716,7 @@ const App: React.FC = () => {
       console.error(err);
     }
   }, [
-    requireAuth, imagePrompt, currentImage, styleImage, activeTool, editHotspot,
+    requireAuth, currentImage, styleImage, activeTool, editHotspot,
     imageGenerationOptions, settings.nsfwFilterEnabled, activeEditableImageMutations,
     activeTextToImageMutation, addImageToHistory, resetImageTools,
   ]);
@@ -1380,8 +1381,10 @@ const App: React.FC = () => {
         <link rel="preconnect" href="https://api.veilstudio.io" crossOrigin="anonymous" />
       )}
 
-      {/* The working studio occupies the complete initial viewport. */}
-      <div className="flex h-dvh flex-col">
+      {/* Mobile uses one document-level scroll so the studio, creations, and
+          supporting content cannot move independently. Desktop keeps the
+          fixed-height workspace and its separate creations rail. */}
+      <div className="flex min-h-dvh flex-col md:h-dvh md:min-h-0">
       <Header
         onShowPricing={() => setShowPricingModal(true)}
         settings={settings}
@@ -1390,7 +1393,7 @@ const App: React.FC = () => {
         onToggleGallery={() => document.getElementById('creations-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+      <div className="relative flex flex-1 flex-col overflow-visible md:min-h-0 md:flex-row md:overflow-hidden">
         {/* Main column: stage + composer */}
         <main className="flex min-h-full min-w-0 shrink-0 flex-col overflow-visible px-3 pb-9 sm:px-6 sm:pb-12 md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto md:overflow-x-hidden md:px-[11.5rem] lg:px-[13.5rem]">
           {isVideoEditorOpen ? (
