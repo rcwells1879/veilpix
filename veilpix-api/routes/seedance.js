@@ -212,11 +212,19 @@ async function pollSeedanceJob(taskId, maxAttempts = 360, intervalMs = 2000) {
     throw new Error('Seedance generation timeout - exceeded maximum wait time');
 }
 
+function referenceUploadError(uploadResult, mediaType) {
+    const error = new Error(
+        uploadResult.error || `Failed to upload ${mediaType}. Please try again.`
+    );
+    error.code = uploadResult.errorCode || 'TEMPORARY_STORAGE_UNAVAILABLE';
+    return error;
+}
+
 async function uploadReferenceFile(file, userId, uploadedFilenames) {
     if (file.mimetype.startsWith('image/')) {
         validateFileSize(file, MAX_IMAGE_BYTES, 'Reference image');
         const uploadResult = await uploadTemporaryImage(file.buffer, file.mimetype, userId);
-        if (!uploadResult.success) throw new Error(`Failed to upload image: ${uploadResult.error}`);
+        if (!uploadResult.success) throw referenceUploadError(uploadResult, 'image');
         uploadedFilenames.push(uploadResult.filename);
         return uploadResult.url;
     }
@@ -224,7 +232,7 @@ async function uploadReferenceFile(file, userId, uploadedFilenames) {
     if (file.mimetype.startsWith('video/')) {
         validateFileSize(file, MAX_VIDEO_BYTES, 'Reference video');
         const uploadResult = await uploadTemporaryVideo(file.buffer, file.mimetype, userId);
-        if (!uploadResult.success) throw new Error(`Failed to upload video: ${uploadResult.error}`);
+        if (!uploadResult.success) throw referenceUploadError(uploadResult, 'video');
         uploadedFilenames.push(uploadResult.filename);
         return uploadResult.url;
     }
@@ -232,7 +240,7 @@ async function uploadReferenceFile(file, userId, uploadedFilenames) {
     if (file.mimetype.startsWith('audio/')) {
         validateFileSize(file, MAX_AUDIO_BYTES, 'Reference audio');
         const uploadResult = await uploadTemporaryFile(file.buffer, file.mimetype, userId, 'audio');
-        if (!uploadResult.success) throw new Error(`Failed to upload audio: ${uploadResult.error}`);
+        if (!uploadResult.success) throw referenceUploadError(uploadResult, 'audio');
         uploadedFilenames.push(uploadResult.filename);
         return uploadResult.url;
     }
@@ -477,10 +485,17 @@ router.post('/generate-video', upload.fields([
             error.message?.toLowerCase().includes('review') ||
             error.message?.toLowerCase().includes('content') ||
             error.message?.toLowerCase().includes('safety');
+        const isTemporaryStorageError = error.code === 'TEMPORARY_STORAGE_UNAVAILABLE';
 
-        res.status(isNsfwError ? 400 : 500).json({
-            error: isNsfwError ? 'Content policy violation' : 'Failed to generate Seedance video',
-            message: error.message,
+        res.status(isNsfwError ? 400 : isTemporaryStorageError ? 503 : 500).json({
+            error: isNsfwError
+                ? 'Content policy violation'
+                : isTemporaryStorageError
+                    ? 'Temporary reference upload unavailable'
+                    : 'Failed to generate Seedance video',
+            message: isTemporaryStorageError
+                ? 'We could not prepare the attached references. They are still selected, so please try again.'
+                : error.message,
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }

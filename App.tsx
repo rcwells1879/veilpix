@@ -816,6 +816,7 @@ const App: React.FC = () => {
           referenceVideoFile: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoFile : provider === 'wan' ? referenceVideoFile : null,
           referenceVideoUrl: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoUrl : provider === 'wan' ? referenceVideoUrl : null,
           videoDuration: duration,
+          seedanceInputMode: provider === 'seedance' ? selectedSeedanceInputMode : undefined,
           prompt
         }).then(() => setGalleryRefreshTrigger(n => n + 1));
       } else {
@@ -1161,13 +1162,20 @@ const App: React.FC = () => {
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(null);
     setSeedanceReferenceAudioFile(null);
-    setSeedanceFirstFrame(null);
-    setSeedanceLastFrame(null);
     if (selectedProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceImages(referenceImages.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+      const restoredInputMode = details.seedanceInputMode ?? 'references';
+      setSeedanceInputMode(restoredInputMode);
+      setSeedanceFirstFrame(restoredInputMode === 'frames' ? referenceImages[0] ?? null : null);
+      setSeedanceLastFrame(restoredInputMode === 'frames' ? referenceImages[1] ?? null : null);
+      setSeedanceReferenceImages(
+        restoredInputMode === 'references'
+          ? referenceImages.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES)
+          : []
+      );
       setWanReferenceImages([]);
     } else {
+      setSeedanceFirstFrame(null);
+      setSeedanceLastFrame(null);
       setWanReferenceImages(referenceImages.slice(0, 5));
       setSeedanceReferenceImages([]);
     }

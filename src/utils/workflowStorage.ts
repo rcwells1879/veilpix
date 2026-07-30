@@ -36,6 +36,7 @@ export interface GalleryImage {
   videoDuration?: number;
   hasReferenceImage?: boolean;
   provider?: 'wan' | 'seedance';
+  seedanceInputMode?: 'frames' | 'references';
   referenceImages?: StoredGalleryFile[];
   prompt?: string;
 }
@@ -72,6 +73,7 @@ export interface GalleryVideoDetails {
   referenceImages: File[];
   videoDuration?: number;
   provider?: 'wan' | 'seedance';
+  seedanceInputMode?: 'frames' | 'references';
   prompt: string;
 }
 
@@ -552,6 +554,10 @@ export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDe
           referenceImages,
           videoDuration: entry.videoDuration,
           provider: entry.provider,
+          // Older gallery records did not persist the Seedance mode. Treat a
+          // two-image legacy record as the likely first/end-frame workflow.
+          seedanceInputMode: entry.seedanceInputMode
+            ?? (entry.provider === 'seedance' && referenceImages.length === 2 ? 'frames' : undefined),
           prompt: entry.prompt || '',
         });
       };
@@ -665,6 +671,7 @@ export interface SaveVideoToGalleryOptions {
   referenceVideoFile?: File | null;
   referenceVideoUrl?: string | null;
   videoDuration?: number;
+  seedanceInputMode?: 'frames' | 'references';
   prompt?: string;
 }
 
@@ -674,7 +681,17 @@ export interface SaveVideoToGalleryOptions {
  */
 export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<void> {
   try {
-    const { videoUrl, provider, referenceImage = null, referenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, videoDuration, prompt = '' } = options;
+    const {
+      videoUrl,
+      provider,
+      referenceImage = null,
+      referenceImages = [],
+      referenceVideoFile = null,
+      referenceVideoUrl = null,
+      videoDuration,
+      seedanceInputMode,
+      prompt = ''
+    } = options;
     const maxStoredReferenceImages = provider === 'seedance' ? 9 : 5;
     const db = await openDB();
     const storedReferenceImages = referenceImages.length > 0
@@ -710,6 +727,7 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       videoDuration,
       hasReferenceImage: storedReferenceImages.length > 0,
       provider,
+      seedanceInputMode,
       referenceImages: storedReferenceImages.map(toStoredGalleryFile),
       prompt,
     };
