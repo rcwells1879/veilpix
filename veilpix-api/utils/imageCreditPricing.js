@@ -20,13 +20,18 @@ const IMAGE_ALLOWED_RESOLUTIONS = {
     wanimage: {
         'text-to-image': ['1K', '2K', '4K'],
         'image-to-image': ['1K', '2K']
+    },
+    zimage: {
+        'text-to-image': ['1K'],
+        'image-to-image': []
     }
 };
 
 const DEFAULT_RESOLUTIONS = {
     nanobanana2: '2K',
     seedream: '2K',
-    wanimage: '2K'
+    wanimage: '2K',
+    zimage: '1K'
 };
 
 const IMAGE_KIE_CREDIT_PRICING = {
@@ -44,6 +49,9 @@ const IMAGE_KIE_CREDIT_PRICING = {
         '1K': 4.8,
         '2K': 4.8,
         '4K': 12
+    },
+    zimage: {
+        '1K': 0.8
     }
 };
 

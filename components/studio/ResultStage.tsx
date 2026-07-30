@@ -70,6 +70,7 @@ export interface ResultStageProps {
   sliderCompareMode: 'original' | 'previous';
   onSliderCompareModeChange: (mode: 'original' | 'previous') => void;
   activeTool: StageTool;
+  supportsImageEditing: boolean;
   onToolChange: (tool: StageTool) => void;
   displayHotspot: { x: number; y: number } | null;
   onImageClick: (event: React.MouseEvent<HTMLImageElement>) => void;
@@ -106,7 +107,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
     currentImageUrl, originalImageUrl, previousImageUrl,
     canUndo, canRedo, isComparing, onComparingChange,
     showSlider, onToggleSlider, sliderCompareMode, onSliderCompareModeChange,
-    activeTool, onToolChange, displayHotspot, onImageClick, imgRef,
+    activeTool, supportsImageEditing, onToolChange, displayHotspot, onImageClick, imgRef,
     crop, onCropChange, onCropComplete, aspect, onAspectChange, onApplyCrop, cropReady,
     onUndo, onRedo, onReset, onDownload,
     videoUrl, onVideoDownload, onContinueFromLastFrame, onOpenVideoEditor, isExtractingLastFrame,
@@ -312,9 +313,9 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
                 </div>
               )}
               <ToolButton
-                label="Point edit - tap a spot on the image"
+                label={supportsImageEditing ? 'Point edit - tap a spot on the image' : 'Point edit is not available with this model'}
                 active={activeTool === 'retouch'}
-                disabled={isLoading}
+                disabled={isLoading || !supportsImageEditing}
                 onClick={() => onToolChange(activeTool === 'retouch' ? 'none' : 'retouch')}
               >
                 <BullseyeIcon className="h-4.5 w-4.5" />

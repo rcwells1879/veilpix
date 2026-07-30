@@ -11,6 +11,7 @@ import { formatCreditAmount } from '../../src/utils/creditFormatting';
 import {
   getImageCreditCost,
   getImageModelResolutions,
+  imageProviderSupportsReferences,
   normalizeImageGenerationOptions,
   IMAGE_MODEL_CONFIGS,
   type ImageGenerationOptions,
@@ -49,7 +50,7 @@ import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, Vid
 
 /* ------------------------------------------------------------------ */
 
-type ImageModelId = 'nanobanana2' | 'seedream-lite' | 'seedream-pro' | 'wanimage';
+type ImageModelId = 'nanobanana2' | 'seedream-lite' | 'seedream-pro' | 'wanimage' | 'zimage';
 type VideoModelId = 'wan' | 'seedance-regular' | 'seedance-fast' | 'seedance-mini';
 
 const IMAGE_MODELS: { id: ImageModelId; provider: ImageProvider; tier: SeedreamTier; label: string; sublabel: string }[] = [
@@ -57,6 +58,7 @@ const IMAGE_MODELS: { id: ImageModelId; provider: ImageProvider; tier: SeedreamT
   { id: 'seedream-lite', provider: 'seedream', tier: 'lite', label: 'Seedream 5 Lite', sublabel: 'ByteDance' },
   { id: 'seedream-pro', provider: 'seedream', tier: 'pro', label: 'Seedream 5 Pro', sublabel: 'ByteDance' },
   { id: 'wanimage', provider: 'wanimage', tier: 'lite', label: 'Wan 2.7 Image', sublabel: 'Alibaba' },
+  { id: 'zimage', provider: 'zimage', tier: 'lite', label: 'Z-Image Turbo', sublabel: 'Tongyi-MAI · text only' },
 ];
 
 const VIDEO_MODELS: { id: VideoModelId; provider: VideoProvider; variant: SeedanceVariant; label: string; sublabel: string }[] = [
@@ -185,7 +187,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const [seedanceWebSearch, setSeedanceWebSearch] = useState(storedVideoSettings.seedanceWebSearch ?? false);
 
   /* --------------------------- derived: image --------------------------- */
-  const imageWorkflow: ImageWorkflow = baseImage ? 'image-to-image' : 'text-to-image';
+  const imageSupportsReferences = imageProviderSupportsReferences(imageOptions.provider);
+  const imageWorkflow: ImageWorkflow = imageSupportsReferences && baseImage ? 'image-to-image' : 'text-to-image';
   const normalizedImage = normalizeImageGenerationOptions(imageOptions, imageWorkflow);
   const imageConfig = IMAGE_MODEL_CONFIGS[normalizedImage.provider];
   const imageResolutions = getImageModelResolutions(normalizedImage.provider, imageWorkflow, normalizedImage.seedreamTier);
@@ -193,7 +196,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
     model.provider === normalizedImage.provider
     && (model.provider !== 'seedream' || model.tier === normalizedImage.seedreamTier)
   ) ?? IMAGE_MODELS[1];
-  const imageReferenceCount = (baseImage ? 1 : 0) + (styleImage ? 1 : 0);
+  const imageReferenceCount = imageSupportsReferences ? (baseImage ? 1 : 0) + (styleImage ? 1 : 0) : 0;
 
   /* --------------------------- derived: video --------------------------- */
   const hasWanVideoReference = Boolean(referenceVideoFile || referenceVideoUrl);
@@ -291,24 +294,24 @@ const Composer: React.FC<ComposerProps> = (props) => {
 
   const generateDisabled = isLoading
     || !prompt.trim()
-    || (mode === 'image' && retouchActive && !hasHotspot);
+    || (mode === 'image' && imageSupportsReferences && retouchActive && !hasHotspot);
 
   const placeholder = mode === 'video'
     ? 'Describe the motion, camera movement, and style of your video…'
-    : retouchActive
+    : imageSupportsReferences && retouchActive
       ? hasHotspot
         ? 'Describe the edit for the selected point…'
         : 'Tap a point on the image above, then describe the edit…'
-      : baseImage && styleImage
+      : imageSupportsReferences && baseImage && styleImage
         ? 'Describe how to combine the two images…'
-        : baseImage
+        : imageSupportsReferences && baseImage
           ? 'Describe how to transform this image…'
           : 'Describe the image you want to create…';
 
   const creditCost = mode === 'video' ? videoCreditCost : imageCreditCost;
 
   const showWanRatio = videoProvider === 'wan' && !wanUsesSingleImage;
-  const showImageOptionsPill = normalizedImage.provider === 'seedream' || Boolean(baseImage);
+  const showImageOptionsPill = normalizedImage.provider === 'seedream' || (imageSupportsReferences && Boolean(baseImage));
   const showWanOptionsPill = wanUsesSingleImage || !wanUsesReferenceToVideo;
 
   /* ------------------------------------------------------------------ */
@@ -350,7 +353,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
         }}
         placeholder={placeholder}
         rows={3}
-        maxLength={5000}
+        maxLength={mode === 'image' && normalizedImage.provider === 'zimage' ? 1000 : 5000}
         disabled={isLoading}
         className="composer-prompt-input max-h-64 min-h-24 w-full resize-none bg-transparent px-1.5 py-1 text-base leading-relaxed text-gray-100 placeholder:text-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-28"
       />
@@ -437,43 +440,45 @@ const Composer: React.FC<ComposerProps> = (props) => {
         )}
 
         {/* Resolution */}
-        <Dropdown
-          label={mode === 'image' ? normalizedImage.resolution : videoProvider === 'seedance' ? effectiveSeedanceResolution : wanResolution}
-          title="Resolution"
-          disabled={isLoading}
-          panelWidthClassName="sm:w-60"
-        >
-          {(close) => (
-            <div className="flex flex-col gap-0.5">
-              <PanelHeading>Resolution</PanelHeading>
-              {mode === 'image'
-                ? imageResolutions.map((resolution) => (
-                    <OptionRow
-                      key={resolution.value}
-                      selected={normalizedImage.resolution === resolution.value}
-                      label={resolution.label}
-                      trailing={`${formatCreditAmount(getImageCreditCost(normalizedImage.provider, resolution.value, imageWorkflow, normalizedImage.seedreamTier, styleImage && baseImage ? 2 : 0))} cr`}
-                      onSelect={() => { updateImageOptions({ resolution: resolution.value }); close(); }}
-                    />
-                  ))
-                : (videoProvider === 'seedance' ? SEEDANCE_RESOLUTIONS[seedanceVariant] : [...WAN_RESOLUTIONS]).map((resolution) => (
-                    <OptionRow
-                      key={resolution}
-                      selected={videoProvider === 'seedance' ? effectiveSeedanceResolution === resolution : wanResolution === resolution}
-                      label={resolution}
-                      trailing={videoProvider === 'wan'
-                        ? `${getWanCreditCost(effectiveWanDuration, resolution)} cr`
-                        : `${getSeedanceCreditCost(seedanceVariant, resolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration)} cr`}
-                      onSelect={() => {
-                        if (videoProvider === 'seedance') setSeedanceResolution(resolution);
-                        else setWanResolution(resolution);
-                        close();
-                      }}
-                    />
-                  ))}
-            </div>
-          )}
-        </Dropdown>
+        {(mode !== 'image' || normalizedImage.provider !== 'zimage') && (
+          <Dropdown
+            label={mode === 'image' ? normalizedImage.resolution : videoProvider === 'seedance' ? effectiveSeedanceResolution : wanResolution}
+            title="Resolution"
+            disabled={isLoading}
+            panelWidthClassName="sm:w-60"
+          >
+            {(close) => (
+              <div className="flex flex-col gap-0.5">
+                <PanelHeading>Resolution</PanelHeading>
+                {mode === 'image'
+                  ? imageResolutions.map((resolution) => (
+                      <OptionRow
+                        key={resolution.value}
+                        selected={normalizedImage.resolution === resolution.value}
+                        label={resolution.label}
+                        trailing={`${formatCreditAmount(getImageCreditCost(normalizedImage.provider, resolution.value, imageWorkflow, normalizedImage.seedreamTier, styleImage && baseImage ? 2 : 0))} cr`}
+                        onSelect={() => { updateImageOptions({ resolution: resolution.value }); close(); }}
+                      />
+                    ))
+                  : (videoProvider === 'seedance' ? SEEDANCE_RESOLUTIONS[seedanceVariant] : [...WAN_RESOLUTIONS]).map((resolution) => (
+                      <OptionRow
+                        key={resolution}
+                        selected={videoProvider === 'seedance' ? effectiveSeedanceResolution === resolution : wanResolution === resolution}
+                        label={resolution}
+                        trailing={videoProvider === 'wan'
+                          ? `${getWanCreditCost(effectiveWanDuration, resolution)} cr`
+                          : `${getSeedanceCreditCost(seedanceVariant, resolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration)} cr`}
+                        onSelect={() => {
+                          if (videoProvider === 'seedance') setSeedanceResolution(resolution);
+                          else setWanResolution(resolution);
+                          close();
+                        }}
+                      />
+                    ))}
+              </div>
+            )}
+          </Dropdown>
+        )}
 
         {/* Duration (video only) */}
         {mode === 'video' && (
@@ -526,7 +531,11 @@ const Composer: React.FC<ComposerProps> = (props) => {
           panelWidthClassName="sm:w-96"
         >
           <div className="flex flex-col gap-3 p-1.5">
-            {mode === 'image' ? (
+            {mode === 'image' && !imageSupportsReferences ? (
+              <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-5 text-sm leading-relaxed text-gray-400">
+                Image references are not available with this model.
+              </p>
+            ) : mode === 'image' ? (
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <ImageSlot

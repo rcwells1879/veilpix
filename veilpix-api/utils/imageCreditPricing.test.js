@@ -22,7 +22,8 @@ const CASES = [
     ['Seedream 5 Pro 1K combine', 'seedream', '1K', IMAGE_WORKFLOWS.IMAGE_TO_IMAGE, 'pro', 2, 0.61],
     ['Seedream 5 Pro 2K', 'seedream', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'pro', 0, 2],
     ['Wan 2.7 standard', 'wanimage', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.4],
-    ['Wan 2.7 Pro 4K', 'wanimage', '4K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.98]
+    ['Wan 2.7 Pro 4K', 'wanimage', '4K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.98],
+    ['Z-Image Turbo', 'zimage', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.07]
 ];
 
 test('uses fractional credits only when the unrounded charge is below one credit', () => {

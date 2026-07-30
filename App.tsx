@@ -27,6 +27,7 @@ import {
   useGenerateCompositeWanImage,
   useGenerateTextToImageSeeDream,
   useGenerateTextToImageWanImage,
+  useGenerateTextToImageZImage,
   useGenerateVideo,
   useGenerateReferenceToVideo,
   useGenerateTextToVideo,
@@ -39,6 +40,7 @@ import Spinner from './components/Spinner';
 import type { SettingsState } from './components/SettingsMenu';
 import {
   getImageCreditCost,
+  imageProviderSupportsReferences,
   normalizeImageGenerationOptions,
   type ImageGenerationOptions,
   type ImageProvider,
@@ -374,19 +376,32 @@ const App: React.FC = () => {
   const textToImageNB2 = useGenerateTextToImage();
   const textToImageSeeDream = useGenerateTextToImageSeeDream();
   const textToImageWan = useGenerateTextToImageWanImage();
+  const textToImageZImage = useGenerateTextToImageZImage();
 
-  const imageMutationsByProvider = {
-    nanobanana2: { edit: editNB2, adjust: adjustNB2, composite: compositeNB2, textToImage: textToImageNB2 },
-    seedream: { edit: editSeeDream, adjust: adjustSeeDream, composite: compositeSeeDream, textToImage: textToImageSeeDream },
-    wanimage: { edit: editWan, adjust: adjustWan, composite: compositeWan, textToImage: textToImageWan },
-  } satisfies Record<ImageProvider, {
+  const editableImageMutationsByProvider = {
+    nanobanana2: { edit: editNB2, adjust: adjustNB2, composite: compositeNB2 },
+    seedream: { edit: editSeeDream, adjust: adjustSeeDream, composite: compositeSeeDream },
+    wanimage: { edit: editWan, adjust: adjustWan, composite: compositeWan },
+  } satisfies Record<Exclude<ImageProvider, 'zimage'>, {
     edit: typeof editNB2;
     adjust: typeof adjustNB2;
     composite: typeof compositeNB2;
-    textToImage: typeof textToImageNB2;
   }>;
 
-  const activeImageMutations = imageMutationsByProvider[imageGenerationOptions.provider] ?? imageMutationsByProvider.seedream;
+  const textToImageMutationsByProvider = {
+    nanobanana2: textToImageNB2,
+    seedream: textToImageSeeDream,
+    wanimage: textToImageWan,
+    zimage: textToImageZImage,
+  } satisfies Record<ImageProvider, {
+    mutateAsync: typeof textToImageNB2.mutateAsync;
+  }>;
+
+  const activeEditableImageMutations = imageGenerationOptions.provider === 'zimage'
+    ? null
+    : editableImageMutationsByProvider[imageGenerationOptions.provider];
+  const activeTextToImageMutation = textToImageMutationsByProvider[imageGenerationOptions.provider]
+    ?? textToImageMutationsByProvider.seedream;
 
   const videoMutation = useGenerateVideo();
   const referenceVideoMutation = useGenerateReferenceToVideo();
@@ -429,7 +444,8 @@ const App: React.FC = () => {
   const isImagePending = editNB2.isPending || editSeeDream.isPending || editWan.isPending
     || adjustNB2.isPending || adjustSeeDream.isPending || adjustWan.isPending
     || compositeNB2.isPending || compositeSeeDream.isPending || compositeWan.isPending
-    || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending;
+    || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending
+    || textToImageZImage.isPending;
   const isLoading = isImagePending || isVideoPending || isProcessingFile;
 
   const loadingLabel = isProcessingFile
@@ -544,6 +560,12 @@ const App: React.FC = () => {
     setCompletedCrop(undefined);
   }, []);
 
+  useEffect(() => {
+    if (!imageProviderSupportsReferences(imageGenerationOptions.provider) && activeTool === 'retouch') {
+      resetImageTools();
+    }
+  }, [activeTool, imageGenerationOptions.provider, resetImageTools]);
+
   const addImageToHistory = useCallback((newImageFile: File, prompt = historyPrompts[historyIndex] ?? '') => {
     const newHistory = history.slice(0, historyIndex + 1);
     const newHistoryPrompts = historyPrompts.slice(0, historyIndex + 1);
@@ -606,8 +628,13 @@ const App: React.FC = () => {
       return;
     }
 
-    const workflow: ImageWorkflow = currentImage ? 'image-to-image' : 'text-to-image';
+    const supportsReferences = imageProviderSupportsReferences(imageGenerationOptions.provider);
+    const workflow: ImageWorkflow = supportsReferences && currentImage ? 'image-to-image' : 'text-to-image';
     const options = normalizeImageGenerationOptions(imageGenerationOptions, workflow);
+    if (options.provider === 'zimage' && (trimmedPrompt.length < 3 || trimmedPrompt.length > 1000)) {
+      setError('Z-Image prompts must be between 3 and 1000 characters.');
+      return;
+    }
     const requestBase = {
       resolution: options.resolution,
       aspectRatio: options.aspectRatio,
@@ -619,12 +646,28 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      if (activeTool === 'retouch' && currentImage) {
+      if (!supportsReferences || !currentImage) {
+        const response = await activeTextToImageMutation.mutateAsync({
+          prompt: trimmedPrompt,
+          ...requestBase,
+        });
+        if (response.success && response.image) {
+          const newImageFile = await generatedImageToFile(response.image, 'text-to-image');
+          setHistory([newImageFile]);
+          setHistoryPrompts([trimmedPrompt]);
+          setHistoryIndex(0);
+          setStyleImage(null);
+          resetImageTools();
+          saveToGallery(newImageFile, trimmedPrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
+        } else {
+          throw new Error(response.message || 'Failed to generate image from text');
+        }
+      } else if (activeTool === 'retouch' && currentImage) {
         if (!editHotspot) {
           setError('Tap a point on the image to select an area to edit.');
           return;
         }
-        const response = await activeImageMutations.edit.mutateAsync({
+        const response = await activeEditableImageMutations!.edit.mutateAsync({
           image: currentImage,
           prompt: trimmedPrompt,
           x: editHotspot.x,
@@ -641,7 +684,7 @@ const App: React.FC = () => {
           throw new Error(response.message || 'Failed to generate image');
         }
       } else if (currentImage && styleImage) {
-        const response = await activeImageMutations.composite.mutateAsync({
+        const response = await activeEditableImageMutations!.composite.mutateAsync({
           image1: currentImage,
           image2: styleImage,
           prompt: trimmedPrompt,
@@ -655,7 +698,7 @@ const App: React.FC = () => {
           throw new Error(response.message || 'Failed to combine the images');
         }
       } else if (currentImage) {
-        const response = await activeImageMutations.adjust.mutateAsync({
+        const response = await activeEditableImageMutations!.adjust.mutateAsync({
           image: currentImage,
           prompt: trimmedPrompt,
           ...requestBase,
@@ -666,20 +709,6 @@ const App: React.FC = () => {
         } else {
           throw new Error(response.message || 'Failed to apply the edit');
         }
-      } else {
-        const response = await activeImageMutations.textToImage.mutateAsync({
-          prompt: trimmedPrompt,
-          ...requestBase,
-        });
-        if (response.success && response.image) {
-          const newImageFile = await generatedImageToFile(response.image, 'text-to-image');
-          setHistory([newImageFile]);
-          setHistoryPrompts([trimmedPrompt]);
-          setHistoryIndex(0);
-          saveToGallery(newImageFile, trimmedPrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } else {
-          throw new Error(response.message || 'Failed to generate image from text');
-        }
       }
     } catch (err) {
       setError(getGenerationErrorMessage(err, 'Failed to generate the image.'));
@@ -687,7 +716,8 @@ const App: React.FC = () => {
     }
   }, [
     requireAuth, imagePrompt, currentImage, styleImage, activeTool, editHotspot,
-    imageGenerationOptions, settings.nsfwFilterEnabled, activeImageMutations, addImageToHistory,
+    imageGenerationOptions, settings.nsfwFilterEnabled, activeEditableImageMutations,
+    activeTextToImageMutation, addImageToHistory, resetImageTools,
   ]);
 
   /* ---------------- video generation ---------------- */
@@ -969,6 +999,9 @@ const App: React.FC = () => {
 
   /* ---------------- stage tools ---------------- */
   const handleToolChange = useCallback((tool: StageTool) => {
+    if (tool === 'retouch' && !imageProviderSupportsReferences(imageGenerationOptions.provider)) {
+      return;
+    }
     setActiveTool(tool);
     setEditHotspot(null);
     setDisplayHotspot(null);
@@ -977,7 +1010,7 @@ const App: React.FC = () => {
       setCompletedCrop(undefined);
     }
     if (tool !== 'none') setShowSlider(false);
-  }, []);
+  }, [imageGenerationOptions.provider]);
 
   const handleImageClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
     if (activeTool !== 'retouch') return;
@@ -1164,6 +1197,7 @@ const App: React.FC = () => {
 
   const handleGalleryUseImageAsReference = useCallback((file: File, savedPrompt: string) => {
     if (studioMode === 'image') {
+      if (!imageProviderSupportsReferences(imageGenerationOptions.provider)) return;
       if (!currentImage) {
         handleGallerySelectImage(file, savedPrompt);
         return;
@@ -1176,7 +1210,7 @@ const App: React.FC = () => {
       const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
       setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
     }
-  }, [studioMode, currentImage, handleGallerySelectImage, videoProvider, referenceVideoFile, referenceVideoUrl]);
+  }, [studioMode, imageGenerationOptions.provider, currentImage, handleGallerySelectImage, videoProvider, referenceVideoFile, referenceVideoUrl]);
 
   const handleGalleryUseVideoAsReference = useCallback((details: GalleryVideoDetails) => {
     setStudioMode('video');
@@ -1199,7 +1233,7 @@ const App: React.FC = () => {
   /* Right-click "send to" targets — adapt to the active mode, model, and settings */
   const galleryImageReferenceTargets: GalleryReferenceTarget[] = isVideoEditorOpen
     ? []
-    : studioMode === 'image'
+    : studioMode === 'image' && imageProviderSupportsReferences(imageGenerationOptions.provider)
     ? [
         { id: 'image-base', label: 'Use as base image' },
         ...(currentImage ? [{ id: 'image-style', label: 'Use as style reference' }] : []),
@@ -1259,7 +1293,9 @@ const App: React.FC = () => {
   }, [handleEditorGallerySelectVideo, handleGalleryUseVideoAsReference]);
 
   /* ---------------- credit costs ---------------- */
-  const imageWorkflow: ImageWorkflow = currentImage ? 'image-to-image' : 'text-to-image';
+  const imageWorkflow: ImageWorkflow = imageProviderSupportsReferences(imageGenerationOptions.provider) && currentImage
+    ? 'image-to-image'
+    : 'text-to-image';
   const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, imageWorkflow);
   const imageActionCreditCost = getImageCreditCost(
     normalizedImageOptions.provider,
@@ -1385,6 +1421,7 @@ const App: React.FC = () => {
             sliderCompareMode={sliderCompareMode}
             onSliderCompareModeChange={setSliderCompareMode}
             activeTool={activeTool}
+            supportsImageEditing={imageProviderSupportsReferences(imageGenerationOptions.provider)}
             onToolChange={handleToolChange}
             displayHotspot={displayHotspot}
             onImageClick={handleImageClick}
@@ -1466,7 +1503,7 @@ const App: React.FC = () => {
           onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
           onUseImageAsReference={handleGalleryUseImageAsReference}
           onUseVideoAsReference={!isVideoEditorOpen && studioMode === 'video' ? handleGalleryUseVideoAsReference : undefined}
-          showReferenceActions={!isVideoEditorOpen}
+          showReferenceActions={!isVideoEditorOpen && !(studioMode === 'image' && !imageProviderSupportsReferences(imageGenerationOptions.provider))}
           imageReferenceTargets={galleryImageReferenceTargets}
           videoReferenceTargets={galleryVideoReferenceTargets}
           onImageReferenceAction={handleGalleryImageReferenceAction}

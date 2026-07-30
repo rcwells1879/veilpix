@@ -656,6 +656,32 @@ export function useGenerateTextToImageWanImage() {
   })
 }
 
+// Z-Image Turbo supports text-to-image only.
+export function useGenerateTextToImageZImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateTextToImageRequest): Promise<ImageGenerationResponse> => {
+      return await apiRequest<ImageGenerationResponse>('/api/zimage/generate-text-to-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: data.prompt,
+          aspectRatio: data.aspectRatio,
+          nsfwFilterEnabled: data.nsfwFilterEnabled !== false
+        }),
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
 // Custom hook for optimistic image updates using React 19's useOptimistic
 export function useOptimisticImageGeneration() {
   const [optimisticState, setOptimisticState] = React.useOptimistic<{

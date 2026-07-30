@@ -7,7 +7,7 @@ import React from 'react';
 import { formatCreditAmount } from '../src/utils/creditFormatting';
 import { PhotoIcon } from './icons';
 
-export type ImageProvider = 'nanobanana2' | 'seedream' | 'wanimage';
+export type ImageProvider = 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
 export type ImageResolution = '1K' | '2K' | '4K';
 export type ImageWorkflow = 'text-to-image' | 'image-to-image';
 export type SeedreamTier = 'lite' | 'pro';
@@ -66,6 +66,9 @@ export const IMAGE_KIE_CREDIT_PRICING: Record<ImageProvider, Partial<Record<Imag
     '1K': 4.8,
     '2K': 4.8,
     '4K': 12,
+  },
+  zimage: {
+    '1K': 0.8,
   },
 };
 
@@ -161,9 +164,36 @@ export const IMAGE_MODEL_CONFIGS: Record<ImageProvider, ImageModelConfig> = {
       { value: '4K', label: 'Pro 4K', workflows: ['text-to-image'] },
     ],
   },
+  zimage: {
+    id: 'zimage',
+    label: 'Z-Image Turbo',
+    shortLabel: 'Z-Image',
+    sublabel: 'Tongyi-MAI · Text to image',
+    settingsLabel: 'Output',
+    defaultResolution: '1K',
+    defaultAspectRatio: '1:1',
+    aspectRatios: [
+      { value: '1:1', label: '1:1' },
+      { value: '4:3', label: '4:3' },
+      { value: '3:4', label: '3:4' },
+      { value: '16:9', label: '16:9' },
+      { value: '9:16', label: '9:16' },
+    ],
+    resolutions: [
+      { value: '1K', label: 'Standard', workflows: ['text-to-image'] },
+    ],
+  },
 };
 
-export const IMAGE_PROVIDER_OPTIONS: ImageProvider[] = ['nanobanana2', 'seedream', 'wanimage'];
+export const IMAGE_PROVIDER_OPTIONS: ImageProvider[] = ['nanobanana2', 'seedream', 'wanimage', 'zimage'];
+
+export function imageProviderSupportsWorkflow(provider: ImageProvider, workflow?: ImageWorkflow): boolean {
+  return provider !== 'zimage' || workflow !== 'image-to-image';
+}
+
+export function imageProviderSupportsReferences(provider: ImageProvider): boolean {
+  return provider !== 'zimage';
+}
 
 function isImageProvider(value: unknown): value is ImageProvider {
   return typeof value === 'string' && value in IMAGE_MODEL_CONFIGS;
@@ -279,6 +309,7 @@ interface ImageModelSelectorProps {
 
 export const ImageModelSelector: React.FC<ImageModelSelectorProps> = ({ title, value, onChange, isLoading = false, workflow }) => {
   const normalizedValue = normalizeImageGenerationOptions(value, workflow);
+  const providerOptions = IMAGE_PROVIDER_OPTIONS.filter((provider) => imageProviderSupportsWorkflow(provider, workflow));
 
   const handleProviderChange = (provider: ImageProvider) => {
     onChange(normalizeImageGenerationOptions({ ...normalizedValue, provider, aspectRatio: undefined }, workflow));
@@ -290,8 +321,10 @@ export const ImageModelSelector: React.FC<ImageModelSelectorProps> = ({ title, v
         <PhotoIcon className="h-6 w-6 text-blue-400" />
         <h3 className="text-lg font-semibold text-gray-200">{title}</h3>
       </div>
-      <div className="grid w-full grid-cols-3 rounded-lg border border-white/10 bg-gray-900/60 p-1 sm:w-auto sm:min-w-[420px]">
-        {IMAGE_PROVIDER_OPTIONS.map((provider) => {
+      <div className={`grid w-full rounded-lg border border-white/10 bg-gray-900/60 p-1 sm:w-auto ${
+        providerOptions.length === 4 ? 'grid-cols-2 sm:min-w-[540px] sm:grid-cols-4' : 'grid-cols-3 sm:min-w-[420px]'
+      }`}>
+        {providerOptions.map((provider) => {
           const config = IMAGE_MODEL_CONFIGS[provider];
           const active = normalizedValue.provider === provider;
           return (
@@ -379,26 +412,28 @@ export const ImageModelSettings: React.FC<ImageModelSettingsProps> = ({ value, o
         </div>
       )}
 
-      <div className="flex flex-col gap-2 sm:max-w-md">
-        <label className="text-sm font-semibold text-gray-300">{config.settingsLabel}</label>
-        <div className={`grid gap-2 ${availableResolutions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-          {availableResolutions.map((resolution) => {
-            const creditCost = getImageCreditCost(normalizedValue.provider, resolution.value, workflow, normalizedValue.seedreamTier, imageCount);
-            return (
-              <button
-                key={resolution.value}
-                type="button"
-                onClick={() => updateOption({ resolution: resolution.value })}
-                className={`min-w-0 rounded-md border px-2 py-2 text-sm font-semibold transition sm:px-3 ${settingButtonClass(normalizedValue.provider, normalizedValue.resolution === resolution.value)}`}
-                disabled={isLoading}
-              >
-                <span className="block truncate">{resolution.label}</span>
-                <span className="block text-[10px] font-medium opacity-75">{formatCreditAmount(creditCost)} cr</span>
-              </button>
-            );
-          })}
+      {normalizedValue.provider !== 'zimage' && (
+        <div className="flex flex-col gap-2 sm:max-w-md">
+          <label className="text-sm font-semibold text-gray-300">{config.settingsLabel}</label>
+          <div className={`grid gap-2 ${availableResolutions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+            {availableResolutions.map((resolution) => {
+              const creditCost = getImageCreditCost(normalizedValue.provider, resolution.value, workflow, normalizedValue.seedreamTier, imageCount);
+              return (
+                <button
+                  key={resolution.value}
+                  type="button"
+                  onClick={() => updateOption({ resolution: resolution.value })}
+                  className={`min-w-0 rounded-md border px-2 py-2 text-sm font-semibold transition sm:px-3 ${settingButtonClass(normalizedValue.provider, normalizedValue.resolution === resolution.value)}`}
+                  disabled={isLoading}
+                >
+                  <span className="block truncate">{resolution.label}</span>
+                  <span className="block text-[10px] font-medium opacity-75">{formatCreditAmount(creditCost)} cr</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {normalizedValue.provider === 'seedream' && (
         <div className="flex flex-col gap-2 sm:max-w-md">
