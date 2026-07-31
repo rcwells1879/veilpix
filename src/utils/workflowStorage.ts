@@ -6,6 +6,11 @@
  * Images never leave the user's device - this is purely local browser storage.
  */
 
+import {
+  extractVideoThumbnailFrame,
+  isImageBlobNearlyBlack,
+} from './videoFrameExtraction';
+
 const DB_NAME = 'veilpix-workflow';
 const DB_VERSION = 2;
 const STORE_NAME = 'workflow';
@@ -592,62 +597,12 @@ async function createVideoPlaceholderThumbnail(): Promise<Blob> {
   });
 }
 
-async function createVideoFrameThumbnail(videoSource: string): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    const video = document.createElement('video');
-    const timeout = window.setTimeout(() => finish(null), 8000);
-    let done = false;
-
-    const finish = (blob: Blob | null) => {
-      if (done) return;
-      done = true;
-      window.clearTimeout(timeout);
-      video.removeAttribute('src');
-      video.load();
-      resolve(blob);
-    };
-
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = 'metadata';
-
-    video.onerror = () => finish(null);
-    video.onloadedmetadata = () => {
-      const duration = Number.isFinite(video.duration) ? video.duration : 0;
-      video.currentTime = Math.min(0.1, Math.max(0, duration / 2));
-    };
-    video.onseeked = () => {
-      try {
-        const width = video.videoWidth || 320;
-        const height = video.videoHeight || 180;
-        const maxSize = 320;
-        const scale = Math.min(1, maxSize / Math.max(width, height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(width * scale));
-        canvas.height = Math.max(1, Math.round(height * scale));
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          finish(null);
-          return;
-        }
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => finish(blob), 'image/jpeg', 0.82);
-      } catch {
-        finish(null);
-      }
-    };
-
-    video.src = videoSource;
-  });
-}
-
-async function createVideoFrameThumbnailFromFile(file: File): Promise<Blob | null> {
-  const objectUrl = URL.createObjectURL(file);
+async function createVideoFrameThumbnail(source: File | string): Promise<Blob | null> {
   try {
-    return await createVideoFrameThumbnail(objectUrl);
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+    return await extractVideoThumbnailFrame(source);
+  } catch (error) {
+    console.warn('Could not extract a usable video thumbnail:', error);
+    return null;
   }
 }
 
@@ -661,6 +616,71 @@ async function fetchVideoBlob(videoUrl: string): Promise<Blob | null> {
     console.warn('Could not save local copy of generated video:', error);
     return null;
   }
+}
+
+let galleryVideoThumbnailRepairPromise: Promise<number> | null = null;
+
+async function updateGalleryThumbnail(entry: GalleryImage, thumbnail: Blob): Promise<void> {
+  if (entry.id === undefined) return;
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+    const request = transaction.objectStore(GALLERY_STORE_NAME).put({ ...entry, thumbnail });
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * Repairs previously saved black video thumbnails in the background. Existing
+ * local video blobs are preferred, while a non-black placeholder is used when
+ * the old video can no longer be decoded or downloaded.
+ */
+export function repairBlackVideoThumbnails(): Promise<number> {
+  if (galleryVideoThumbnailRepairPromise) return galleryVideoThumbnailRepairPromise;
+
+  galleryVideoThumbnailRepairPromise = (async () => {
+    try {
+      const db = await openDB();
+      const entries = await new Promise<GalleryImage[]>((resolve, reject) => {
+        const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+        const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result as GalleryImage[]);
+      });
+
+      let repaired = 0;
+      for (const entry of entries) {
+        if (entry.type !== 'video') continue;
+
+        let isBlack = false;
+        try {
+          isBlack = await isImageBlobNearlyBlack(entry.thumbnail);
+        } catch {
+          // An unreadable thumbnail should be repaired just like a black one.
+          isBlack = true;
+        }
+        if (!isBlack) continue;
+
+        const source = entry.videoBlob
+          ? new File([entry.videoBlob], entry.name || 'gallery-video.mp4', {
+              type: entry.videoBlob.type || 'video/mp4',
+            })
+          : entry.videoUrl;
+        const extracted = source ? await createVideoFrameThumbnail(source) : null;
+        const replacement = extracted || await createVideoPlaceholderThumbnail();
+        await updateGalleryThumbnail(entry, replacement);
+        repaired += 1;
+      }
+
+      return repaired;
+    } catch (error) {
+      console.warn('Could not repair old video thumbnails:', error);
+      return 0;
+    }
+  })();
+
+  return galleryVideoThumbnailRepairPromise;
 }
 
 export interface SaveVideoToGalleryOptions {
@@ -701,12 +721,12 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
         : [];
     const videoBlob = await fetchVideoBlob(videoUrl);
     const generatedVideoThumbnail = videoBlob
-      ? await createVideoFrameThumbnailFromFile(new File([videoBlob], `video-${Date.now()}.mp4`, { type: videoBlob.type || 'video/mp4' }))
+      ? await createVideoFrameThumbnail(new File([videoBlob], `video-${Date.now()}.mp4`, { type: videoBlob.type || 'video/mp4' }))
       : await createVideoFrameThumbnail(videoUrl);
     const referenceVideoThumbnail = generatedVideoThumbnail
       ? null
       : referenceVideoFile
-        ? await createVideoFrameThumbnailFromFile(referenceVideoFile)
+        ? await createVideoFrameThumbnail(referenceVideoFile)
         : referenceVideoUrl
           ? await createVideoFrameThumbnail(referenceVideoUrl)
           : null;

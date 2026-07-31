@@ -12,6 +12,7 @@ import {
   getGalleryImages,
   getGalleryImage,
   getGalleryVideoDetails,
+  repairBlackVideoThumbnails,
   deleteGalleryImage,
   clearGallery,
   type GalleryThumbnail,
@@ -98,6 +99,13 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
     const galleryItems = await getGalleryImages();
     setItems(galleryItems);
     setLoading(false);
+
+    // Older records may contain a canvas capture taken before the requested
+    // video frame was decoded. Repair those in the background, then swap in
+    // the corrected thumbnails without delaying the initial gallery render.
+    void repairBlackVideoThumbnails().then(async (repairedCount) => {
+      if (repairedCount > 0) setItems(await getGalleryImages());
+    });
   }, []);
 
   useEffect(() => {
