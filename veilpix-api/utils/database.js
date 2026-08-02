@@ -347,6 +347,26 @@ const db = {
         }
     },
 
+    async getVideoGenerationJob(clerkUserId, generationId) {
+        try {
+            const supabase = getSupabaseClient();
+            const { VIDEO_GENERATION_REQUEST_TYPES } = require('./videoGenerationJob');
+            const { data, error } = await supabase
+                .from('usage_logs')
+                .select('success, error_message, processing_time_ms, request_type, created_at')
+                .eq('clerk_user_id', clerkUserId)
+                .eq('gemini_request_id', generationId)
+                .in('request_type', VIDEO_GENERATION_REQUEST_TYPES)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            return { job: data?.[0] || null, error };
+        } catch (error) {
+            console.error('Error getting video generation job:', error);
+            return { job: null, error };
+        }
+    },
+
     // Get user usage count for current month
     async getUserUsageCount(clerkUserId, periodStart = null) {
         try {

@@ -41,6 +41,7 @@ export interface GalleryImage {
   videoDuration?: number;
   hasReferenceImage?: boolean;
   provider?: 'wan' | 'seedance';
+  generationId?: string;
   seedanceInputMode?: 'frames' | 'references';
   referenceImages?: StoredGalleryFile[];
   prompt?: string;
@@ -685,6 +686,7 @@ export function repairBlackVideoThumbnails(): Promise<number> {
 
 export interface SaveVideoToGalleryOptions {
   videoUrl: string;
+  generationId?: string;
   provider?: 'wan' | 'seedance';
   referenceImage?: File | null;
   referenceImages?: File[];
@@ -703,6 +705,7 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
   try {
     const {
       videoUrl,
+      generationId,
       provider,
       referenceImage = null,
       referenceImages = [],
@@ -714,6 +717,17 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
     } = options;
     const maxStoredReferenceImages = provider === 'seedance' ? 9 : 5;
     const db = await openDB();
+    if (generationId) {
+      const alreadySaved = await new Promise<boolean>((resolve, reject) => {
+        const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+        const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(
+          (request.result as GalleryImage[]).some(entry => entry.generationId === generationId)
+        );
+      });
+      if (alreadySaved) return;
+    }
     const storedReferenceImages = referenceImages.length > 0
       ? referenceImages.slice(0, maxStoredReferenceImages)
       : referenceImage
@@ -747,6 +761,7 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       videoDuration,
       hasReferenceImage: storedReferenceImages.length > 0,
       provider,
+      generationId,
       seedanceInputMode,
       referenceImages: storedReferenceImages.map(toStoredGalleryFile),
       prompt,

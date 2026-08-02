@@ -717,6 +717,7 @@ export function useOptimisticImageGeneration() {
 export interface GenerateVideoRequest {
   image: File
   prompt: string
+  generationId?: string
   duration?: number   // 2-15 seconds (default 5)
   resolution?: string // '720p' | '1080p' (default '1080p')
   nsfwFilterEnabled?: boolean // NSFW content filter (default true)
@@ -757,7 +758,7 @@ export function useGenerateVideo() {
       return await apiRequest<VideoGenerationResponse>('/api/wan/generate-video', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: data.generationId ? { 'X-Generation-ID': data.generationId } : {},
         requiresAuth: true
       })
     },
@@ -774,6 +775,7 @@ export function useGenerateVideo() {
 
 export interface GenerateTextToVideoRequest {
   prompt: string
+  generationId?: string
   duration?: number   // 2-15 seconds (default 5)
   resolution?: string // '720p' | '1080p' (default '1080p')
   ratio?: string      // '16:9' | '9:16' | '1:1' | '4:3' | '3:4' (default '16:9')
@@ -787,6 +789,7 @@ export interface GenerateReferenceToVideoRequest {
   video?: File | null
   referenceVideoUrl?: string | null
   prompt: string
+  generationId?: string
   duration?: number
   resolution?: string
   ratio?: string
@@ -802,6 +805,7 @@ export interface GenerateSeedanceVideoRequest {
   referenceVideoDuration?: number | null
   referenceAudio?: File | null
   prompt: string
+  generationId?: string
   variant?: 'regular' | 'fast' | 'mini'
   inputMode?: 'frames' | 'references'
   duration?: number
@@ -860,7 +864,7 @@ export function useGenerateSeedanceVideo() {
       return await apiRequest<VideoGenerationResponse>('/api/seedance/generate-video', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: data.generationId ? { 'X-Generation-ID': data.generationId } : {},
         requiresAuth: true
       })
     },
@@ -899,7 +903,7 @@ export function useGenerateReferenceToVideo() {
       return await apiRequest<VideoGenerationResponse>('/api/wan/generate-reference-to-video', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: data.generationId ? { 'X-Generation-ID': data.generationId } : {},
         requiresAuth: true
       })
     },
@@ -925,7 +929,10 @@ export function useGenerateTextToVideo() {
           multiShots: data.multiShots === true,
           nsfwFilterEnabled: data.nsfwFilterEnabled !== false
         }),
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(data.generationId ? { 'X-Generation-ID': data.generationId } : {}),
+        },
         requiresAuth: true
       })
     },
@@ -933,4 +940,28 @@ export function useGenerateTextToVideo() {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
   })
+}
+
+export interface VideoGenerationJobStatus {
+  status: 'pending' | 'succeeded' | 'failed'
+  videoUrl?: string
+  message?: string
+  creditsUsed?: number
+  processingTime?: number
+}
+
+export function useVideoGenerationRecovery() {
+  const { apiRequest } = useApiClient()
+
+  return React.useCallback(async (generationId: string) => {
+    const status = await apiRequest<VideoGenerationJobStatus>(`/api/video-jobs/${encodeURIComponent(generationId)}`, {
+      method: 'GET',
+      cache: 'no-store',
+      requiresAuth: true,
+    })
+    if (status.status === 'succeeded') {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    }
+    return status
+  }, [apiRequest])
 }

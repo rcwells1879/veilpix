@@ -13,6 +13,10 @@ const {
     buildReferenceToVideoRequest,
     normalizeVideoResponse
 } = require('../utils/wanAdapter');
+const {
+    getVideoGenerationId,
+    serializeVideoGenerationResult
+} = require('../utils/videoGenerationJob');
 
 const router = express.Router();
 
@@ -159,19 +163,31 @@ async function callWanAPI(requestBody) {
 }
 
 // Helper: deduct credit and track usage
-async function deductCreditAndTrack(req, startTime, requestType, creditsToDeduct, success = true, errorMessage = null) {
+async function deductCreditAndTrack(
+    req,
+    startTime,
+    requestType,
+    creditsToDeduct,
+    success = true,
+    errorMessage = null,
+    recovery = {}
+) {
     const { user } = req;
+    const generationId = recovery.generationId || null;
+    const storedResult = success && generationId && recovery.videoUrl
+        ? serializeVideoGenerationResult(recovery.videoUrl, creditsToDeduct)
+        : errorMessage;
 
     try {
         await db.logUsage({
             userId: user.id,
             clerkUserId: user.userId,
             requestType,
-            geminiRequestId: 'wan-' + Date.now(),
+            geminiRequestId: generationId || 'wan-' + Date.now(),
             imageSize: 'video',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
         });
 
         if (success) {
@@ -240,6 +256,7 @@ router.use(getUser, requireAuth, requireAllowedEmail);
 // Generate video from image endpoint
 router.post('/generate-video', upload.single('image'), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
+    const generationId = getVideoGenerationId(req);
     let usageLogged = false;
     let uploadedFilename = null;
 
@@ -302,7 +319,10 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         }
 
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'video', creditCost);
+        usageLogged = await deductCreditAndTrack(req, startTime, 'video', creditCost, true, null, {
+            generationId,
+            videoUrl: normalizedResponse.videoUrl
+        });
 
         res.json({
             success: true,
@@ -320,7 +340,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         }
 
         if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message);
+            await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message, { generationId });
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
@@ -339,6 +359,7 @@ router.post('/generate-reference-to-video', upload.fields([
     { name: 'video', maxCount: 1 }
 ]), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
+    const generationId = getVideoGenerationId(req);
     let usageLogged = false;
     const uploadedFilenames = [];
 
@@ -428,7 +449,10 @@ router.post('/generate-reference-to-video', upload.fields([
         }
 
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'reference-to-video', creditCost);
+        usageLogged = await deductCreditAndTrack(req, startTime, 'reference-to-video', creditCost, true, null, {
+            generationId,
+            videoUrl: normalizedResponse.videoUrl
+        });
 
         res.json({
             success: true,
@@ -445,7 +469,7 @@ router.post('/generate-reference-to-video', upload.fields([
         }
 
         if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'reference-to-video', 0, false, error.message);
+            await deductCreditAndTrack(req, startTime, 'reference-to-video', 0, false, error.message, { generationId });
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
@@ -461,6 +485,7 @@ router.post('/generate-reference-to-video', upload.fields([
 // Generate video from text prompt (no image required)
 router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
+    const generationId = getVideoGenerationId(req);
     let usageLogged = false;
 
     try {
@@ -503,7 +528,10 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
         }
 
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-video', creditCost);
+        usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-video', creditCost, true, null, {
+            generationId,
+            videoUrl: normalizedResponse.videoUrl
+        });
 
         res.json({
             success: true,
@@ -517,7 +545,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
         console.error('Error generating text-to-video with Wan:', error);
 
         if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'text-to-video', 0, false, error.message);
+            await deductCreditAndTrack(req, startTime, 'text-to-video', 0, false, error.message, { generationId });
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');

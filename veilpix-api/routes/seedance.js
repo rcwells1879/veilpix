@@ -22,6 +22,10 @@ const {
     resolveSeedanceInputMode,
     veilpixCreditsFromKieCredits
 } = require('../utils/seedanceAdapter');
+const {
+    getVideoGenerationId,
+    serializeVideoGenerationResult
+} = require('../utils/videoGenerationJob');
 
 const router = express.Router();
 
@@ -249,19 +253,31 @@ async function uploadReferenceFile(file, userId, uploadedFilenames) {
     throw new Error('Unsupported reference file type');
 }
 
-async function deductCreditsAndTrack(req, startTime, requestType, creditsToDeduct, success = true, errorMessage = null) {
+async function deductCreditsAndTrack(
+    req,
+    startTime,
+    requestType,
+    creditsToDeduct,
+    success = true,
+    errorMessage = null,
+    recovery = {}
+) {
     const { user } = req;
+    const generationId = recovery.generationId || null;
+    const storedResult = success && generationId && recovery.videoUrl
+        ? serializeVideoGenerationResult(recovery.videoUrl, creditsToDeduct)
+        : errorMessage;
 
     try {
         await db.logUsage({
             userId: user.id,
             clerkUserId: user.userId,
             requestType,
-            geminiRequestId: 'seedance-' + Date.now(),
+            geminiRequestId: generationId || 'seedance-' + Date.now(),
             imageSize: 'video',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
         });
 
         if (success) {
@@ -295,6 +311,7 @@ router.post('/generate-video', upload.fields([
     { name: 'lastFrame', maxCount: 1 }
 ]), async (req, res) => {
     const startTime = Date.now();
+    const generationId = getVideoGenerationId(req);
     const uploadedFilenames = [];
     let usageLogged = false;
 
@@ -482,7 +499,10 @@ router.post('/generate-video', upload.fields([
             chargedVeilPixCredits: actualCredits
         });
 
-        usageLogged = await deductCreditsAndTrack(req, startTime, 'seedance-video', actualCredits);
+        usageLogged = await deductCreditsAndTrack(req, startTime, 'seedance-video', actualCredits, true, null, {
+            generationId,
+            videoUrl: normalizedResponse.videoUrl
+        });
 
         res.json({
             success: true,
@@ -499,7 +519,7 @@ router.post('/generate-video', upload.fields([
         }
 
         if (!usageLogged) {
-            await deductCreditsAndTrack(req, startTime, 'seedance-video', 0, false, error.message);
+            await deductCreditsAndTrack(req, startTime, 'seedance-video', 0, false, error.message, { generationId });
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') ||

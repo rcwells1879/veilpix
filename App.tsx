@@ -32,6 +32,8 @@ import {
   useGenerateReferenceToVideo,
   useGenerateTextToVideo,
   useGenerateSeedanceVideo,
+  useVideoGenerationRecovery,
+  type VideoGenerationResponse,
   useUsageStats
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
@@ -189,6 +191,62 @@ const getGenerationErrorMessage = (error: unknown, fallbackPrefix: string): stri
 /* ------------------------------------------------------------------ */
 
 const SETTINGS_STORAGE_KEY = 'veilpix-settings';
+const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
+const VIDEO_RECOVERY_TIMEOUT_MS = 30 * 60 * 1000;
+
+interface PendingVideoGeneration {
+  id: string;
+  provider: VideoProvider;
+  prompt: string;
+  duration: number;
+  resolution: string;
+  ratio: string;
+  seedanceInputMode?: SeedanceInputMode;
+  createdAt: number;
+}
+
+interface PendingVideoFiles {
+  generationId: string;
+  referenceImages: File[];
+  referenceVideoFile: File | null;
+  referenceVideoUrl: string | null;
+}
+
+function readPendingVideoGeneration(): PendingVideoGeneration | null {
+  try {
+    const raw = localStorage.getItem(PENDING_VIDEO_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingVideoGeneration>;
+    if (
+      typeof parsed.id !== 'string' ||
+      (parsed.provider !== 'wan' && parsed.provider !== 'seedance') ||
+      typeof parsed.prompt !== 'string' ||
+      typeof parsed.duration !== 'number' ||
+      typeof parsed.resolution !== 'string' ||
+      typeof parsed.ratio !== 'string' ||
+      typeof parsed.createdAt !== 'number'
+    ) {
+      localStorage.removeItem(PENDING_VIDEO_STORAGE_KEY);
+      return null;
+    }
+    return parsed as PendingVideoGeneration;
+  } catch {
+    return null;
+  }
+}
+
+function storePendingVideoGeneration(job: PendingVideoGeneration | null): void {
+  try {
+    if (job) localStorage.setItem(PENDING_VIDEO_STORAGE_KEY, JSON.stringify(job));
+    else localStorage.removeItem(PENDING_VIDEO_STORAGE_KEY);
+  } catch {
+    // Recovery still works during this page lifetime when storage is unavailable.
+  }
+}
+
+function isNetworkInterruption(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { status?: number }).status === 0);
+}
 
 const DEFAULT_SETTINGS: SettingsState = {
   apiProvider: 'seedream',
@@ -407,6 +465,7 @@ const App: React.FC = () => {
   const referenceVideoMutation = useGenerateReferenceToVideo();
   const textToVideoMutation = useGenerateTextToVideo();
   const seedanceVideoMutation = useGenerateSeedanceVideo();
+  const getVideoGenerationStatus = useVideoGenerationRecovery();
 
   /* ---------------- video state ---------------- */
   const [videoProvider, setVideoProvider] = useState<VideoProvider>(() => {
@@ -426,6 +485,12 @@ const App: React.FC = () => {
   const [galleryVideoFile, setGalleryVideoFile] = useState<File | null>(null);
   const galleryVideoObjectUrlRef = useRef<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [pendingVideoGeneration, setPendingVideoGeneration] = useState<PendingVideoGeneration | null>(
+    () => readPendingVideoGeneration()
+  );
+  const pendingVideoFilesRef = useRef<PendingVideoFiles | null>(null);
+  const finalizingVideoJobsRef = useRef(new Set<string>());
+  const recoveryRequestInFlightRef = useRef(false);
   const [isExtractingLastFrame, setIsExtractingLastFrame] = useState(false);
   const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
@@ -440,7 +505,11 @@ const App: React.FC = () => {
   const [seedanceReferenceVideoDuration, setSeedanceReferenceVideoDuration] = useState<number | null>(null);
   const [seedanceReferenceAudioFile, setSeedanceReferenceAudioFile] = useState<File | null>(null);
 
-  const isVideoPending = videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending;
+  const isVideoPending = Boolean(pendingVideoGeneration)
+    || videoMutation.isPending
+    || referenceVideoMutation.isPending
+    || textToVideoMutation.isPending
+    || seedanceVideoMutation.isPending;
   const isImagePending = editNB2.isPending || editSeeDream.isPending || editWan.isPending
     || adjustNB2.isPending || adjustSeeDream.isPending || adjustWan.isPending
     || compositeNB2.isPending || compositeSeeDream.isPending || compositeWan.isPending
@@ -451,7 +520,7 @@ const App: React.FC = () => {
   const loadingLabel = isProcessingFile
     ? 'Processing image…'
     : isVideoPending
-      ? 'Rendering your video — this can take a few minutes.'
+      ? 'Rendering your video — you can leave this tab and return later.'
       : 'Creating…';
 
   /* ---------------- derived image state ---------------- */
@@ -538,6 +607,128 @@ const App: React.FC = () => {
     setGalleryVideoFile(file);
     setVideoUrl(objectUrl);
   }, [revokeGalleryVideoObjectUrl]);
+
+  const clearPendingVideoJob = useCallback((generationId: string) => {
+    setPendingVideoGeneration(current => current?.id === generationId ? null : current);
+    const stored = readPendingVideoGeneration();
+    if (stored?.id === generationId) storePendingVideoGeneration(null);
+    if (pendingVideoFilesRef.current?.generationId === generationId) {
+      pendingVideoFilesRef.current = null;
+    }
+  }, []);
+
+  const finalizeVideoGeneration = useCallback(async (
+    response: VideoGenerationResponse,
+    job: PendingVideoGeneration,
+    suppliedFiles?: PendingVideoFiles | null,
+  ) => {
+    if (!response.success || !response.videoUrl || finalizingVideoJobsRef.current.has(job.id)) return;
+    finalizingVideoJobsRef.current.add(job.id);
+
+    const files = suppliedFiles?.generationId === job.id
+      ? suppliedFiles
+      : pendingVideoFilesRef.current?.generationId === job.id
+        ? pendingVideoFilesRef.current
+        : null;
+
+    setStudioMode('video');
+    setVideoProvider(job.provider);
+    setVideoPrompt(job.prompt);
+    if (job.provider === 'seedance' && job.seedanceInputMode) {
+      setSeedanceInputMode(job.seedanceInputMode);
+    }
+    showRemoteVideoResult(response.videoUrl);
+    setVideoError(null);
+
+    await saveVideoToGallery({
+      videoUrl: response.videoUrl,
+      generationId: job.id,
+      provider: job.provider,
+      referenceImage: files?.referenceImages[0] ?? null,
+      referenceImages: files?.referenceImages ?? [],
+      referenceVideoFile: files?.referenceVideoFile ?? null,
+      referenceVideoUrl: files?.referenceVideoUrl ?? null,
+      videoDuration: job.duration,
+      seedanceInputMode: job.provider === 'seedance' ? job.seedanceInputMode : undefined,
+      prompt: job.prompt,
+    });
+    setGalleryRefreshTrigger(count => count + 1);
+    clearPendingVideoJob(job.id);
+  }, [clearPendingVideoJob, showRemoteVideoResult]);
+
+  const recoverPendingVideo = useCallback(async (job: PendingVideoGeneration) => {
+    if (recoveryRequestInFlightRef.current || finalizingVideoJobsRef.current.has(job.id)) return;
+    recoveryRequestInFlightRef.current = true;
+
+    try {
+      const status = await getVideoGenerationStatus(job.id);
+      if (status.status === 'succeeded' && status.videoUrl) {
+        await finalizeVideoGeneration({
+          success: true,
+          videoUrl: status.videoUrl,
+          creditsUsed: status.creditsUsed,
+          processingTime: status.processingTime,
+        }, job);
+        return;
+      }
+
+      if (status.status === 'failed') {
+        clearPendingVideoJob(job.id);
+        setVideoError(`Failed to generate video. ${status.message || 'The provider could not complete it.'}`);
+        return;
+      }
+
+      if (Date.now() - job.createdAt > VIDEO_RECOVERY_TIMEOUT_MS) {
+        clearPendingVideoJob(job.id);
+        setVideoError('We could not recover that video after 30 minutes. Please contact support so the generation and credit charge can be reviewed.');
+      }
+    } catch {
+      // A status check can also be suspended on mobile. Keep the durable job
+      // and try again when the page becomes visible or the timer fires.
+    } finally {
+      recoveryRequestInFlightRef.current = false;
+    }
+  }, [clearPendingVideoJob, finalizeVideoGeneration, getVideoGenerationStatus]);
+
+  useEffect(() => {
+    if (!pendingVideoGeneration || !isLoaded || !isSignedIn) return;
+
+    let timer: number | null = null;
+    let disposed = false;
+
+    const scheduleCheck = () => {
+      if (disposed) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await recoverPendingVideo(pendingVideoGeneration);
+        }
+        scheduleCheck();
+      }, 5000);
+    };
+
+    const checkNow = () => {
+      if (document.visibilityState === 'visible') {
+        void recoverPendingVideo(pendingVideoGeneration);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkNow();
+    };
+
+    checkNow();
+    scheduleCheck();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', checkNow);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pageshow', checkNow);
+    };
+  }, [isLoaded, isSignedIn, pendingVideoGeneration, recoverPendingVideo]);
 
   useEffect(() => {
     return () => revokeGalleryVideoObjectUrl();
@@ -724,6 +915,10 @@ const App: React.FC = () => {
   /* ---------------- video generation ---------------- */
   const handleGenerateVideo = useCallback(async (options: VideoGenerateOptions) => {
     if (!requireAuth()) return;
+    if (pendingVideoGeneration) {
+      setVideoError('Your previous video is still being recovered. Please wait for it to finish.');
+      return;
+    }
 
     const {
       provider,
@@ -739,26 +934,56 @@ const App: React.FC = () => {
       seedanceWebSearch = false
     } = options;
 
+    const generationId = crypto.randomUUID();
+    const pendingJob: PendingVideoGeneration = {
+      id: generationId,
+      provider,
+      prompt,
+      duration,
+      resolution,
+      ratio,
+      seedanceInputMode: provider === 'seedance' ? selectedSeedanceInputMode : undefined,
+      createdAt: Date.now(),
+    };
+    const wanHasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
+    const wanReferenceImagesForRequest = wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
+    const usesSeedanceFrameMode = selectedSeedanceInputMode === 'frames';
+    const pendingFiles: PendingVideoFiles = {
+      generationId,
+      referenceImages: provider === 'seedance'
+        ? usesSeedanceFrameMode
+          ? [seedanceFirstFrame, seedanceLastFrame].filter((file): file is File => Boolean(file))
+          : seedanceReferenceImages
+        : wanReferenceImagesForRequest,
+      referenceVideoFile: provider === 'seedance'
+        ? usesSeedanceFrameMode ? null : seedanceReferenceVideoFile
+        : referenceVideoFile,
+      referenceVideoUrl: provider === 'seedance'
+        ? usesSeedanceFrameMode ? null : seedanceReferenceVideoUrl
+        : referenceVideoUrl,
+    };
+
     setVideoError(null);
     setError(null);
     setVideoPrompt(prompt);
     clearVideoResult();
+    pendingVideoFilesRef.current = pendingFiles;
+    setPendingVideoGeneration(pendingJob);
+    storePendingVideoGeneration(pendingJob);
 
     try {
-      const wanHasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
-      const wanReferenceImagesForRequest = wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
-      let response: any;
+      let response: VideoGenerationResponse;
 
       if (provider === 'seedance') {
-        const usesFrameMode = selectedSeedanceInputMode === 'frames';
         response = await seedanceVideoMutation.mutateAsync({
-          firstFrame: usesFrameMode ? seedanceFirstFrame : null,
-          lastFrame: usesFrameMode ? seedanceLastFrame : null,
-          referenceImages: usesFrameMode ? [] : seedanceReferenceImages,
-          referenceVideo: usesFrameMode ? null : seedanceReferenceVideoFile,
-          referenceVideoUrl: usesFrameMode ? null : seedanceReferenceVideoUrl,
-          referenceVideoDuration: usesFrameMode ? null : seedanceReferenceVideoDuration,
-          referenceAudio: usesFrameMode ? null : seedanceReferenceAudioFile,
+          generationId,
+          firstFrame: usesSeedanceFrameMode ? seedanceFirstFrame : null,
+          lastFrame: usesSeedanceFrameMode ? seedanceLastFrame : null,
+          referenceImages: usesSeedanceFrameMode ? [] : seedanceReferenceImages,
+          referenceVideo: usesSeedanceFrameMode ? null : seedanceReferenceVideoFile,
+          referenceVideoUrl: usesSeedanceFrameMode ? null : seedanceReferenceVideoUrl,
+          referenceVideoDuration: usesSeedanceFrameMode ? null : seedanceReferenceVideoDuration,
+          referenceAudio: usesSeedanceFrameMode ? null : seedanceReferenceAudioFile,
           prompt,
           variant: seedanceVariant,
           inputMode: selectedSeedanceInputMode,
@@ -771,6 +996,7 @@ const App: React.FC = () => {
         });
       } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
         response = await textToVideoMutation.mutateAsync({
+          generationId,
           prompt,
           duration,
           resolution,
@@ -780,6 +1006,7 @@ const App: React.FC = () => {
         });
       } else if (wanReferenceImagesForRequest.length === 1 && !wanHasReferenceVideo) {
         response = await videoMutation.mutateAsync({
+          generationId,
           image: wanReferenceImagesForRequest[0],
           prompt,
           duration,
@@ -790,6 +1017,7 @@ const App: React.FC = () => {
         });
       } else {
         response = await referenceVideoMutation.mutateAsync({
+          generationId,
           images: wanReferenceImagesForRequest,
           video: referenceVideoFile,
           referenceVideoUrl,
@@ -802,28 +1030,19 @@ const App: React.FC = () => {
       }
 
       if (response.success && response.videoUrl) {
-        showRemoteVideoResult(response.videoUrl);
-        saveVideoToGallery({
-          videoUrl: response.videoUrl,
-          provider,
-          referenceImage: provider === 'seedance'
-            ? (selectedSeedanceInputMode === 'frames' ? seedanceFirstFrame : seedanceReferenceImages[0]) ?? null
-            : wanReferenceImagesForRequest[0] ?? null,
-          referenceImages: provider === 'seedance'
-            ? selectedSeedanceInputMode === 'frames'
-              ? [seedanceFirstFrame, seedanceLastFrame].filter((file): file is File => Boolean(file))
-              : seedanceReferenceImages
-            : wanReferenceImagesForRequest,
-          referenceVideoFile: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoFile : provider === 'wan' ? referenceVideoFile : null,
-          referenceVideoUrl: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoUrl : provider === 'wan' ? referenceVideoUrl : null,
-          videoDuration: duration,
-          seedanceInputMode: provider === 'seedance' ? selectedSeedanceInputMode : undefined,
-          prompt
-        }).then(() => setGalleryRefreshTrigger(n => n + 1));
+        await finalizeVideoGeneration(response, pendingJob, pendingFiles);
       } else {
         throw new Error(response.message || 'Failed to generate video');
       }
     } catch (err) {
+      if (isNetworkInterruption(err)) {
+        setVideoError(null);
+        void recoverPendingVideo(pendingJob);
+        console.warn('Video response was interrupted; recovery will continue in the background.', err);
+        return;
+      }
+
+      clearPendingVideoJob(generationId);
       const errorMessage = getApiErrorMessage(err);
       if (isSafetyFilterError(err)) {
         setError(CONTENT_POLICY_ERROR_MESSAGE);
@@ -834,6 +1053,7 @@ const App: React.FC = () => {
     }
   }, [
     requireAuth,
+    pendingVideoGeneration,
     referenceVideoFile,
     referenceVideoUrl,
     wanReferenceImages,
@@ -845,7 +1065,9 @@ const App: React.FC = () => {
     seedanceReferenceVideoFile,
     seedanceReferenceVideoUrl,
     clearVideoResult,
-    showRemoteVideoResult,
+    clearPendingVideoJob,
+    finalizeVideoGeneration,
+    recoverPendingVideo,
     videoMutation,
     referenceVideoMutation,
     textToVideoMutation,

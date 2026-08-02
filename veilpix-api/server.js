@@ -60,7 +60,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID', 'X-Generation-ID']
 }));
 
 // Clerk middleware for authentication
@@ -135,6 +135,7 @@ const wanRoutes = require('./routes/wan');
 const seedanceRoutes = require('./routes/seedance');
 const wanImageRoutes = require('./routes/wanimage');
 const zImageRoutes = require('./routes/zimage');
+const videoJobRoutes = require('./routes/videoJobs');
 const usageRoutes = require('./routes/usage');
 const stripeRoutes = require('./routes/stripe');
 const checkoutRoutes = require('./routes/checkout');
@@ -148,6 +149,7 @@ app.use('/api/wan', wanRoutes);
 app.use('/api/seedance', seedanceRoutes);
 app.use('/api/wanimage', wanImageRoutes);
 app.use('/api/zimage', zImageRoutes);
+app.use('/api/video-jobs', videoJobRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/checkout', checkoutRoutes);
