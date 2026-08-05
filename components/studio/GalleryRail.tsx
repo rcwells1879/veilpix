@@ -24,7 +24,10 @@ import {
   VEILPIX_GALLERY_VIDEO_PREFIX,
   VEILPIX_GALLERY_VIDEO_TYPE,
 } from '../../src/utils/imageTransfer';
+import { VEILSTUDIO_CONTACT_URL } from '../../src/constants/links';
 import { XIcon } from './controls';
+
+const CONTACT_HELP_TEXT = 'Questions, problems, or suggestions? Contact us here.';
 
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
@@ -319,6 +322,26 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
             </div>
           ))
         )}
+      </div>
+
+      <div className="group relative flex shrink-0 justify-center px-4 pb-3 md:px-3 md:pb-4">
+        <a
+          href={VEILSTUDIO_CONTACT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-describedby="gallery-contact-help"
+          title={CONTACT_HELP_TEXT}
+          className="rounded-sm text-xs font-medium text-gray-500 underline decoration-white/20 underline-offset-4 transition hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+        >
+          Contact Us
+        </a>
+        <span
+          id="gallery-contact-help"
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border border-white/10 bg-gray-950/95 px-3 py-2 text-center text-[11px] leading-relaxed text-gray-200 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 md:left-auto md:right-2 md:max-w-44 md:translate-x-0"
+        >
+          {CONTACT_HELP_TEXT}
+        </span>
       </div>
     </div>
   );

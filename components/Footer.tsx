@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React from 'react';
+import { VEILSTUDIO_CONTACT_URL } from '../src/constants/links';
 
 interface FooterProps {
   onShowPricing?: () => void;
@@ -17,6 +18,7 @@ interface FooterLink {
 const footerLinks: FooterLink[] = [
   { name: 'Examples', href: '#examples' },
   { name: 'FAQ', href: '#faq' },
+  { name: 'Contact', href: VEILSTUDIO_CONTACT_URL, external: true },
   { name: 'VeilChat', href: 'https://veilstudio.io/veilchat/index.html', external: true },
   { name: 'Blog', href: 'https://veilstudio.io/veilpix/blog/', external: true },
   { name: 'Privacy', href: '/veilpix/privacy/' },
