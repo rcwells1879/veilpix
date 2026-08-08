@@ -1201,20 +1201,46 @@ const App: React.FC = () => {
   }, [clearVideoResult, galleryVideoFile, videoProvider, videoUrl]);
 
   const handleContinueFromLastFrame = useCallback(async () => {
-    const source = videoLastFrameUrl || galleryVideoFile || videoUrl;
-    if (!source) return;
+    const videoSource = galleryVideoFile || videoUrl;
+    if (!videoLastFrameUrl && !videoSource) return;
 
     setIsExtractingLastFrame(true);
     setVideoError(null);
 
     try {
-      const frameFile = videoLastFrameUrl
-        ? await fetch(videoLastFrameUrl).then(async response => {
-            if (!response.ok) throw new Error(`Could not download the returned frame (HTTP ${response.status})`);
-            const blob = await response.blob();
-            return new File([blob], `seedance-last-frame-${Date.now()}.png`, { type: blob.type || 'image/png' });
-          })
-        : await extractLastVideoFrame(source);
+      let frameFile: File | null = null;
+
+      if (videoLastFrameUrl) {
+        try {
+          const response = await fetch(videoLastFrameUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          if (blob.type && !blob.type.startsWith('image/')) {
+            throw new Error(`unexpected content type ${blob.type}`);
+          }
+          const mimeType = blob.type || 'image/png';
+          const extension = mimeType === 'image/jpeg'
+            ? 'jpg'
+            : mimeType === 'image/webp'
+              ? 'webp'
+              : 'png';
+          const timestamp = Date.now();
+          frameFile = new File([blob], `seedance-last-frame-${timestamp}.${extension}`, {
+            type: mimeType,
+            lastModified: timestamp,
+          });
+        } catch (providerFrameError) {
+          console.warn('Could not download the provider-returned last frame; extracting it from the video instead.', providerFrameError);
+        }
+      }
+
+      if (!frameFile) {
+        if (!videoSource) throw new Error('The video is unavailable for fallback frame extraction.');
+        frameFile = await extractLastVideoFrame(videoSource);
+      }
+
+      await saveToGallery(frameFile, videoPrompt);
+      setGalleryRefreshTrigger(count => count + 1);
       setVideoProvider('seedance');
       setSeedanceInputMode('frames');
       setSeedanceFirstFrame(frameFile);
@@ -1226,7 +1252,7 @@ const App: React.FC = () => {
     } finally {
       setIsExtractingLastFrame(false);
     }
-  }, [clearVideoResult, galleryVideoFile, videoLastFrameUrl, videoUrl]);
+  }, [clearVideoResult, galleryVideoFile, videoLastFrameUrl, videoPrompt, videoUrl]);
 
   /* ---------------- mode + session ---------------- */
   const handleModeChange = useCallback((mode: StudioMode) => {
@@ -1670,7 +1696,6 @@ const App: React.FC = () => {
       {isLoaded && isSignedIn && (
         <link rel="preconnect" href="https://api.veilstudio.io" crossOrigin="anonymous" />
       )}
-
       {/* Mobile uses one document-level scroll so the studio, creations, and
           supporting content cannot move independently. Desktop keeps the
           fixed-height workspace and its separate creations rail. */}
