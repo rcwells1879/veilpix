@@ -42,21 +42,91 @@ function waitForEvent(video: HTMLVideoElement, eventName: string, timeoutMs = LO
   });
 }
 
+function waitForPresentedFrame(video: HTMLVideoElement, timeoutMs = LOAD_TIMEOUT_MS): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let videoFrameHandle: number | null = null;
+    let animationFrameHandle: number | null = null;
+
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('The browser took too long to decode a video frame.'));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener('loadeddata', onLoadedData);
+      video.removeEventListener('error', onError);
+      if (videoFrameHandle !== null && typeof video.cancelVideoFrameCallback === 'function') {
+        video.cancelVideoFrameCallback(videoFrameHandle);
+      }
+      if (animationFrameHandle !== null) cancelAnimationFrame(animationFrameHandle);
+    };
+    const finish = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('The video could not be decoded by this browser.'));
+    };
+    const onLoadedData = () => {
+      animationFrameHandle = requestAnimationFrame(finish);
+    };
+
+    video.addEventListener('error', onError, { once: true });
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      videoFrameHandle = video.requestVideoFrameCallback(() => finish());
+      return;
+    }
+
+    // Older browsers do not expose frame callbacks. Wait for decoded data and
+    // then yield one paint so drawImage sees the newly presented frame.
+    video.addEventListener('loadeddata', onLoadedData, { once: true });
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) onLoadedData();
+  });
+}
+
 async function loadVideoElement(url: string): Promise<HTMLVideoElement> {
   const video = document.createElement('video');
   video.preload = 'auto';
   video.playsInline = true;
   video.crossOrigin = 'anonymous';
+  const metadataReady = waitForEvent(video, 'loadedmetadata');
+  const firstFrameReady = waitForPresentedFrame(video);
   video.src = url;
-  if (video.readyState < 1) await waitForEvent(video, 'loadedmetadata');
+  await Promise.all([metadataReady, firstFrameReady]);
   return video;
 }
 
 async function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
   const target = Math.min(Math.max(time, 0), Math.max(video.duration - 0.05, 0));
-  if (Math.abs(video.currentTime - target) < 0.01 && video.readyState >= 2) return;
+  if (Math.abs(video.currentTime - target) < 0.001 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
+  const seeked = waitForEvent(video, 'seeked');
+  const frameReady = waitForPresentedFrame(video);
   video.currentTime = target;
-  await waitForEvent(video, 'seeked');
+  await Promise.all([seeked, frameReady]);
+}
+
+async function prepareVideoForPlayback(video: HTMLVideoElement): Promise<void> {
+  video.pause();
+
+  // Reload while the recorder is inactive/paused so iOS cannot turn decoder
+  // startup latency into frozen video and silence in the rendered file.
+  const metadataReady = waitForEvent(video, 'loadedmetadata');
+  const firstFrameReady = waitForPresentedFrame(video);
+  video.load();
+  await Promise.all([metadataReady, firstFrameReady]);
+  if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+    await waitForEvent(video, 'canplay');
+  }
+
+  // Briefly start playback to wake the decoder, then return to an actually
+  // decoded frame at time zero before recording resumes.
+  const playing = waitForEvent(video, 'playing');
+  const playbackFrameReady = waitForPresentedFrame(video);
+  await Promise.all([video.play(), playing, playbackFrameReady]);
+  video.pause();
+  await seekTo(video, 0);
 }
 
 /**
@@ -136,15 +206,27 @@ function playThrough(
   width: number,
   height: number,
   onTime: (currentTime: number) => void,
+  onPlaying?: () => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    let rafHandle = 0;
+    let rafHandle: number | null = null;
+    let videoFrameHandle: number | null = null;
     let settled = false;
+
+    const cleanup = () => {
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+      if (videoFrameHandle !== null && typeof video.cancelVideoFrameCallback === 'function') {
+        video.cancelVideoFrameCallback(videoFrameHandle);
+      }
+      video.removeEventListener('ended', finish);
+      video.removeEventListener('error', onError);
+      video.removeEventListener('playing', beginDrawing);
+    };
 
     const finish = () => {
       if (settled) return;
       settled = true;
-      cancelAnimationFrame(rafHandle);
+      cleanup();
       // Draw the very last frame so the cut is clean
       drawContain(ctx, video, width, height);
       resolve();
@@ -153,8 +235,16 @@ function playThrough(
     const fail = (message: string) => {
       if (settled) return;
       settled = true;
-      cancelAnimationFrame(rafHandle);
+      cleanup();
       reject(new Error(message));
+    };
+
+    const scheduleFrame = () => {
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        videoFrameHandle = video.requestVideoFrameCallback(() => tick());
+      } else {
+        rafHandle = requestAnimationFrame(tick);
+      }
     };
 
     const tick = () => {
@@ -165,15 +255,52 @@ function playThrough(
         finish();
         return;
       }
-      rafHandle = requestAnimationFrame(tick);
+      scheduleFrame();
+    };
+
+    const onError = () => fail('Playback failed while rendering.');
+    const beginDrawing = () => {
+      try {
+        onPlaying?.();
+        scheduleFrame();
+      } catch {
+        fail('The browser could not resume rendering the next clip.');
+      }
     };
 
     video.addEventListener('ended', finish, { once: true });
-    video.addEventListener('error', () => fail('Playback failed while rendering.'), { once: true });
+    video.addEventListener('error', onError, { once: true });
+    video.addEventListener('playing', beginDrawing, { once: true });
+    video.play().catch(() => fail('The browser blocked video playback during rendering.'));
+  });
+}
 
-    video.play().then(() => {
-      rafHandle = requestAnimationFrame(tick);
-    }).catch(() => fail('The browser blocked video playback during rendering.'));
+function waitForRecorderEvent(
+  recorder: MediaRecorder,
+  eventName: 'start' | 'pause',
+  timeoutMs = LOAD_TIMEOUT_MS,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`The browser took too long to ${eventName} video recording.`));
+    }, timeoutMs);
+    const onEvent = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error('The browser could not continue recording the stitched video.'));
+    };
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      recorder.removeEventListener(eventName, onEvent);
+      recorder.removeEventListener('error', onError);
+    };
+
+    recorder.addEventListener(eventName, onEvent, { once: true });
+    recorder.addEventListener('error', onError, { once: true });
   });
 }
 
@@ -217,10 +344,6 @@ export async function stitchVideos(
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas is unavailable in this browser.');
 
-    // Prime the canvas with the first frame
-    await seekTo(videos[0], 0);
-    drawContain(ctx, videos[0], width, height);
-
     if (typeof canvas.captureStream !== 'function') {
       throw new Error('This browser does not support in-browser video rendering.');
     }
@@ -253,18 +376,36 @@ export async function stitchVideos(
       recorder.onstop = () => resolve();
     });
 
+    await prepareVideoForPlayback(videos[0]);
+    drawContain(ctx, videos[0], width, height);
+
+    const started = waitForRecorderEvent(recorder, 'start');
     recorder.start(250);
+    await started;
 
     let renderedSeconds = 0;
-    for (const video of videos) {
-      await seekTo(video, 0);
+    for (let index = 0; index < videos.length; index++) {
+      const video = videos[index];
+      if (index > 0) {
+        await prepareVideoForPlayback(video);
+        drawContain(ctx, video, width, height);
+      }
+
       await playThrough(video, ctx, width, height, (currentTime) => {
         onProgress?.({
           phase: 'rendering',
           progress: totalDuration > 0 ? Math.min((renderedSeconds + currentTime) / totalDuration, 1) : 0,
         });
-      });
+      }, index > 0 ? () => {
+        if (recorder.state === 'paused') recorder.resume();
+      } : undefined);
       renderedSeconds += video.duration || 0;
+
+      if (index < videos.length - 1 && recorder.state === 'recording') {
+        const paused = waitForRecorderEvent(recorder, 'pause');
+        recorder.pause();
+        await paused;
+      }
     }
 
     onProgress?.({ phase: 'finalizing', progress: 1 });

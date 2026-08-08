@@ -215,11 +215,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   const isSourcePreviewVisible = !result || Boolean(scrub);
   useEffect(() => {
     const video = previewVideoRef.current;
-    if (video && previewClip && video.src !== previewClip.url) {
+    if (video && previewClip && !isStitching && video.src !== previewClip.url) {
       video.src = previewClip.url;
       video.load();
     }
-  }, [previewClip, isSourcePreviewVisible]);
+  }, [previewClip, isSourcePreviewVisible, isStitching]);
 
   useEffect(() => {
     const video = previewVideoRef.current;
@@ -251,6 +251,16 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     clearResult();
 
     try {
+      // Release the visible preview decoder before allocating the two render
+      // decoders. This materially reduces media pressure on iOS/WebKit.
+      const previewVideo = previewVideoRef.current;
+      if (previewVideo) {
+        previewVideo.pause();
+        previewVideo.removeAttribute('src');
+        previewVideo.load();
+      }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
       const { blob, duration } = await stitchVideos([first.file, second.file], setStitchProgress);
       const url = URL.createObjectURL(blob);
       resultUrlRef.current = url;
@@ -438,7 +448,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
             playsInline
             className="max-h-[52vh] w-auto max-w-full"
           />
-        ) : previewClip ? (
+        ) : !isStitching && previewClip ? (
           <>
             <video
               ref={previewVideoRef}
