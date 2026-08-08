@@ -727,6 +727,8 @@ export interface GenerateVideoRequest {
 
 export interface VideoGenerationResponse {
   videoUrl?: string
+  lastFrameUrl?: string
+  outputFormat?: 'mp4' | 'mov'
   success: boolean
   message?: string
   creditsRemaining?: number
@@ -800,19 +802,22 @@ export interface GenerateSeedanceVideoRequest {
   referenceImages?: File[]
   firstFrame?: File | null
   lastFrame?: File | null
-  referenceVideo?: File | null
+  referenceVideos?: File[]
   referenceVideoUrl?: string | null
   referenceVideoDuration?: number | null
-  referenceAudio?: File | null
+  referenceAudios?: File[]
+  referenceAudioDuration?: number | null
   prompt: string
   generationId?: string
-  variant?: 'regular' | 'fast' | 'mini'
+  variant?: 'v2_5' | 'regular' | 'fast' | 'mini'
   inputMode?: 'frames' | 'references'
   duration?: number
   resolution?: string
   aspectRatio?: string
   generateAudio?: boolean
   webSearch?: boolean
+  returnLastFrame?: boolean
+  outputFormat?: 'mp4' | 'mov'
   nsfwFilterEnabled?: boolean
 }
 
@@ -834,31 +839,35 @@ export function useGenerateSeedanceVideo() {
       }
       if (data.referenceImages?.length) {
         const compressedImages = await compressMultipleImages(data.referenceImages, 20)
-        compressedImages.slice(0, 9).forEach((image) => {
+        const maxReferenceImages = data.variant === 'v2_5' ? 30 : 9
+        compressedImages.slice(0, maxReferenceImages).forEach((image) => {
           formData.append('referenceImages', image)
         })
       }
-      if (data.referenceVideo) {
-        formData.append('referenceVideo', data.referenceVideo)
-      }
+      const maxReferenceVideos = data.variant === 'v2_5' ? 10 : 1
+      data.referenceVideos?.slice(0, maxReferenceVideos).forEach((video) => formData.append('referenceVideo', video))
       if (data.referenceVideoUrl) {
         formData.append('referenceVideoUrl', data.referenceVideoUrl)
       }
       if (typeof data.referenceVideoDuration === 'number') {
         formData.append('referenceVideoDuration', data.referenceVideoDuration.toString())
       }
-      if (data.referenceAudio) {
-        formData.append('referenceAudio', data.referenceAudio)
+      const maxReferenceAudios = data.variant === 'v2_5' ? 10 : 1
+      data.referenceAudios?.slice(0, maxReferenceAudios).forEach((audio) => formData.append('referenceAudio', audio))
+      if (typeof data.referenceAudioDuration === 'number') {
+        formData.append('referenceAudioDuration', data.referenceAudioDuration.toString())
       }
 
       formData.append('prompt', data.prompt)
       formData.append('variant', data.variant || 'regular')
       formData.append('inputMode', data.inputMode || 'references')
-      formData.append('duration', (data.duration || 5).toString())
+      formData.append('duration', (data.duration ?? 5).toString())
       formData.append('resolution', data.resolution || '720p')
       formData.append('aspectRatio', data.aspectRatio || '16:9')
       formData.append('generateAudio', (data.generateAudio === true).toString())
       formData.append('webSearch', (data.webSearch === true).toString())
+      formData.append('returnLastFrame', (data.returnLastFrame === true).toString())
+      formData.append('outputFormat', data.outputFormat || 'mp4')
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<VideoGenerationResponse>('/api/seedance/generate-video', {

@@ -8,8 +8,9 @@
 export type StudioMode = 'image' | 'video';
 
 export type VideoProvider = 'wan' | 'seedance';
-export type SeedanceVariant = 'regular' | 'fast' | 'mini';
+export type SeedanceVariant = 'v2_5' | 'regular' | 'fast' | 'mini';
 export type SeedanceInputMode = 'frames' | 'references';
+export type SeedanceOutputFormat = 'mp4' | 'mov';
 
 export type StageTool = 'none' | 'retouch' | 'crop';
 
@@ -25,4 +26,6 @@ export interface VideoGenerateOptions {
   seedanceInputMode?: SeedanceInputMode;
   seedanceGenerateAudio?: boolean;
   seedanceWebSearch?: boolean;
+  seedanceReturnLastFrame?: boolean;
+  seedanceOutputFormat?: SeedanceOutputFormat;
 }

@@ -1,7 +1,7 @@
 /**
- * Seedance 2.0 Video API Adapter
+ * Seedance Video API Adapter
  *
- * Transforms VeilPix video generation requests into Kie.ai Seedance 2.0
+ * Transforms VeilPix video generation requests into Kie.ai Seedance 2.x
  * requests and centralizes Seedance pricing.
  */
 
@@ -11,12 +11,17 @@ const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN)
 const KIE_CREDIT_USD = 0.005;
 
 const SEEDANCE_MODELS = {
+    v2_5: 'bytedance/seedance-2-5',
     regular: 'bytedance/seedance-2',
     fast: 'bytedance/seedance-2-fast',
     mini: 'bytedance/seedance-2-mini'
 };
 
 const SEEDANCE_PRICING = {
+    v2_5: {
+        '480p': { noVideo: 28, withVideo: 17 },
+        '720p': { noVideo: 63, withVideo: 38 }
+    },
     fast: {
         '480p': { noVideo: 15.5, withVideo: 9 },
         '720p': { noVideo: 33, withVideo: 20 }
@@ -35,13 +40,21 @@ const SEEDANCE_PRICING = {
 const ASPECT_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'];
 
 const SEEDANCE_DURATION_LIMITS = {
+    v2_5: { min: 4, max: 30, defaultValue: 5 },
     regular: { min: 4, max: 15, defaultValue: 5 },
     fast: { min: 4, max: 15, defaultValue: 5 },
     mini: { min: 4, max: 15, defaultValue: 5 }
 };
 
+const SEEDANCE_REFERENCE_LIMITS = {
+    v2_5: { images: 30, videos: 10, audios: 10, mediaSeconds: 30, imageBytes: 30 * 1024 * 1024, videoBytes: 200 * 1024 * 1024, audioBytes: 15 * 1024 * 1024 },
+    regular: { images: 9, videos: 1, audios: 1, mediaSeconds: 15, imageBytes: 30 * 1024 * 1024, videoBytes: 50 * 1024 * 1024, audioBytes: 15 * 1024 * 1024 },
+    fast: { images: 9, videos: 1, audios: 1, mediaSeconds: 15, imageBytes: 30 * 1024 * 1024, videoBytes: 50 * 1024 * 1024, audioBytes: 15 * 1024 * 1024 },
+    mini: { images: 9, videos: 1, audios: 1, mediaSeconds: 15, imageBytes: 30 * 1024 * 1024, videoBytes: 50 * 1024 * 1024, audioBytes: 15 * 1024 * 1024 }
+};
+
 function normalizeVariant(variant) {
-    return ['regular', 'fast', 'mini'].includes(variant) ? variant : 'regular';
+    return ['v2_5', 'regular', 'fast', 'mini'].includes(variant) ? variant : 'regular';
 }
 
 function normalizeResolution(variant, resolution) {
@@ -55,11 +68,20 @@ function clampDuration(duration, variant = 'regular') {
     const limits = SEEDANCE_DURATION_LIMITS[selectedVariant];
     const parsed = Number.parseInt(duration, 10);
     if (Number.isNaN(parsed)) return limits.defaultValue;
+    if (selectedVariant === 'v2_5' && parsed === -1) return -1;
     return Math.max(limits.min, Math.min(limits.max, parsed));
 }
 
-function normalizeAspectRatio(aspectRatio) {
-    return ASPECT_RATIOS.includes(aspectRatio) ? aspectRatio : '16:9';
+function normalizeAspectRatio(aspectRatio, variant = 'regular') {
+    return ASPECT_RATIOS.includes(aspectRatio) ? aspectRatio : normalizeVariant(variant) === 'v2_5' ? 'adaptive' : '16:9';
+}
+
+function normalizeOutputFormat(outputFormat) {
+    return ['mp4', 'mov'].includes(outputFormat) ? outputFormat : 'mp4';
+}
+
+function getSeedanceReferenceLimits(variant = 'regular') {
+    return SEEDANCE_REFERENCE_LIMITS[normalizeVariant(variant)];
 }
 
 function veilpixCreditsFromUsd(usdCost) {
@@ -79,7 +101,10 @@ function estimateSeedanceKieCredits({
 }) {
     const selectedVariant = normalizeVariant(variant);
     const selectedResolution = normalizeResolution(selectedVariant, resolution);
-    const selectedDuration = clampDuration(duration, selectedVariant);
+    const normalizedDuration = clampDuration(duration, selectedVariant);
+    const selectedDuration = normalizedDuration === -1
+        ? SEEDANCE_DURATION_LIMITS[selectedVariant].max
+        : normalizedDuration;
     const pricing = SEEDANCE_PRICING[selectedVariant][selectedResolution];
     const inputDurationLimit = SEEDANCE_DURATION_LIMITS[selectedVariant].max;
     const billableSeconds = hasVideoReference
@@ -132,10 +157,13 @@ function buildSeedanceRequest(prompt, options = {}) {
         lastFrameUrl,
         generateAudio = false,
         webSearch = false,
+        returnLastFrame = false,
+        outputFormat = 'mp4',
         nsfwFilterEnabled = true
     } = options;
 
     const selectedVariant = normalizeVariant(variant);
+    const referenceLimits = getSeedanceReferenceLimits(selectedVariant);
     const hasFrameInput = Boolean(firstFrameUrl || lastFrameUrl);
     const hasMultimodalInput = referenceImages.length > 0 || referenceVideos.length > 0 || referenceAudios.length > 0;
 
@@ -145,16 +173,30 @@ function buildSeedanceRequest(prompt, options = {}) {
     if (hasFrameInput && hasMultimodalInput) {
         throw new Error('Seedance frame inputs cannot be combined with multimodal references');
     }
+    if (referenceImages.length > referenceLimits.images) {
+        throw new Error(`Seedance ${selectedVariant} supports up to ${referenceLimits.images} reference images`);
+    }
+    if (referenceVideos.length > referenceLimits.videos) {
+        throw new Error(`Seedance ${selectedVariant} supports up to ${referenceLimits.videos} reference videos`);
+    }
+    if (referenceAudios.length > referenceLimits.audios) {
+        throw new Error(`Seedance ${selectedVariant} supports up to ${referenceLimits.audios} reference audio files`);
+    }
 
     const request = {
         prompt,
         duration: clampDuration(duration, selectedVariant),
         resolution: normalizeResolution(selectedVariant, resolution),
-        aspect_ratio: normalizeAspectRatio(aspectRatio),
+        aspect_ratio: normalizeAspectRatio(aspectRatio, selectedVariant),
         generate_audio: Boolean(generateAudio),
         web_search: Boolean(webSearch),
         nsfw_checker: Boolean(nsfwFilterEnabled)
     };
+
+    if (selectedVariant === 'v2_5') {
+        request.return_last_frame = Boolean(returnLastFrame);
+        request.output_format = normalizeOutputFormat(outputFormat);
+    }
 
     if (firstFrameUrl) {
         request.first_frame_url = firstFrameUrl;
@@ -185,11 +227,14 @@ function normalizeSeedanceResponse(resultJson) {
         }
 
         if (Array.isArray(resultJson.resultUrls) && resultJson.resultUrls.length > 0) {
-            return { success: true, videoUrl: resultJson.resultUrls[0] };
+            const videoUrl = resultJson.resultUrls.find(url => /\.(?:mp4|mov)(?:$|[?#])/i.test(url)) || resultJson.resultUrls[0];
+            const lastFrameUrl = resultJson.lastFrameUrl || resultJson.last_frame_url
+                || resultJson.resultUrls.find(url => url !== videoUrl && /\.(?:png|jpe?g|webp)(?:$|[?#])/i.test(url));
+            return { success: true, videoUrl, lastFrameUrl };
         }
 
         if (resultJson.videoUrl) {
-            return { success: true, videoUrl: resultJson.videoUrl };
+            return { success: true, videoUrl: resultJson.videoUrl, lastFrameUrl: resultJson.lastFrameUrl || resultJson.last_frame_url };
         }
 
         if (resultJson.url) {
@@ -210,14 +255,17 @@ module.exports = {
     SEEDANCE_MODELS,
     SEEDANCE_PRICING,
     SEEDANCE_DURATION_LIMITS,
+    SEEDANCE_REFERENCE_LIMITS,
     buildSeedanceRequest,
     clampDuration,
     estimateSeedanceKieCredits,
     estimateSeedanceVeilPixCredits,
     normalizeAspectRatio,
+    normalizeOutputFormat,
     normalizeResolution,
     normalizeSeedanceResponse,
     normalizeVariant,
+    getSeedanceReferenceLimits,
     resolveSeedanceInputMode,
     veilpixCreditsFromKieCredits,
     veilpixCreditsFromUsd

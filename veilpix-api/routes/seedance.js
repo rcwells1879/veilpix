@@ -19,6 +19,7 @@ const {
     normalizeResolution,
     normalizeSeedanceResponse,
     normalizeVariant,
+    getSeedanceReferenceLimits,
     resolveSeedanceInputMode,
     veilpixCreditsFromKieCredits
 } = require('../utils/seedanceAdapter');
@@ -32,17 +33,17 @@ const router = express.Router();
 const SEEDANCE_API_KEY = process.env.KIE_API_KEY || process.env.SEEDREAM_API_KEY;
 const SEEDANCE_API_URL = process.env.KIE_API_BASE_URL || process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
 
-const MAX_REFERENCE_IMAGES = 9;
-const MAX_REFERENCE_VIDEOS = 1;
-const MAX_REFERENCE_AUDIOS = 1;
+const MAX_REFERENCE_IMAGES = 30;
+const MAX_REFERENCE_VIDEOS = 10;
+const MAX_REFERENCE_AUDIOS = 10;
 const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
-const MAX_REFERENCE_VIDEO_SECONDS = 15;
 
 const upload = multer({
     limits: {
-        fileSize: 100 * 1024 * 1024
+        fileSize: 200 * 1024 * 1024,
+        files: MAX_REFERENCE_IMAGES + MAX_REFERENCE_VIDEOS + MAX_REFERENCE_AUDIOS + 2
     },
     fileFilter: (req, file, cb) => {
         if (
@@ -121,25 +122,21 @@ function parseMp4DurationSeconds(buffer) {
     return readAtoms(0, buffer.length);
 }
 
-function getReferenceVideoDuration(file, fallbackSeconds) {
-    const fallback = Number.isFinite(Number(fallbackSeconds))
-        ? Math.max(0, Math.min(MAX_REFERENCE_VIDEO_SECONDS, Number(fallbackSeconds)))
-        : MAX_REFERENCE_VIDEO_SECONDS;
-
-    if (!file) return fallback;
+function getReferenceVideoDuration(file) {
+    if (!file) return null;
 
     if (file.mimetype === 'video/mp4' || file.mimetype === 'video/quicktime') {
         try {
             const parsed = parseMp4DurationSeconds(file.buffer);
             if (parsed && Number.isFinite(parsed)) {
-                return Math.max(0, Math.min(MAX_REFERENCE_VIDEO_SECONDS, Math.ceil(parsed)));
+                return Math.max(0, Math.ceil(parsed));
             }
         } catch (error) {
             console.warn('Unable to parse video duration from uploaded file:', error.message);
         }
     }
 
-    return fallback;
+    return null;
 }
 
 async function createSeedanceTask(payload) {
@@ -328,32 +325,42 @@ router.post('/generate-video', upload.fields([
             aspectRatio = '16:9',
             referenceVideoUrl,
             referenceVideoDuration = '',
+            referenceAudioDuration = '',
             inputMode = '',
             generateAudio = 'false',
             webSearch = 'false',
+            returnLastFrame = 'false',
+            outputFormat = 'mp4',
             nsfwFilterEnabled = 'true'
         } = req.body;
 
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ error: 'No video description provided' });
         }
-        if (prompt.length > 5000) {
-            return res.status(400).json({ error: 'Prompt must be 5000 characters or less' });
-        }
-
         const selectedVariant = normalizeVariant(variant);
+        const referenceLimits = getSeedanceReferenceLimits(selectedVariant);
+        const maxPromptLength = selectedVariant === 'v2_5' ? 30000 : 5000;
+        if (prompt.length > maxPromptLength) {
+            return res.status(400).json({ error: `Prompt must be ${maxPromptLength} characters or less` });
+        }
         const selectedResolution = normalizeResolution(selectedVariant, resolution);
         const selectedDuration = clampDuration(duration, selectedVariant);
         const imageFiles = req.files?.referenceImages || [];
-        const videoFile = req.files?.referenceVideo?.[0];
-        const audioFile = req.files?.referenceAudio?.[0];
+        const videoFiles = req.files?.referenceVideo || [];
+        const audioFiles = req.files?.referenceAudio || [];
         const firstFrameFile = req.files?.firstFrame?.[0];
         const lastFrameFile = req.files?.lastFrame?.[0];
-        const hasMultimodalReferences = imageFiles.length > 0 || Boolean(videoFile || referenceVideoUrl || audioFile);
+        const hasMultimodalReferences = imageFiles.length > 0 || videoFiles.length > 0 || audioFiles.length > 0 || Boolean(referenceVideoUrl);
         let resolvedInputMode;
 
-        if (imageFiles.length > MAX_REFERENCE_IMAGES) {
-            return res.status(400).json({ error: `Seedance supports up to ${MAX_REFERENCE_IMAGES} reference images in VeilPix` });
+        if (imageFiles.length > referenceLimits.images) {
+            return res.status(400).json({ error: `This Seedance model supports up to ${referenceLimits.images} reference images` });
+        }
+        if (videoFiles.length + (referenceVideoUrl ? 1 : 0) > referenceLimits.videos) {
+            return res.status(400).json({ error: `This Seedance model supports up to ${referenceLimits.videos} reference videos` });
+        }
+        if (audioFiles.length > referenceLimits.audios) {
+            return res.status(400).json({ error: `This Seedance model supports up to ${referenceLimits.audios} reference audio files` });
         }
         if (lastFrameFile && !firstFrameFile) {
             return res.status(400).json({ error: 'A last frame requires a first frame' });
@@ -377,14 +384,27 @@ router.post('/generate-video', upload.fields([
             firstFrameBytes: firstFrameFile?.size || 0,
             lastFrameBytes: lastFrameFile?.size || 0,
             referenceImageCount: imageFiles.length,
-            hasReferenceVideo: Boolean(videoFile || referenceVideoUrl),
-            hasReferenceAudio: Boolean(audioFile)
+            referenceVideoCount: videoFiles.length + (referenceVideoUrl ? 1 : 0),
+            referenceAudioCount: audioFiles.length
         });
 
-        const hasVideoReference = Boolean(videoFile || referenceVideoUrl);
+        const hasVideoReference = videoFiles.length > 0 || Boolean(referenceVideoUrl);
+        const parsedVideoDurations = videoFiles.map(getReferenceVideoDuration);
+        const clientVideoDuration = Number(referenceVideoDuration);
         const measuredVideoDuration = hasVideoReference
-            ? getReferenceVideoDuration(videoFile, referenceVideoUrl ? referenceVideoDuration || MAX_REFERENCE_VIDEO_SECONDS : referenceVideoDuration)
+            ? parsedVideoDurations.every(durationValue => durationValue !== null) && !referenceVideoUrl
+                ? parsedVideoDurations.reduce((total, durationValue) => total + durationValue, 0)
+                : Number.isFinite(clientVideoDuration) && clientVideoDuration > 0
+                    ? clientVideoDuration
+                    : referenceLimits.mediaSeconds
             : 0;
+        const clientAudioDuration = Number(referenceAudioDuration);
+        if (measuredVideoDuration > referenceLimits.mediaSeconds) {
+            return res.status(400).json({ error: `Reference videos must total ${referenceLimits.mediaSeconds} seconds or less` });
+        }
+        if (audioFiles.length > 0 && Number.isFinite(clientAudioDuration) && clientAudioDuration > referenceLimits.mediaSeconds) {
+            return res.status(400).json({ error: `Reference audio must total ${referenceLimits.mediaSeconds} seconds or less` });
+        }
         const seedancePricingContext = {
             variant: selectedVariant,
             resolution: selectedResolution,
@@ -422,12 +442,14 @@ router.post('/generate-video', upload.fields([
             referenceImages.push(await uploadReferenceFile(file, req.user.userId, uploadedFilenames));
         }
 
-        if (videoFile) {
+        for (const videoFile of videoFiles) {
             if (!videoFile.mimetype.startsWith('video/')) {
-                return res.status(400).json({ error: 'Reference video must be a video file' });
+                return res.status(400).json({ error: 'Reference videos must be video files' });
             }
+            validateFileSize(videoFile, referenceLimits.videoBytes, 'Reference video');
             referenceVideos.push(await uploadReferenceFile(videoFile, req.user.userId, uploadedFilenames));
-        } else if (referenceVideoUrl) {
+        }
+        if (referenceVideoUrl) {
             try {
                 const parsed = new URL(referenceVideoUrl);
                 if (!['http:', 'https:'].includes(parsed.protocol)) {
@@ -439,10 +461,11 @@ router.post('/generate-video', upload.fields([
             }
         }
 
-        if (audioFile) {
+        for (const audioFile of audioFiles) {
             if (!audioFile.mimetype.startsWith('audio/')) {
-                return res.status(400).json({ error: 'Reference audio must be an audio file' });
+                return res.status(400).json({ error: 'Reference audio files must be audio files' });
             }
+            validateFileSize(audioFile, referenceLimits.audioBytes, 'Reference audio');
             referenceAudios.push(await uploadReferenceFile(audioFile, req.user.userId, uploadedFilenames));
         }
 
@@ -465,6 +488,8 @@ router.post('/generate-video', upload.fields([
             lastFrameUrl,
             generateAudio: boolValue(generateAudio, false),
             webSearch: boolValue(webSearch, false),
+            returnLastFrame: boolValue(returnLastFrame, false),
+            outputFormat,
             nsfwFilterEnabled: boolValue(nsfwFilterEnabled, true)
         });
 
@@ -484,7 +509,9 @@ router.post('/generate-video', upload.fields([
         const providerCredits = Number.isFinite(providerKieCredits) && providerKieCredits > 0
             ? veilpixCreditsFromKieCredits(providerKieCredits)
             : 0;
-        const actualCredits = Math.max(estimatedCredits, providerCredits);
+        const actualCredits = selectedDuration === -1 && providerCredits > 0
+            ? providerCredits
+            : Math.max(estimatedCredits, providerCredits);
 
         console.log('Seedance billing summary:', {
             variant: selectedVariant,
@@ -507,6 +534,8 @@ router.post('/generate-video', upload.fields([
         res.json({
             success: true,
             videoUrl: normalizedResponse.videoUrl,
+            lastFrameUrl: normalizedResponse.lastFrameUrl,
+            outputFormat: selectedVariant === 'v2_5' ? seedancePayload.input.output_format : 'mp4',
             processingTime: Date.now() - startTime,
             creditsUsed: actualCredits,
             creditsRemaining: req.creditsInfo?.remaining || 0

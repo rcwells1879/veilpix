@@ -43,6 +43,8 @@ export interface GalleryImage {
   provider?: 'wan' | 'seedance';
   generationId?: string;
   seedanceInputMode?: 'frames' | 'references';
+  seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
+  videoOutputFormat?: 'mp4' | 'mov';
   referenceImages?: StoredGalleryFile[];
   prompt?: string;
 }
@@ -80,6 +82,8 @@ export interface GalleryVideoDetails {
   videoDuration?: number;
   provider?: 'wan' | 'seedance';
   seedanceInputMode?: 'frames' | 'references';
+  seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
+  videoOutputFormat?: 'mp4' | 'mov';
   prompt: string;
 }
 
@@ -564,6 +568,8 @@ export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDe
           // two-image legacy record as the likely first/end-frame workflow.
           seedanceInputMode: entry.seedanceInputMode
             ?? (entry.provider === 'seedance' && referenceImages.length === 2 ? 'frames' : undefined),
+          seedanceVariant: entry.seedanceVariant,
+          videoOutputFormat: entry.videoOutputFormat,
           prompt: entry.prompt || '',
         });
       };
@@ -694,6 +700,8 @@ export interface SaveVideoToGalleryOptions {
   referenceVideoUrl?: string | null;
   videoDuration?: number;
   seedanceInputMode?: 'frames' | 'references';
+  seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
+  videoOutputFormat?: 'mp4' | 'mov';
   prompt?: string;
 }
 
@@ -713,9 +721,11 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       referenceVideoUrl = null,
       videoDuration,
       seedanceInputMode,
+      seedanceVariant,
+      videoOutputFormat = 'mp4',
       prompt = ''
     } = options;
-    const maxStoredReferenceImages = provider === 'seedance' ? 9 : 5;
+    const maxStoredReferenceImages = provider === 'seedance' ? seedanceVariant === 'v2_5' ? 30 : 9 : 5;
     const db = await openDB();
     if (generationId) {
       const alreadySaved = await new Promise<boolean>((resolve, reject) => {
@@ -735,7 +745,7 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
         : [];
     const videoBlob = await fetchVideoBlob(videoUrl);
     const generatedVideoThumbnail = videoBlob
-      ? await createVideoFrameThumbnail(new File([videoBlob], `video-${Date.now()}.mp4`, { type: videoBlob.type || 'video/mp4' }))
+      ? await createVideoFrameThumbnail(new File([videoBlob], `video-${Date.now()}.${videoOutputFormat}`, { type: videoBlob.type || `video/${videoOutputFormat === 'mov' ? 'quicktime' : 'mp4'}` }))
       : await createVideoFrameThumbnail(videoUrl);
     const referenceVideoThumbnail = generatedVideoThumbnail
       ? null
@@ -754,7 +764,7 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       blob: storedBlob,
       thumbnail,
       createdAt: Date.now(),
-      name: `video-${Date.now()}.mp4`,
+      name: `video-${Date.now()}.${videoOutputFormat}`,
       type: 'video',
       videoUrl,
       videoBlob: videoBlob || undefined,
@@ -763,6 +773,8 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       provider,
       generationId,
       seedanceInputMode,
+      seedanceVariant,
+      videoOutputFormat,
       referenceImages: storedReferenceImages.map(toStoredGalleryFile),
       prompt,
     };

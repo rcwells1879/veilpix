@@ -13,22 +13,34 @@ export const WAN_27_DURATIONS = [5, 10] as const;
 export const WAN_RESOLUTIONS = ['720p', '1080p'] as const;
 export const WAN_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
 
-export const SEEDANCE_VARIANTS: SeedanceVariant[] = ['regular', 'fast', 'mini'];
-export const SEEDANCE_MAX_REFERENCE_IMAGES = 9;
+export const SEEDANCE_VARIANTS: SeedanceVariant[] = ['v2_5', 'regular', 'fast', 'mini'];
+export const SEEDANCE_MAX_REFERENCE_IMAGES = 30;
+export const SEEDANCE_MAX_REFERENCE_VIDEOS = 10;
+export const SEEDANCE_MAX_REFERENCE_AUDIOS = 10;
+
+const SEEDANCE_REFERENCE_LIMITS: Record<SeedanceVariant, { images: number; videos: number; audios: number; mediaSeconds: number }> = {
+  v2_5: { images: 30, videos: 10, audios: 10, mediaSeconds: 30 },
+  regular: { images: 9, videos: 1, audios: 1, mediaSeconds: 15 },
+  fast: { images: 9, videos: 1, audios: 1, mediaSeconds: 15 },
+  mini: { images: 9, videos: 1, audios: 1, mediaSeconds: 15 },
+};
 
 export const SEEDANCE_RATIOS: Record<SeedanceVariant, string[]> = {
+  v2_5: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
   regular: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
   fast: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
   mini: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'],
 };
 
 export const SEEDANCE_RESOLUTIONS: Record<SeedanceVariant, string[]> = {
+  v2_5: ['480p', '720p'],
   regular: ['480p', '720p', '1080p'],
   fast: ['480p', '720p'],
   mini: ['480p', '720p'],
 };
 
 export const SEEDANCE_DURATION_LIMITS: Record<SeedanceVariant, { min: number; max: number; defaultValue: number }> = {
+  v2_5: { min: 4, max: 30, defaultValue: 5 },
   regular: { min: 4, max: 15, defaultValue: 5 },
   fast: { min: 4, max: 15, defaultValue: 5 },
   mini: { min: 4, max: 15, defaultValue: 5 },
@@ -41,6 +53,10 @@ const WAN_VIDEO_CREDIT_TABLE: Record<number, Record<string, number>> = {
 };
 
 const SEEDANCE_PRICING: Record<SeedanceVariant, Record<string, { noVideo: number; withVideo: number }>> = {
+  v2_5: {
+    '480p': { noVideo: 28, withVideo: 17 },
+    '720p': { noVideo: 63, withVideo: 38 },
+  },
   fast: {
     '480p': { noVideo: 15.5, withVideo: 9 },
     '720p': { noVideo: 33, withVideo: 20 },
@@ -66,6 +82,7 @@ export function getWanCreditCost(duration: number, resolution: string): number {
 export function clampSeedanceDuration(variant: SeedanceVariant, duration: number): number {
   const limits = SEEDANCE_DURATION_LIMITS[variant];
   if (!Number.isFinite(duration)) return limits.defaultValue;
+  if (variant === 'v2_5' && duration === -1) return -1;
   return Math.max(limits.min, Math.min(limits.max, Math.round(duration)));
 }
 
@@ -77,13 +94,18 @@ export function getSeedanceCreditCost(
   referenceVideoDuration?: number | null
 ): number {
   const pricing = SEEDANCE_PRICING[variant][resolution] ?? SEEDANCE_PRICING[variant][SEEDANCE_RESOLUTIONS[variant][0]];
-  const outputSeconds = clampSeedanceDuration(variant, duration);
+  const selectedDuration = clampSeedanceDuration(variant, duration);
+  const outputSeconds = selectedDuration === -1 ? SEEDANCE_DURATION_LIMITS[variant].max : selectedDuration;
   const inputSeconds = hasVideoReference
     ? Math.max(0, Math.min(SEEDANCE_DURATION_LIMITS[variant].max, Math.round(referenceVideoDuration ?? SEEDANCE_DURATION_LIMITS[variant].max)))
     : 0;
   const rate = hasVideoReference ? pricing.withVideo : pricing.noVideo;
   const kieCredits = Math.ceil(rate * (outputSeconds + inputSeconds));
   return Math.max(1, Math.ceil((kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
+}
+
+export function getSeedanceReferenceLimits(variant: SeedanceVariant) {
+  return SEEDANCE_REFERENCE_LIMITS[variant];
 }
 
 export function getWanMaxReferenceImages(hasVideoReference: boolean): number {

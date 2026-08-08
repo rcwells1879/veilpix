@@ -1,6 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildSeedanceRequest, resolveSeedanceInputMode } = require('./seedanceAdapter');
+const {
+    KIE_CREDIT_USD,
+    buildSeedanceRequest,
+    estimateSeedanceKieCredits,
+    estimateSeedanceVeilPixCredits,
+    resolveSeedanceInputMode
+} = require('./seedanceAdapter');
 
 test('maps strict Seedance frame inputs to first and last frame fields', () => {
     const payload = buildSeedanceRequest('Move between the frames', {
@@ -71,5 +77,86 @@ test('keeps backward compatibility by inferring frame mode from older clients', 
     assert.equal(
         resolveSeedanceInputMode('', { hasFirstFrame: true }),
         'frames'
+    );
+});
+
+test('maps every documented Seedance 2.5 setting to the Kie payload', () => {
+    const payload = buildSeedanceRequest('Create a grounded product film', {
+        variant: 'v2_5',
+        duration: -1,
+        resolution: '720p',
+        aspectRatio: 'adaptive',
+        referenceImages: ['https://example.com/product.png'],
+        referenceVideos: ['https://example.com/motion.mov'],
+        referenceAudios: ['https://example.com/music.mp3'],
+        generateAudio: true,
+        returnLastFrame: true,
+        outputFormat: 'mov',
+        webSearch: true,
+        nsfwFilterEnabled: false
+    });
+
+    assert.equal(payload.model, 'bytedance/seedance-2-5');
+    assert.deepEqual(payload.input, {
+        prompt: 'Create a grounded product film',
+        duration: -1,
+        resolution: '720p',
+        aspect_ratio: 'adaptive',
+        generate_audio: true,
+        web_search: true,
+        nsfw_checker: false,
+        return_last_frame: true,
+        output_format: 'mov',
+        reference_image_urls: ['https://example.com/product.png'],
+        reference_video_urls: ['https://example.com/motion.mov'],
+        reference_audio_urls: ['https://example.com/music.mp3']
+    });
+});
+
+test('uses official Seedance 2.5 beta rates for video-guided billing', () => {
+    const pricingContext = {
+        variant: 'v2_5',
+        resolution: '720p',
+        duration: 10,
+        hasVideoReference: true,
+        referenceVideoDuration: 12
+    };
+
+    assert.equal(estimateSeedanceKieCredits(pricingContext), 38 * 22);
+    assert.equal(estimateSeedanceVeilPixCredits(pricingContext), 68);
+});
+
+test('every Seedance 2.5 pricing path preserves at least the 12 percent margin', () => {
+    const cases = [
+        { resolution: '480p', duration: 5, hasVideoReference: false, referenceVideoDuration: 0 },
+        { resolution: '720p', duration: 5, hasVideoReference: false, referenceVideoDuration: 0 },
+        { resolution: '480p', duration: 5, hasVideoReference: true, referenceVideoDuration: 7 },
+        { resolution: '720p', duration: 5, hasVideoReference: true, referenceVideoDuration: 7 }
+    ];
+
+    for (const pricingCase of cases) {
+        const context = { variant: 'v2_5', ...pricingCase };
+        const kieCostUsd = estimateSeedanceKieCredits(context) * KIE_CREDIT_USD;
+        const customerRevenueUsd = estimateSeedanceVeilPixCredits(context) * 0.0699;
+        const margin = (customerRevenueUsd - kieCostUsd) / customerRevenueUsd;
+        assert.ok(margin >= 0.12, `${pricingCase.resolution} margin was ${(margin * 100).toFixed(2)}%`);
+    }
+});
+
+test('prices automatic Seedance 2.5 duration against the 30 second ceiling', () => {
+    assert.equal(estimateSeedanceKieCredits({
+        variant: 'v2_5',
+        resolution: '480p',
+        duration: -1
+    }), 28 * 30);
+});
+
+test('enforces Seedance 2.5 multimodal reference limits', () => {
+    assert.throws(
+        () => buildSeedanceRequest('Too many videos', {
+            variant: 'v2_5',
+            referenceVideos: Array.from({ length: 11 }, (_, index) => `https://example.com/${index}.mp4`)
+        }),
+        /up to 10 reference videos/
     );
 });

@@ -51,8 +51,8 @@ import {
 import Composer from './components/studio/Composer';
 import ResultStage from './components/studio/ResultStage';
 import GalleryRail, { type GalleryReferenceTarget } from './components/studio/GalleryRail';
-import type { StudioMode, StageTool, VideoProvider, SeedanceInputMode, VideoGenerateOptions } from './components/studio/types';
-import { getWanMaxReferenceImages, SEEDANCE_MAX_REFERENCE_IMAGES } from './components/studio/videoPricing';
+import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, VideoGenerateOptions } from './components/studio/types';
+import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES } from './components/studio/videoPricing';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
 import { extractLastVideoFrame } from './src/utils/videoFrameExtraction';
 
@@ -201,14 +201,16 @@ interface PendingVideoGeneration {
   duration: number;
   resolution: string;
   ratio: string;
+  seedanceVariant?: SeedanceVariant;
   seedanceInputMode?: SeedanceInputMode;
+  seedanceOutputFormat?: SeedanceOutputFormat;
   createdAt: number;
 }
 
 interface PendingVideoFiles {
   generationId: string;
   referenceImages: File[];
-  referenceVideoFile: File | null;
+  referenceVideoFiles: File[];
   referenceVideoUrl: string | null;
 }
 
@@ -482,6 +484,8 @@ const App: React.FC = () => {
     } catch { /* storage unavailable */ }
   }, [videoProvider]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoOutputFormat, setVideoOutputFormat] = useState<SeedanceOutputFormat>('mp4');
+  const [videoLastFrameUrl, setVideoLastFrameUrl] = useState<string | null>(null);
   const [galleryVideoFile, setGalleryVideoFile] = useState<File | null>(null);
   const galleryVideoObjectUrlRef = useRef<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -500,10 +504,11 @@ const App: React.FC = () => {
   const [seedanceFirstFrame, setSeedanceFirstFrame] = useState<File | null>(null);
   const [seedanceLastFrame, setSeedanceLastFrame] = useState<File | null>(null);
   const [seedanceReferenceImages, setSeedanceReferenceImages] = useState<File[]>([]);
-  const [seedanceReferenceVideoFile, setSeedanceReferenceVideoFile] = useState<File | null>(null);
+  const [seedanceReferenceVideoFiles, setSeedanceReferenceVideoFiles] = useState<File[]>([]);
   const [seedanceReferenceVideoUrl, setSeedanceReferenceVideoUrl] = useState<string | null>(null);
   const [seedanceReferenceVideoDuration, setSeedanceReferenceVideoDuration] = useState<number | null>(null);
-  const [seedanceReferenceAudioFile, setSeedanceReferenceAudioFile] = useState<File | null>(null);
+  const [seedanceReferenceAudioFiles, setSeedanceReferenceAudioFiles] = useState<File[]>([]);
+  const [seedanceReferenceAudioDuration, setSeedanceReferenceAudioDuration] = useState<number | null>(null);
 
   const isVideoPending = Boolean(pendingVideoGeneration)
     || videoMutation.isPending
@@ -592,6 +597,7 @@ const App: React.FC = () => {
     revokeGalleryVideoObjectUrl();
     setGalleryVideoFile(null);
     setVideoUrl(null);
+    setVideoLastFrameUrl(null);
   }, [revokeGalleryVideoObjectUrl]);
 
   const showRemoteVideoResult = useCallback((url: string) => {
@@ -637,8 +643,13 @@ const App: React.FC = () => {
     if (job.provider === 'seedance' && job.seedanceInputMode) {
       setSeedanceInputMode(job.seedanceInputMode);
     }
+    setVideoOutputFormat(job.provider === 'seedance' ? job.seedanceOutputFormat ?? 'mp4' : 'mp4');
+    setVideoLastFrameUrl(response.lastFrameUrl ?? null);
     showRemoteVideoResult(response.videoUrl);
     setVideoError(null);
+    const finalizedVideoDuration = job.duration === -1
+      ? await getVideoDurationSeconds(response.videoUrl) ?? 30
+      : job.duration;
 
     await saveVideoToGallery({
       videoUrl: response.videoUrl,
@@ -646,10 +657,12 @@ const App: React.FC = () => {
       provider: job.provider,
       referenceImage: files?.referenceImages[0] ?? null,
       referenceImages: files?.referenceImages ?? [],
-      referenceVideoFile: files?.referenceVideoFile ?? null,
+      referenceVideoFile: files?.referenceVideoFiles[0] ?? null,
       referenceVideoUrl: files?.referenceVideoUrl ?? null,
-      videoDuration: job.duration,
+      videoDuration: finalizedVideoDuration,
       seedanceInputMode: job.provider === 'seedance' ? job.seedanceInputMode : undefined,
+      seedanceVariant: job.provider === 'seedance' ? job.seedanceVariant : undefined,
+      videoOutputFormat: job.provider === 'seedance' ? job.seedanceOutputFormat : 'mp4',
       prompt: job.prompt,
     });
     setGalleryRefreshTrigger(count => count + 1);
@@ -931,7 +944,9 @@ const App: React.FC = () => {
       seedanceVariant = 'regular',
       seedanceInputMode: selectedSeedanceInputMode = 'references',
       seedanceGenerateAudio = false,
-      seedanceWebSearch = false
+      seedanceWebSearch = false,
+      seedanceReturnLastFrame = false,
+      seedanceOutputFormat = 'mp4'
     } = options;
 
     const generationId = crypto.randomUUID();
@@ -942,22 +957,29 @@ const App: React.FC = () => {
       duration,
       resolution,
       ratio,
+      seedanceVariant: provider === 'seedance' ? seedanceVariant : undefined,
       seedanceInputMode: provider === 'seedance' ? selectedSeedanceInputMode : undefined,
+      seedanceOutputFormat: provider === 'seedance' ? seedanceOutputFormat : undefined,
       createdAt: Date.now(),
     };
     const wanHasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
     const wanReferenceImagesForRequest = wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
     const usesSeedanceFrameMode = selectedSeedanceInputMode === 'frames';
+    const seedanceReferenceLimits = getSeedanceReferenceLimits(seedanceVariant);
+    const selectedSeedanceReferenceImages = seedanceReferenceImages.slice(0, seedanceReferenceLimits.images);
+    const maxUploadedSeedanceVideos = Math.max(0, seedanceReferenceLimits.videos - (seedanceReferenceVideoUrl ? 1 : 0));
+    const selectedSeedanceReferenceVideos = seedanceReferenceVideoFiles.slice(0, maxUploadedSeedanceVideos);
+    const selectedSeedanceReferenceAudios = seedanceReferenceAudioFiles.slice(0, seedanceReferenceLimits.audios);
     const pendingFiles: PendingVideoFiles = {
       generationId,
       referenceImages: provider === 'seedance'
         ? usesSeedanceFrameMode
           ? [seedanceFirstFrame, seedanceLastFrame].filter((file): file is File => Boolean(file))
-          : seedanceReferenceImages
+          : selectedSeedanceReferenceImages
         : wanReferenceImagesForRequest,
-      referenceVideoFile: provider === 'seedance'
-        ? usesSeedanceFrameMode ? null : seedanceReferenceVideoFile
-        : referenceVideoFile,
+      referenceVideoFiles: provider === 'seedance'
+        ? usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos
+        : referenceVideoFile ? [referenceVideoFile] : [],
       referenceVideoUrl: provider === 'seedance'
         ? usesSeedanceFrameMode ? null : seedanceReferenceVideoUrl
         : referenceVideoUrl,
@@ -979,11 +1001,12 @@ const App: React.FC = () => {
           generationId,
           firstFrame: usesSeedanceFrameMode ? seedanceFirstFrame : null,
           lastFrame: usesSeedanceFrameMode ? seedanceLastFrame : null,
-          referenceImages: usesSeedanceFrameMode ? [] : seedanceReferenceImages,
-          referenceVideo: usesSeedanceFrameMode ? null : seedanceReferenceVideoFile,
+          referenceImages: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceImages,
+          referenceVideos: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos,
           referenceVideoUrl: usesSeedanceFrameMode ? null : seedanceReferenceVideoUrl,
           referenceVideoDuration: usesSeedanceFrameMode ? null : seedanceReferenceVideoDuration,
-          referenceAudio: usesSeedanceFrameMode ? null : seedanceReferenceAudioFile,
+          referenceAudios: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceAudios,
+          referenceAudioDuration: usesSeedanceFrameMode ? null : seedanceReferenceAudioDuration,
           prompt,
           variant: seedanceVariant,
           inputMode: selectedSeedanceInputMode,
@@ -992,6 +1015,8 @@ const App: React.FC = () => {
           aspectRatio: ratio,
           generateAudio: seedanceGenerateAudio,
           webSearch: seedanceWebSearch,
+          returnLastFrame: seedanceReturnLastFrame,
+          outputFormat: seedanceOutputFormat,
           nsfwFilterEnabled: settings.nsfwFilterEnabled
         });
       } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
@@ -1057,12 +1082,13 @@ const App: React.FC = () => {
     referenceVideoFile,
     referenceVideoUrl,
     wanReferenceImages,
-    seedanceReferenceAudioFile,
+    seedanceReferenceAudioDuration,
+    seedanceReferenceAudioFiles,
     seedanceFirstFrame,
     seedanceLastFrame,
     seedanceReferenceImages,
     seedanceReferenceVideoDuration,
-    seedanceReferenceVideoFile,
+    seedanceReferenceVideoFiles,
     seedanceReferenceVideoUrl,
     clearVideoResult,
     clearPendingVideoJob,
@@ -1096,10 +1122,11 @@ const App: React.FC = () => {
     setSeedanceInputMode(mode);
     if (mode === 'frames') {
       setSeedanceReferenceImages([]);
-      setSeedanceReferenceVideoFile(null);
+      setSeedanceReferenceVideoFiles([]);
       setSeedanceReferenceVideoUrl(null);
       setSeedanceReferenceVideoDuration(null);
-      setSeedanceReferenceAudioFile(null);
+      setSeedanceReferenceAudioFiles([]);
+      setSeedanceReferenceAudioDuration(null);
     } else {
       setSeedanceFirstFrame(null);
       setSeedanceLastFrame(null);
@@ -1123,24 +1150,36 @@ const App: React.FC = () => {
     setVideoError(null);
   }, []);
 
-  const handleSeedanceReferenceVideoSelect = useCallback(async (file: File | null) => {
+  const handleSeedanceReferenceVideosChange = useCallback(async (files: File[]) => {
     setSeedanceInputMode('references');
-    setSeedanceReferenceVideoFile(file);
+    const selectedFiles = files.slice(0, 10);
+    setSeedanceReferenceVideoFiles(selectedFiles);
     setSeedanceReferenceVideoUrl(null);
-    setSeedanceReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    setSeedanceReferenceVideoDuration(
+      durations.length > 0 && durations.every((duration): duration is number => duration !== null)
+        ? durations.reduce((total, duration) => total + duration, 0)
+        : null
+    );
     setVideoError(null);
   }, []);
 
   const handleSeedanceReferenceVideoUrlRemove = useCallback(() => {
-    setSeedanceReferenceVideoFile(null);
     setSeedanceReferenceVideoUrl(null);
-    setSeedanceReferenceVideoDuration(null);
+    if (seedanceReferenceVideoFiles.length === 0) setSeedanceReferenceVideoDuration(null);
     setVideoError(null);
-  }, []);
+  }, [seedanceReferenceVideoFiles.length]);
 
-  const handleSeedanceReferenceAudioSelect = useCallback((file: File | null) => {
+  const handleSeedanceReferenceAudiosChange = useCallback(async (files: File[]) => {
     setSeedanceInputMode('references');
-    setSeedanceReferenceAudioFile(file);
+    const selectedFiles = files.slice(0, 10);
+    setSeedanceReferenceAudioFiles(selectedFiles);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    setSeedanceReferenceAudioDuration(
+      durations.length > 0 && durations.every((duration): duration is number => duration !== null)
+        ? durations.reduce((total, duration) => total + duration, 0)
+        : null
+    );
     setVideoError(null);
   }, []);
 
@@ -1148,7 +1187,7 @@ const App: React.FC = () => {
     if (!videoUrl) return;
     if (videoProvider === 'seedance') {
       setSeedanceInputMode('references');
-      setSeedanceReferenceVideoFile(galleryVideoFile);
+      setSeedanceReferenceVideoFiles(galleryVideoFile ? [galleryVideoFile] : []);
       setSeedanceReferenceVideoUrl(galleryVideoFile ? null : videoUrl);
       setSeedanceReferenceVideoDuration(null);
     } else {
@@ -1162,14 +1201,20 @@ const App: React.FC = () => {
   }, [clearVideoResult, galleryVideoFile, videoProvider, videoUrl]);
 
   const handleContinueFromLastFrame = useCallback(async () => {
-    const source = galleryVideoFile || videoUrl;
+    const source = videoLastFrameUrl || galleryVideoFile || videoUrl;
     if (!source) return;
 
     setIsExtractingLastFrame(true);
     setVideoError(null);
 
     try {
-      const frameFile = await extractLastVideoFrame(source);
+      const frameFile = videoLastFrameUrl
+        ? await fetch(videoLastFrameUrl).then(async response => {
+            if (!response.ok) throw new Error(`Could not download the returned frame (HTTP ${response.status})`);
+            const blob = await response.blob();
+            return new File([blob], `seedance-last-frame-${Date.now()}.png`, { type: blob.type || 'image/png' });
+          })
+        : await extractLastVideoFrame(source);
       setVideoProvider('seedance');
       setSeedanceInputMode('frames');
       setSeedanceFirstFrame(frameFile);
@@ -1181,7 +1226,7 @@ const App: React.FC = () => {
     } finally {
       setIsExtractingLastFrame(false);
     }
-  }, [clearVideoResult, galleryVideoFile, videoUrl]);
+  }, [clearVideoResult, galleryVideoFile, videoLastFrameUrl, videoUrl]);
 
   /* ---------------- mode + session ---------------- */
   const handleModeChange = useCallback((mode: StudioMode) => {
@@ -1193,7 +1238,7 @@ const App: React.FC = () => {
       if (videoProvider === 'seedance') {
         const seedanceHasInputs = Boolean(seedanceFirstFrame)
           || seedanceReferenceImages.length > 0
-          || Boolean(seedanceReferenceVideoFile || seedanceReferenceVideoUrl);
+          || Boolean(seedanceReferenceVideoFiles.length > 0 || seedanceReferenceVideoUrl);
         if (!seedanceHasInputs) {
           setSeedanceInputMode('frames');
           setSeedanceFirstFrame(currentImage);
@@ -1204,7 +1249,7 @@ const App: React.FC = () => {
     }
   }, [
     videoProvider, currentImage, wanReferenceImages.length, referenceVideoFile, referenceVideoUrl,
-    seedanceFirstFrame, seedanceReferenceImages.length, seedanceReferenceVideoFile, seedanceReferenceVideoUrl,
+    seedanceFirstFrame, seedanceReferenceImages.length, seedanceReferenceVideoFiles.length, seedanceReferenceVideoUrl,
   ]);
 
   const handleNewSession = useCallback(() => {
@@ -1226,10 +1271,11 @@ const App: React.FC = () => {
     setSeedanceFirstFrame(null);
     setSeedanceLastFrame(null);
     setSeedanceReferenceImages([]);
-    setSeedanceReferenceVideoFile(null);
+    setSeedanceReferenceVideoFiles([]);
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(null);
-    setSeedanceReferenceAudioFile(null);
+    setSeedanceReferenceAudioFiles([]);
+    setSeedanceReferenceAudioDuration(null);
   }, [clearVideoResult, resetImageTools]);
 
   /* ---------------- stage tools ---------------- */
@@ -1352,7 +1398,7 @@ const App: React.FC = () => {
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = `veilpix-video-${Date.now()}.mp4`;
+      link.download = `veilpix-video-${Date.now()}.${videoOutputFormat}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1360,7 +1406,7 @@ const App: React.FC = () => {
     } catch {
       window.open(videoUrl, '_blank', 'noopener,noreferrer');
     }
-  }, [videoUrl]);
+  }, [videoOutputFormat, videoUrl]);
 
   /* ---------------- gallery handlers ---------------- */
   const handleGallerySelectImage = useCallback((file: File, savedPrompt: string) => {
@@ -1388,13 +1434,16 @@ const App: React.FC = () => {
     setStudioMode('video');
     setVideoProvider(selectedProvider);
     setVideoPrompt(details.prompt);
+    setVideoOutputFormat(details.videoOutputFormat ?? 'mp4');
+    setVideoLastFrameUrl(null);
     setReferenceVideoFile(null);
     setReferenceVideoUrl(null);
     setReferenceVideoDuration(null);
-    setSeedanceReferenceVideoFile(null);
+    setSeedanceReferenceVideoFiles([]);
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(null);
-    setSeedanceReferenceAudioFile(null);
+    setSeedanceReferenceAudioFiles([]);
+    setSeedanceReferenceAudioDuration(null);
     if (selectedProvider === 'seedance') {
       const restoredInputMode = details.seedanceInputMode ?? 'references';
       setSeedanceInputMode(restoredInputMode);
@@ -1459,7 +1508,7 @@ const App: React.FC = () => {
     setVideoPrompt(details.prompt);
     if (videoProvider === 'seedance') {
       setSeedanceInputMode('references');
-      setSeedanceReferenceVideoFile(details.videoFile);
+      setSeedanceReferenceVideoFiles(details.videoFile ? [details.videoFile] : []);
       setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
       setSeedanceReferenceVideoDuration(details.videoDuration ?? null);
     } else {
@@ -1727,13 +1776,14 @@ const App: React.FC = () => {
               onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
               seedanceReferenceImages={seedanceReferenceImages}
               onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
-              seedanceReferenceVideoFile={seedanceReferenceVideoFile}
+              seedanceReferenceVideoFiles={seedanceReferenceVideoFiles}
               seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
-              onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
+              onSeedanceReferenceVideosChange={handleSeedanceReferenceVideosChange}
               onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
               seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
-              seedanceReferenceAudioFile={seedanceReferenceAudioFile}
-              onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
+              seedanceReferenceAudioFiles={seedanceReferenceAudioFiles}
+              seedanceReferenceAudioDuration={seedanceReferenceAudioDuration}
+              onSeedanceReferenceAudiosChange={handleSeedanceReferenceAudiosChange}
             />
           </div>
             </>

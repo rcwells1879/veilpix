@@ -32,7 +32,7 @@ import {
   ToggleRow,
   PlusIcon,
 } from './controls';
-import { ImageSlot, ImageGrid, VideoSlot, AudioSlot } from './ReferenceInputs';
+import { ImageSlot, ImageGrid, VideoSlot, VideoGrid, AudioGrid } from './ReferenceInputs';
 import {
   WAN_26_DURATIONS,
   WAN_27_DURATIONS,
@@ -41,18 +41,18 @@ import {
   SEEDANCE_RATIOS,
   SEEDANCE_RESOLUTIONS,
   SEEDANCE_DURATION_LIMITS,
-  SEEDANCE_MAX_REFERENCE_IMAGES,
   getWanCreditCost,
   getSeedanceCreditCost,
   getWanMaxReferenceImages,
+  getSeedanceReferenceLimits,
   clampSeedanceDuration,
 } from './videoPricing';
-import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, VideoGenerateOptions } from './types';
+import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, VideoGenerateOptions } from './types';
 
 /* ------------------------------------------------------------------ */
 
 type ImageModelId = 'nanobanana2' | 'seedream-lite' | 'seedream-pro' | 'wanimage' | 'zimage';
-type VideoModelId = 'wan' | 'seedance-regular' | 'seedance-fast' | 'seedance-mini';
+type VideoModelId = 'wan' | 'seedance-2-5' | 'seedance-regular' | 'seedance-fast' | 'seedance-mini';
 
 const IMAGE_MODELS: { id: ImageModelId; provider: ImageProvider; tier: SeedreamTier; label: string; sublabel: string }[] = [
   { id: 'nanobanana2', provider: 'nanobanana2', tier: 'lite', label: 'Nano Banana 2', sublabel: 'Gemini 3.1 Flash' },
@@ -63,6 +63,7 @@ const IMAGE_MODELS: { id: ImageModelId; provider: ImageProvider; tier: SeedreamT
 ];
 
 const VIDEO_MODELS: { id: VideoModelId; provider: VideoProvider; variant: SeedanceVariant; label: string; sublabel: string }[] = [
+  { id: 'seedance-2-5', provider: 'seedance', variant: 'v2_5', label: 'Seedance 2.5', sublabel: 'ByteDance · new' },
   { id: 'wan', provider: 'wan', variant: 'regular', label: 'Wan Video', sublabel: '2.6 / 2.7 · auto' },
   { id: 'seedance-regular', provider: 'seedance', variant: 'regular', label: 'Seedance 2.0', sublabel: 'ByteDance' },
   { id: 'seedance-fast', provider: 'seedance', variant: 'fast', label: 'Seedance 2.0 Fast', sublabel: 'ByteDance' },
@@ -118,13 +119,14 @@ export interface ComposerProps {
   onSeedanceLastFrameSelect: (file: File | null) => void;
   seedanceReferenceImages: File[];
   onSeedanceReferenceImagesChange: (files: File[]) => void;
-  seedanceReferenceVideoFile: File | null;
+  seedanceReferenceVideoFiles: File[];
   seedanceReferenceVideoUrl: string | null;
-  onSeedanceReferenceVideoSelect: (file: File | null) => void;
+  onSeedanceReferenceVideosChange: (files: File[]) => void;
   onSeedanceReferenceVideoUrlRemove: () => void;
   seedanceReferenceVideoDuration: number | null;
-  seedanceReferenceAudioFile: File | null;
-  onSeedanceReferenceAudioSelect: (file: File | null) => void;
+  seedanceReferenceAudioFiles: File[];
+  seedanceReferenceAudioDuration: number | null;
+  onSeedanceReferenceAudiosChange: (files: File[]) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -145,6 +147,8 @@ interface StoredVideoSettings {
   seedanceRatio: string;
   seedanceGenerateAudio: boolean;
   seedanceWebSearch: boolean;
+  seedanceReturnLastFrame: boolean;
+  seedanceOutputFormat: SeedanceOutputFormat;
 }
 
 const storedVideoSettings: Partial<StoredVideoSettings> = (() => {
@@ -166,8 +170,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
     seedanceInputMode, onSeedanceInputModeChange,
     seedanceFirstFrame, onSeedanceFirstFrameSelect, seedanceLastFrame, onSeedanceLastFrameSelect,
     seedanceReferenceImages, onSeedanceReferenceImagesChange,
-    seedanceReferenceVideoFile, seedanceReferenceVideoUrl, onSeedanceReferenceVideoSelect, onSeedanceReferenceVideoUrlRemove,
-    seedanceReferenceVideoDuration, seedanceReferenceAudioFile, onSeedanceReferenceAudioSelect,
+    seedanceReferenceVideoFiles, seedanceReferenceVideoUrl, onSeedanceReferenceVideosChange, onSeedanceReferenceVideoUrlRemove,
+    seedanceReferenceVideoDuration, seedanceReferenceAudioFiles, seedanceReferenceAudioDuration, onSeedanceReferenceAudiosChange,
   } = props;
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const latestPromptRef = useRef(prompt);
@@ -179,7 +183,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const [wanAudio, setWanAudio] = useState(storedVideoSettings.wanAudio ?? true);
   const [wanMultiShots, setWanMultiShots] = useState(storedVideoSettings.wanMultiShots ?? false);
   const [seedanceVariant, setSeedanceVariant] = useState<SeedanceVariant>(
-    storedVideoSettings.seedanceVariant === 'regular' || storedVideoSettings.seedanceVariant === 'fast' || storedVideoSettings.seedanceVariant === 'mini'
+    storedVideoSettings.seedanceVariant === 'v2_5' || storedVideoSettings.seedanceVariant === 'regular' || storedVideoSettings.seedanceVariant === 'fast' || storedVideoSettings.seedanceVariant === 'mini'
       ? storedVideoSettings.seedanceVariant
       : 'mini'
   );
@@ -188,6 +192,10 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const [seedanceRatio, setSeedanceRatio] = useState(storedVideoSettings.seedanceRatio ?? '16:9');
   const [seedanceGenerateAudio, setSeedanceGenerateAudio] = useState(storedVideoSettings.seedanceGenerateAudio ?? false);
   const [seedanceWebSearch, setSeedanceWebSearch] = useState(storedVideoSettings.seedanceWebSearch ?? false);
+  const [seedanceReturnLastFrame, setSeedanceReturnLastFrame] = useState(storedVideoSettings.seedanceReturnLastFrame ?? false);
+  const [seedanceOutputFormat, setSeedanceOutputFormat] = useState<SeedanceOutputFormat>(
+    storedVideoSettings.seedanceOutputFormat === 'mov' ? 'mov' : 'mp4'
+  );
 
   /* --------------------------- derived: image --------------------------- */
   const imageSupportsReferences = imageProviderSupportsReferences(imageOptions.provider);
@@ -208,8 +216,13 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const wanUsesReferenceToVideo = wanReferenceImages.length > 1 || hasWanVideoReference;
   const wanUsesSingleImage = !wanUsesTextToVideo && !wanUsesReferenceToVideo;
   const wanDurationOptions = wanUsesReferenceToVideo ? WAN_27_DURATIONS : WAN_26_DURATIONS;
-  const hasSeedanceVideoReference = seedanceInputMode === 'references' && Boolean(seedanceReferenceVideoFile || seedanceReferenceVideoUrl);
+  const hasSeedanceVideoReference = seedanceInputMode === 'references' && Boolean(seedanceReferenceVideoFiles.length > 0 || seedanceReferenceVideoUrl);
   const seedanceDurationLimits = SEEDANCE_DURATION_LIMITS[seedanceVariant];
+  const seedanceReferenceLimits = getSeedanceReferenceLimits(seedanceVariant);
+  const seedanceMediaDurationInvalid = seedanceInputMode === 'references' && (
+    (seedanceReferenceVideoDuration ?? 0) > seedanceReferenceLimits.mediaSeconds
+    || (seedanceReferenceAudioDuration ?? 0) > seedanceReferenceLimits.mediaSeconds
+  );
   const activeVideoModel = VIDEO_MODELS.find((model) =>
     model.provider === videoProvider && (model.provider !== 'seedance' || model.variant === seedanceVariant)
   ) ?? VIDEO_MODELS[0];
@@ -217,7 +230,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const videoReferenceCount = videoProvider === 'seedance'
     ? seedanceInputMode === 'frames'
       ? (seedanceFirstFrame ? 1 : 0) + (seedanceLastFrame ? 1 : 0)
-      : seedanceReferenceImages.length + (hasSeedanceVideoReference ? 1 : 0) + (seedanceReferenceAudioFile ? 1 : 0)
+      : seedanceReferenceImages.length + seedanceReferenceVideoFiles.length + (seedanceReferenceVideoUrl ? 1 : 0) + seedanceReferenceAudioFiles.length
     : wanReferenceImages.length + (hasWanVideoReference ? 1 : 0);
 
   /* Effective (clamped-at-read) values. Stored preferences are never mutated
@@ -226,7 +239,9 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const effectiveSeedanceResolution = seedanceResolutionOptions.includes(seedanceResolution)
     ? seedanceResolution
     : seedanceResolutionOptions[seedanceResolutionOptions.length - 1];
-  const effectiveSeedanceRatio = SEEDANCE_RATIOS[seedanceVariant].includes(seedanceRatio) ? seedanceRatio : '16:9';
+  const effectiveSeedanceRatio = SEEDANCE_RATIOS[seedanceVariant].includes(seedanceRatio)
+    ? seedanceRatio
+    : seedanceVariant === 'v2_5' ? 'adaptive' : '16:9';
   const effectiveSeedanceDuration = clampSeedanceDuration(seedanceVariant, seedanceDuration);
   const effectiveWanDuration = wanUsesReferenceToVideo && wanDuration > 10 ? 10 : wanDuration;
 
@@ -242,7 +257,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
     const snapshot: StoredVideoSettings = {
       wanDuration, wanResolution, wanRatio, wanAudio, wanMultiShots,
       seedanceVariant, seedanceDuration, seedanceResolution, seedanceRatio,
-      seedanceGenerateAudio, seedanceWebSearch,
+      seedanceGenerateAudio, seedanceWebSearch, seedanceReturnLastFrame, seedanceOutputFormat,
     };
     Object.assign(storedVideoSettings, snapshot);
     try {
@@ -253,7 +268,29 @@ const Composer: React.FC<ComposerProps> = (props) => {
   }, [
     wanDuration, wanResolution, wanRatio, wanAudio, wanMultiShots,
     seedanceVariant, seedanceDuration, seedanceResolution, seedanceRatio,
-    seedanceGenerateAudio, seedanceWebSearch,
+    seedanceGenerateAudio, seedanceWebSearch, seedanceReturnLastFrame, seedanceOutputFormat,
+  ]);
+
+  useEffect(() => {
+    if (seedanceReferenceImages.length > seedanceReferenceLimits.images) {
+      onSeedanceReferenceImagesChange(seedanceReferenceImages.slice(0, seedanceReferenceLimits.images));
+    }
+    const maxUploadedVideos = Math.max(0, seedanceReferenceLimits.videos - (seedanceReferenceVideoUrl ? 1 : 0));
+    if (seedanceReferenceVideoFiles.length > maxUploadedVideos) {
+      onSeedanceReferenceVideosChange(seedanceReferenceVideoFiles.slice(0, maxUploadedVideos));
+    }
+    if (seedanceReferenceAudioFiles.length > seedanceReferenceLimits.audios) {
+      onSeedanceReferenceAudiosChange(seedanceReferenceAudioFiles.slice(0, seedanceReferenceLimits.audios));
+    }
+  }, [
+    onSeedanceReferenceAudiosChange,
+    onSeedanceReferenceImagesChange,
+    onSeedanceReferenceVideosChange,
+    seedanceReferenceAudioFiles,
+    seedanceReferenceImages,
+    seedanceReferenceLimits,
+    seedanceReferenceVideoFiles,
+    seedanceReferenceVideoUrl,
   ]);
 
   useEffect(() => {
@@ -286,6 +323,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
         seedanceInputMode,
         seedanceGenerateAudio,
         seedanceWebSearch,
+        seedanceReturnLastFrame,
+        seedanceOutputFormat,
       });
     } else {
       onGenerateVideo({
@@ -303,6 +342,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const generateDisabled = isLoading
     || !prompt.trim()
     || (mode === 'video' && videoProvider === 'seedance' && seedanceInputMode === 'frames' && !seedanceFirstFrame)
+    || (mode === 'video' && videoProvider === 'seedance' && seedanceMediaDurationInvalid)
     || (mode === 'image' && imageSupportsReferences && retouchActive && !hasHotspot);
 
   const placeholder = mode === 'video'
@@ -366,7 +406,11 @@ const Composer: React.FC<ComposerProps> = (props) => {
         }}
         placeholder={placeholder}
         rows={3}
-        maxLength={mode === 'image' && normalizedImage.provider === 'zimage' ? 1000 : 5000}
+        maxLength={mode === 'image' && normalizedImage.provider === 'zimage'
+          ? 1000
+          : mode === 'video' && videoProvider === 'seedance' && seedanceVariant === 'v2_5'
+            ? 30000
+            : 5000}
         disabled={isLoading}
         className="composer-prompt-input max-h-64 min-h-24 w-full resize-none bg-transparent px-1.5 py-1 text-base leading-relaxed text-gray-100 placeholder:text-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-28"
       />
@@ -496,7 +540,9 @@ const Composer: React.FC<ComposerProps> = (props) => {
         {/* Duration (video only) */}
         {mode === 'video' && (
           <Dropdown
-            label={`${videoProvider === 'seedance' ? effectiveSeedanceDuration : effectiveWanDuration}s`}
+            label={videoProvider === 'seedance' && effectiveSeedanceDuration === -1
+              ? 'Auto'
+              : `${videoProvider === 'seedance' ? effectiveSeedanceDuration : effectiveWanDuration}s`}
             title="Duration"
             disabled={isLoading}
             panelWidthClassName="sm:w-60"
@@ -506,17 +552,31 @@ const Composer: React.FC<ComposerProps> = (props) => {
                 <PanelHeading>Duration</PanelHeading>
                 {videoProvider === 'seedance' ? (
                   <>
+                    {seedanceVariant === 'v2_5' && (
+                      <OptionRow
+                        selected={effectiveSeedanceDuration === -1}
+                        label="Automatic"
+                        sublabel="Model chooses 4–30 seconds"
+                        onSelect={() => { setSeedanceDuration(-1); close(); }}
+                      />
+                    )}
                     <StepperRow
-                      label="Length"
-                      value={effectiveSeedanceDuration}
+                      label={seedanceVariant === 'v2_5' ? 'Exact length' : 'Length'}
+                      value={effectiveSeedanceDuration === -1 ? seedanceDurationLimits.defaultValue : effectiveSeedanceDuration}
                       min={seedanceDurationLimits.min}
                       max={seedanceDurationLimits.max}
                       onChange={setSeedanceDuration}
                       disabled={isLoading}
                     />
+                    {effectiveSeedanceDuration === -1 ? (
+                      <p className="px-3 pb-1.5 text-[11px] text-gray-500">
+                        Up to 30s at {effectiveSeedanceResolution} · <span className="font-semibold text-gray-300">up to {seedanceCreditCost} cr</span>
+                      </p>
+                    ) : (
                     <p className="px-3 pb-1.5 text-[11px] text-gray-500">
                       {effectiveSeedanceDuration}s at {effectiveSeedanceResolution} · <span className="font-semibold text-gray-300">{seedanceCreditCost} cr</span>
                     </p>
+                    )}
                   </>
                 ) : (
                   wanDurationOptions.map((duration) => (
@@ -643,19 +703,21 @@ const Composer: React.FC<ComposerProps> = (props) => {
                   <>
                     <ImageGrid
                       files={seedanceReferenceImages}
-                      maxFiles={SEEDANCE_MAX_REFERENCE_IMAGES}
+                      maxFiles={seedanceReferenceLimits.images}
                       label="Style & character images"
                       helper="Image roles are guided by your prompt."
                       disabled={isLoading}
                       onChange={onSeedanceReferenceImagesChange}
                     />
-                    <VideoSlot
-                      file={seedanceReferenceVideoFile}
+                    <VideoGrid
+                      files={seedanceReferenceVideoFiles}
                       url={seedanceReferenceVideoUrl}
-                      label="Reference video"
-                      helper="Up to 15s input"
+                      maxFiles={seedanceReferenceLimits.videos}
+                      label="Reference videos"
+                      helper={`Up to ${seedanceReferenceLimits.mediaSeconds}s total`}
+                      accept={seedanceVariant === 'v2_5' ? 'video/mp4,video/quicktime,video/x-matroska,.mp4,.mov,.mkv' : 'video/mp4,video/quicktime,.mp4,.mov'}
                       disabled={isLoading}
-                      onSelect={onSeedanceReferenceVideoSelect}
+                      onChange={onSeedanceReferenceVideosChange}
                       onRemoveUrl={onSeedanceReferenceVideoUrlRemove}
                       action={hasGeneratedVideo ? (
                         <button
@@ -668,11 +730,19 @@ const Composer: React.FC<ComposerProps> = (props) => {
                         </button>
                       ) : undefined}
                     />
-                    <AudioSlot
-                      file={seedanceReferenceAudioFile}
+                    <AudioGrid
+                      files={seedanceReferenceAudioFiles}
+                      maxFiles={seedanceReferenceLimits.audios}
+                      helper={`Up to ${seedanceReferenceLimits.mediaSeconds}s total`}
+                      accept={seedanceVariant === 'v2_5' ? 'audio/mpeg,audio/wav,audio/x-wav,audio/aac,audio/mp4,audio/ogg,.mp3,.wav,.aac,.m4a,.ogg' : 'audio/mpeg,audio/wav,.mp3,.wav'}
                       disabled={isLoading}
-                      onSelect={onSeedanceReferenceAudioSelect}
+                      onChange={onSeedanceReferenceAudiosChange}
                     />
+                    {seedanceMediaDurationInvalid && (
+                      <p className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200">
+                        Reference video and audio must each total {seedanceReferenceLimits.mediaSeconds} seconds or less.
+                      </p>
+                    )}
                   </>
                 )}
               </>
@@ -746,6 +816,21 @@ const Composer: React.FC<ComposerProps> = (props) => {
                 ) : (
                   <>
                     <PanelHeading>Seedance options</PanelHeading>
+                    {seedanceVariant === 'v2_5' && (
+                      <>
+                        <PanelHeading>Output format</PanelHeading>
+                        {(['mp4', 'mov'] as SeedanceOutputFormat[]).map((format) => (
+                          <OptionRow
+                            key={format}
+                            selected={seedanceOutputFormat === format}
+                            label={format.toUpperCase()}
+                            sublabel={format === 'mov' ? 'Editing-friendly container' : 'Most compatible'}
+                            onSelect={() => { setSeedanceOutputFormat(format); close(); }}
+                          />
+                        ))}
+                        <PanelHeading>Generation</PanelHeading>
+                      </>
+                    )}
                     <ToggleRow
                       label="Generate audio"
                       description="Synchronized AI audio when supported"
@@ -753,6 +838,15 @@ const Composer: React.FC<ComposerProps> = (props) => {
                       onChange={setSeedanceGenerateAudio}
                       disabled={isLoading}
                     />
+                    {seedanceVariant === 'v2_5' && (
+                      <ToggleRow
+                        label="Return last frame"
+                        description="Include a final-frame image for chaining"
+                        checked={seedanceReturnLastFrame}
+                        onChange={setSeedanceReturnLastFrame}
+                        disabled={isLoading}
+                      />
+                    )}
                     <ToggleRow
                       label="Web search"
                       description="Allow online context for grounding"

@@ -251,6 +251,116 @@ export const VideoSlot: React.FC<VideoSlotProps> = ({ file, url, label, helper, 
   );
 };
 
+interface VideoGridProps {
+  files: File[];
+  url?: string | null;
+  maxFiles: number;
+  label: string;
+  helper?: string;
+  accept?: string;
+  disabled?: boolean;
+  onChange: (files: File[]) => void;
+  onRemoveUrl?: () => void;
+  action?: React.ReactNode;
+}
+
+const VideoFilePreview: React.FC<{ file: File }> = ({ file }) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  return previewUrl
+    ? <video src={previewUrl} muted playsInline className="h-full w-full bg-black object-cover" />
+    : null;
+};
+
+export const VideoGrid: React.FC<VideoGridProps> = ({
+  files,
+  url,
+  maxFiles,
+  label,
+  helper,
+  accept = 'video/mp4,video/quicktime,.mp4,.mov',
+  disabled = false,
+  onChange,
+  onRemoveUrl,
+  action,
+}) => {
+  const referenceCount = files.length + (url ? 1 : 0);
+  const remainingSlots = Math.max(0, maxFiles - referenceCount);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500">{label}</span>
+        <div className="flex items-center gap-2">
+          {action}
+          <span className="text-[11px] tabular-nums text-gray-600">{referenceCount}/{maxFiles}</span>
+        </div>
+      </div>
+      {referenceCount > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {url && (
+            <div className="edge relative aspect-video overflow-hidden rounded-xl bg-black/50">
+              <video src={url} muted playsInline className="h-full w-full bg-black object-cover" />
+              <button
+                type="button"
+                onClick={onRemoveUrl}
+                disabled={disabled}
+                aria-label="Remove remote reference video"
+                className="edge absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-gray-200 transition hover:bg-black/85 hover:text-white disabled:opacity-50"
+              >
+                <XIcon className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          {files.map((file, index) => (
+            <div key={`${file.name}-${file.lastModified}-${index}`} className="edge relative aspect-video overflow-hidden rounded-xl bg-black/50">
+              <VideoFilePreview file={file} />
+              <button
+                type="button"
+                onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))}
+                disabled={disabled}
+                aria-label={`Remove reference video ${index + 1}`}
+                className="edge absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/65 text-gray-200 transition hover:bg-black/85 hover:text-white disabled:opacity-50"
+              >
+                <XIcon className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {remainingSlots > 0 && (
+        <label
+          className={`edge flex items-center justify-center gap-2 rounded-xl px-3 py-3.5 text-center transition ${
+            disabled ? 'cursor-not-allowed bg-white/[0.02] opacity-50' : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
+          }`}
+        >
+          <VideoIcon className="h-5 w-5 text-gray-500" />
+          <span className="text-xs font-medium text-gray-300">Add video{remainingSlots > 1 ? 's' : ''}</span>
+          {helper && <span className="text-[11px] text-gray-600">{helper}</span>}
+          <input
+            type="file"
+            accept={accept}
+            multiple={remainingSlots > 1}
+            className="hidden"
+            disabled={disabled}
+            onChange={(event) => {
+              const incoming = Array.from(event.currentTarget.files ?? []);
+              onChange([...files, ...incoming].slice(0, maxFiles - (url ? 1 : 0)));
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
+      )}
+    </div>
+  );
+};
+
 /* ------------------------------------------------------------------ */
 /* Audio reference slot                                                 */
 /* ------------------------------------------------------------------ */
@@ -292,6 +402,60 @@ export const AudioSlot: React.FC<AudioSlotProps> = ({ file, disabled = false, on
           disabled={disabled}
           onChange={(event) => {
             onSelect(event.target.files?.[0] || null);
+            event.currentTarget.value = '';
+          }}
+        />
+      </label>
+    )}
+  </div>
+);
+
+interface AudioGridProps {
+  files: File[];
+  maxFiles: number;
+  helper?: string;
+  accept?: string;
+  disabled?: boolean;
+  onChange: (files: File[]) => void;
+}
+
+export const AudioGrid: React.FC<AudioGridProps> = ({ files, maxFiles, helper, accept = 'audio/mpeg,audio/wav,.mp3,.wav', disabled = false, onChange }) => (
+  <div className="flex flex-col gap-1.5">
+    <div className="flex items-baseline justify-between px-1">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500">Reference audio</span>
+      <span className="text-[11px] tabular-nums text-gray-600">{files.length}/{maxFiles}</span>
+    </div>
+    {files.map((file, index) => (
+      <div key={`${file.name}-${file.lastModified}-${index}`} className="edge flex items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+        <span className="min-w-0 truncate text-sm text-gray-300">{file.name}</span>
+        <button
+          type="button"
+          onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))}
+          disabled={disabled}
+          aria-label={`Remove reference audio ${index + 1}`}
+          className="edge flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/50 text-gray-200 transition hover:bg-black/80 hover:text-white disabled:opacity-50"
+        >
+          <XIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    ))}
+    {files.length < maxFiles && (
+      <label
+        className={`edge flex items-center justify-center gap-2 rounded-xl px-3 py-3.5 text-center transition ${
+          disabled ? 'cursor-not-allowed bg-white/[0.02] opacity-50' : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
+        }`}
+      >
+        <span className="text-xs font-medium text-gray-300">Add audio</span>
+        <span className="text-[11px] text-gray-600">{helper || 'music, voice, rhythm'}</span>
+        <input
+          type="file"
+          accept={accept}
+          multiple={maxFiles - files.length > 1}
+          className="hidden"
+          disabled={disabled}
+          onChange={(event) => {
+            const incoming = Array.from(event.currentTarget.files ?? []);
+            onChange([...files, ...incoming].slice(0, maxFiles));
             event.currentTarget.value = '';
           }}
         />
