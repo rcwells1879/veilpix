@@ -10,6 +10,7 @@
 import React, { Suspense, lazy } from 'react';
 import type { Crop, PixelCrop } from 'react-image-crop';
 import Spinner from '../Spinner';
+import SeedanceAnnouncement from '../SeedanceAnnouncement';
 import {
   UndoIcon,
   RedoIcon,
@@ -122,6 +123,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
   return (
     <div className="relative flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 self-center py-4 min-h-[38vh]">
       {/* Empty state - the serene hero over the wallpaper */}
+      <SeedanceAnnouncement />
       {isEmpty && !isLoading && (
         <div className="flex flex-col items-center gap-3 px-4 text-center animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight text-[#E04F67] sm:text-5xl">

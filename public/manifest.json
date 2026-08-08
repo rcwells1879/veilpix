@@ -1,7 +1,7 @@
 {
   "name": "VeilPix - AI Image and Video Generator",
   "short_name": "VeilPix",
-  "description": "Private AI image editing and video generation with Nano Banana 2, Seedream 5, Wan 2.6/2.7, and Seedance 2.0.",
+  "description": "Private AI image editing and Seedance 2.5 video generation up to 30 seconds with multimodal references, MP4 or MOV output, and last-frame continuation.",
   "start_url": "/veilpix/",
   "display": "standalone",
   "background_color": "#020106",

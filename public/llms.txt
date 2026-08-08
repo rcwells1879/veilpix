@@ -6,19 +6,20 @@ VeilPix is a free-to-try, privacy-focused AI image and video generator for photo
 ## Key Facts
 - Free tier: 30 credits after sign-up
 - AI image models: Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image
-- AI video models: Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, Wan 2.7 reference-to-video, and Seedance 2.0 multimodal video generation
+- AI video models: Seedance 2.5 for up to 30-second text-to-video, image-to-video, video-to-video, and multimodal reference generation; Wan 2.6 text-to-video; Wan 2.6 Flash image-to-video; and Wan 2.7 reference-to-video
 - Privacy: Browser-local creative history, no public creation feed, and AI requests proxied through VeilPix; provider retention applies
-- Formats: JPEG, PNG, WebP, HEIC (auto-converted), plus common video references such as MP4, WebM, and MOV
+- Formats: JPEG, PNG, WebP, HEIC (auto-converted), common video references such as MP4, WebM, and MOV, and Seedance 2.5 output in MP4 or MOV
 
 ## Features
 1. AI Photo Editing - Retouch images, remove objects, change colors, and adjust lighting
 2. Text-to-Image - Generate new images from natural-language prompts
 3. Multi-image Composition - Combine reference images into new outputs
-4. Text-to-Video - Create Wan 2.6 or Seedance 2.0 videos from written prompts
-5. Image-to-Video - Animate still images with Wan 2.6 Flash or Seedance 2.0
-6. Reference-to-Video - Guide Wan 2.7 videos with image and video references
-7. Seedance 2.0 - Generate multimodal videos using text, image, video, and audio references
-8. Privacy-Focused Workflow - Creation history stays in the browser instead of a persistent VeilPix server-side library
+4. Text-to-Video - Create Wan 2.6 or Seedance 2.5 videos from written prompts
+5. Image-to-Video - Animate still images with Wan 2.6 Flash or Seedance 2.5
+6. Reference-to-Video - Guide Wan 2.7 or Seedance 2.5 videos with image and video references
+7. Seedance 2.5 - Generate clips up to 30 seconds using text, image, video, and audio inputs with MP4 or MOV output
+8. Long-Form Video Continuation - Continue from a provider-returned or locally extracted last frame, save that frame to the local gallery, and stitch clips in the Video Editor
+9. Privacy-Focused Workflow - Creation history stays in the browser instead of a persistent VeilPix server-side library
 
 ## Age-Verified After Dark
 VeilPix includes an age-verified 18+ mode for private NSFW and adult creative workflows where supported by the selected model provider. VeilPix still applies account controls, provider safety systems, and misuse prevention.
@@ -30,7 +31,7 @@ VeilPix includes an age-verified 18+ mode for private NSFW and adult creative wo
 - Wan 2.6: Text-to-video generation
 - Wan 2.6 Flash: Image-to-video generation
 - Wan 2.7: Reference-to-video generation
-- Seedance 2.0: Multimodal video generation with text, image, video, and audio inputs
+- Seedance 2.5: Up to 30-second multimodal video generation with text, image, video, and audio inputs, MP4 or MOV output, and last-frame continuation
 
 ## Pricing
 - Free to try: 30 credits after sign-up
@@ -49,4 +50,5 @@ VeilPix includes an age-verified 18+ mode for private NSFW and adult creative wo
 
 Website: https://veilstudio.io/veilpix/
 Blog: https://veilstudio.io/veilpix/blog/
+Seedance 2.5 long-form video guide: https://veilstudio.io/veilpix/blog/seedance-2-5-long-form-video/
 Privacy: https://veilstudio.io/veilpix/privacy/

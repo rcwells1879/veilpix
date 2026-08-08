@@ -3,13 +3,13 @@
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://veilstudio.io/veilpix/</loc>
-    <lastmod>2026-07-24</lastmod>
+    <lastmod>2026-08-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://veilstudio.io/veilpix/og-image.webp</image:loc>
-      <image:title>VeilPix AI Image and Video Generator - Seedream 5, Wan 2.7, Nano Banana 2, and Seedance</image:title>
-      <image:caption>Private AI image editing, text-to-image, text-to-video, image-to-video, and reference-to-video generation</image:caption>
+      <image:title>VeilPix AI Image and Video Generator with Seedance 2.5</image:title>
+      <image:caption>Create Seedance 2.5 clips up to 30 seconds with multimodal references, MP4 or MOV output, and last-frame continuation</image:caption>
     </image:image>
     <image:image>
       <image:loc>https://veilstudio.io/veilpix/showcase/civic-800w.webp</image:loc>
@@ -56,9 +56,15 @@
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/</loc>
-    <lastmod>2026-07-14</lastmod>
+    <lastmod>2026-08-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://veilstudio.io/veilpix/blog/seedance-2-5-long-form-video/</loc>
+    <lastmod>2026-08-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/seedream-5-vs-wan-2-7-vs-nano-banana-2/</loc>

@@ -13,7 +13,7 @@ interface FAQItem {
 const faqData: FAQItem[] = [
   {
     question: 'What is VeilPix and how does it work?',
-    answer: 'VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, and reference-to-video clips with models including Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, Wan 2.6, Wan 2.6 Flash, Wan 2.7, and Seedance 2.0.',
+    answer: 'VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, video-to-video, and reference-to-video clips with models including Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, Wan 2.6, Wan 2.6 Flash, Wan 2.7, and Seedance 2.5.',
   },
   {
     question: 'What is VeilPix After Dark?',
@@ -21,7 +21,11 @@ const faqData: FAQItem[] = [
   },
   {
     question: 'Can VeilPix generate videos?',
-    answer: 'Yes. VeilPix supports Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, Wan 2.7 reference-to-video, Seedance 2.0 multimodal video generation, and reference workflows that can use images, video, and audio as creative guidance.',
+    answer: 'Yes. VeilPix supports Seedance 2.5 clips up to 30 seconds with text, image, video, and audio inputs plus MP4 or MOV output. It also supports Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, and Wan 2.7 reference-to-video.',
+  },
+  {
+    question: 'How do I make a longer Seedance 2.5 video in VeilPix?',
+    answer: 'Generate a Seedance 2.5 clip, select Continue from last frame below the result, write the next part of the scene, and generate again. VeilPix uses the provider-returned final frame when available or extracts a usable frame from the video, saves it to your browser-local gallery, and places it in the next clip\'s first-frame slot. Repeat the process and combine clips in the VeilPix Video Editor.',
   },
   {
     question: 'What makes VeilPix different from other AI photo editors?',
@@ -45,7 +49,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: 'What AI models does VeilPix use?',
-    answer: 'VeilPix uses Nano Banana 2, Seedream 5 Lite/Pro, and Wan 2.7 Image for image generation and editing, plus Wan 2.6, Wan 2.7, and Seedance 2.0 for video workflows.',
+    answer: 'VeilPix uses Nano Banana 2, Seedream 5 Lite/Pro, and Wan 2.7 Image for image generation and editing, plus Wan 2.6, Wan 2.7, and Seedance 2.5 for video workflows.',
   },
   {
     question: 'What file formats does VeilPix support?',
