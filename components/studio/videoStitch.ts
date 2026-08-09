@@ -7,8 +7,8 @@
  * trip. Works on local File/Blob sources so the canvas is never tainted.
  */
 
-const LOAD_TIMEOUT_MS = 15_000;
-const NEXT_CLIP_PREWARM_SECONDS = 3;
+const LOAD_TIMEOUT_MS = 30_000;
+const FRAME_DECODE_TIMEOUT_MS = 30_000;
 
 export interface StitchProgress {
   phase: 'preparing' | 'rendering' | 'finalizing';
@@ -43,7 +43,7 @@ function waitForEvent(video: HTMLVideoElement, eventName: string, timeoutMs = LO
   });
 }
 
-function waitForPresentedFrame(video: HTMLVideoElement, timeoutMs = LOAD_TIMEOUT_MS): Promise<void> {
+function waitForPresentedFrame(video: HTMLVideoElement, timeoutMs = FRAME_DECODE_TIMEOUT_MS): Promise<void> {
   return new Promise((resolve, reject) => {
     let videoFrameHandle: number | null = null;
     let animationFrameHandle: number | null = null;
@@ -108,15 +108,13 @@ async function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
   await Promise.all([seeked, frameReady]);
 }
 
-async function prepareVideoForPlayback(video: HTMLVideoElement, reload = true): Promise<void> {
+async function prepareVideoForPlayback(video: HTMLVideoElement): Promise<void> {
   video.pause();
 
-  if (reload) {
-    const metadataReady = waitForEvent(video, 'loadedmetadata');
-    const firstFrameReady = waitForPresentedFrame(video);
-    video.load();
-    await Promise.all([metadataReady, firstFrameReady]);
-  }
+  const metadataReady = waitForEvent(video, 'loadedmetadata');
+  const firstFrameReady = waitForPresentedFrame(video);
+  video.load();
+  await Promise.all([metadataReady, firstFrameReady]);
   if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
     await waitForEvent(video, 'canplay');
   }
@@ -393,12 +391,9 @@ export async function stitchVideos(
     await started;
 
     let renderedSeconds = 0;
-    const upcomingPreparations = new Map<number, Promise<void>>();
     for (let index = 0; index < videos.length; index++) {
       const video = videos[index];
       if (index > 0) {
-        const preparation = upcomingPreparations.get(index);
-        if (preparation) await preparation;
         drawContain(ctx, video, width, height);
         const gainTime = audioContext.currentTime;
         audioGains.forEach((gain, gainIndex) => {
@@ -411,22 +406,6 @@ export async function stitchVideos(
           phase: 'rendering',
           progress: totalDuration > 0 ? Math.min((renderedSeconds + currentTime) / totalDuration, 1) : 0,
         });
-
-        const nextIndex = index + 1;
-        const remaining = (video.duration || 0) - currentTime;
-        if (
-          nextIndex < videos.length
-          && remaining <= NEXT_CLIP_PREWARM_SECONDS
-          && !upcomingPreparations.has(nextIndex)
-        ) {
-          // Overlap decoder warm-up with the active clip while its audio gain
-          // is zero, avoiding WebKit's MediaRecorder pause/resume path.
-          const preparation = prepareVideoForPlayback(videos[nextIndex], false);
-          // Attach a handler immediately so a decoder failure is not reported
-          // as unhandled before the transition awaits the original promise.
-          preparation.catch(() => undefined);
-          upcomingPreparations.set(nextIndex, preparation);
-        }
       });
       renderedSeconds += video.duration || 0;
     }
