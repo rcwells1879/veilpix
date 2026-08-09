@@ -8,6 +8,7 @@
  */
 
 const LOAD_TIMEOUT_MS = 15_000;
+const NEXT_CLIP_PREWARM_SECONDS = 3;
 
 export interface StitchProgress {
   phase: 'preparing' | 'rendering' | 'finalizing';
@@ -107,21 +108,21 @@ async function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
   await Promise.all([seeked, frameReady]);
 }
 
-async function prepareVideoForPlayback(video: HTMLVideoElement): Promise<void> {
+async function prepareVideoForPlayback(video: HTMLVideoElement, reload = true): Promise<void> {
   video.pause();
 
-  // Reload while the recorder is inactive/paused so iOS cannot turn decoder
-  // startup latency into frozen video and silence in the rendered file.
-  const metadataReady = waitForEvent(video, 'loadedmetadata');
-  const firstFrameReady = waitForPresentedFrame(video);
-  video.load();
-  await Promise.all([metadataReady, firstFrameReady]);
+  if (reload) {
+    const metadataReady = waitForEvent(video, 'loadedmetadata');
+    const firstFrameReady = waitForPresentedFrame(video);
+    video.load();
+    await Promise.all([metadataReady, firstFrameReady]);
+  }
   if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
     await waitForEvent(video, 'canplay');
   }
 
   // Briefly start playback to wake the decoder, then return to an actually
-  // decoded frame at time zero before recording resumes.
+  // decoded frame at time zero before this clip is rendered.
   const playing = waitForEvent(video, 'playing');
   const playbackFrameReady = waitForPresentedFrame(video);
   await Promise.all([video.play(), playing, playbackFrameReady]);
@@ -206,7 +207,6 @@ function playThrough(
   width: number,
   height: number,
   onTime: (currentTime: number) => void,
-  onPlaying?: () => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let rafHandle: number | null = null;
@@ -261,10 +261,9 @@ function playThrough(
     const onError = () => fail('Playback failed while rendering.');
     const beginDrawing = () => {
       try {
-        onPlaying?.();
         scheduleFrame();
       } catch {
-        fail('The browser could not resume rendering the next clip.');
+        fail('The browser could not continue rendering the clip.');
       }
     };
 
@@ -277,7 +276,7 @@ function playThrough(
 
 function waitForRecorderEvent(
   recorder: MediaRecorder,
-  eventName: 'start' | 'pause',
+  eventName: 'start',
   timeoutMs = LOAD_TIMEOUT_MS,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -322,6 +321,7 @@ export async function stitchVideos(
   const urls = files.map((file) => URL.createObjectURL(file));
   const videos: HTMLVideoElement[] = [];
   let audioContext: AudioContext | null = null;
+  let recorder: MediaRecorder | null = null;
 
   try {
     for (const url of urls) {
@@ -352,18 +352,23 @@ export async function stitchVideos(
     // Mix clip audio into the recording (silent clips are fine)
     audioContext = new AudioContext();
     const audioDestination = audioContext.createMediaStreamDestination();
-    videos.forEach((video) => {
+    const audioGains = videos.map((video, index) => {
       try {
         const source = audioContext!.createMediaElementSource(video);
-        source.connect(audioDestination);
+        const gain = audioContext!.createGain();
+        gain.gain.value = index === 0 ? 1 : 0;
+        source.connect(gain);
+        gain.connect(audioDestination);
+        return gain;
       } catch {
         // No usable audio on this element — video-only is fine.
+        return null;
       }
     });
     audioDestination.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
     await audioContext.resume().catch(() => undefined);
 
-    const recorder = new MediaRecorder(stream, {
+    recorder = new MediaRecorder(stream, {
       mimeType,
       videoBitsPerSecond: 12_000_000,
       audioBitsPerSecond: 192_000,
@@ -376,7 +381,11 @@ export async function stitchVideos(
       recorder.onstop = () => resolve();
     });
 
-    await prepareVideoForPlayback(videos[0]);
+    // Prepare later clips first, then clip one last so its decoder is hottest
+    // when recording begins. Upcoming audio remains gated off by its gain node.
+    for (let index = videos.length - 1; index >= 0; index--) {
+      await prepareVideoForPlayback(videos[index]);
+    }
     drawContain(ctx, videos[0], width, height);
 
     const started = waitForRecorderEvent(recorder, 'start');
@@ -384,11 +393,17 @@ export async function stitchVideos(
     await started;
 
     let renderedSeconds = 0;
+    const upcomingPreparations = new Map<number, Promise<void>>();
     for (let index = 0; index < videos.length; index++) {
       const video = videos[index];
       if (index > 0) {
-        await prepareVideoForPlayback(video);
+        const preparation = upcomingPreparations.get(index);
+        if (preparation) await preparation;
         drawContain(ctx, video, width, height);
+        const gainTime = audioContext.currentTime;
+        audioGains.forEach((gain, gainIndex) => {
+          gain?.gain.setValueAtTime(gainIndex === index ? 1 : 0, gainTime);
+        });
       }
 
       await playThrough(video, ctx, width, height, (currentTime) => {
@@ -396,16 +411,24 @@ export async function stitchVideos(
           phase: 'rendering',
           progress: totalDuration > 0 ? Math.min((renderedSeconds + currentTime) / totalDuration, 1) : 0,
         });
-      }, index > 0 ? () => {
-        if (recorder.state === 'paused') recorder.resume();
-      } : undefined);
-      renderedSeconds += video.duration || 0;
 
-      if (index < videos.length - 1 && recorder.state === 'recording') {
-        const paused = waitForRecorderEvent(recorder, 'pause');
-        recorder.pause();
-        await paused;
-      }
+        const nextIndex = index + 1;
+        const remaining = (video.duration || 0) - currentTime;
+        if (
+          nextIndex < videos.length
+          && remaining <= NEXT_CLIP_PREWARM_SECONDS
+          && !upcomingPreparations.has(nextIndex)
+        ) {
+          // Overlap decoder warm-up with the active clip while its audio gain
+          // is zero, avoiding WebKit's MediaRecorder pause/resume path.
+          const preparation = prepareVideoForPlayback(videos[nextIndex], false);
+          // Attach a handler immediately so a decoder failure is not reported
+          // as unhandled before the transition awaits the original promise.
+          preparation.catch(() => undefined);
+          upcomingPreparations.set(nextIndex, preparation);
+        }
+      });
+      renderedSeconds += video.duration || 0;
     }
 
     onProgress?.({ phase: 'finalizing', progress: 1 });
@@ -416,6 +439,7 @@ export async function stitchVideos(
     if (blob.size === 0) throw new Error('Rendering produced no data. Try a different browser.');
     return { blob, duration: totalDuration };
   } finally {
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
     videos.forEach((video) => {
       video.pause();
       video.removeAttribute('src');
