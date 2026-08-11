@@ -110,6 +110,8 @@ interface DropdownProps {
   highlighted?: boolean;
   panelWidthClassName?: string;
   align?: 'left' | 'right';
+  /** Keep the page behind the mobile sheet interactive (for gallery drag/drop). */
+  allowMobileBackgroundInteraction?: boolean;
   children: React.ReactNode | ((close: () => void) => React.ReactNode);
 }
 
@@ -122,6 +124,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
   highlighted = false,
   panelWidthClassName = 'sm:w-64',
   align = 'left',
+  allowMobileBackgroundInteraction = false,
   children,
 }) => {
   const [open, setOpen] = useState(false);
@@ -184,12 +187,33 @@ export const Dropdown: React.FC<DropdownProps> = ({
 
       {open && (isMobile
         ? createPortal(
-            <div className="fixed inset-0 z-[75]" role="dialog" aria-modal="true">
-              <div className="absolute inset-0 bg-black/55" onClick={close} aria-hidden="true" />
+            <div
+              className={`fixed inset-0 z-[75] ${allowMobileBackgroundInteraction ? 'pointer-events-none' : ''}`}
+              role="dialog"
+              aria-modal={allowMobileBackgroundInteraction ? undefined : true}
+            >
               <div
-                className="glass-sheet edge absolute inset-x-3 bottom-3 max-h-[70dvh] overflow-y-auto rounded-2xl p-2 animate-fade-in-fast"
+                className={`absolute inset-0 bg-black/55 ${allowMobileBackgroundInteraction ? 'pointer-events-none' : ''}`}
+                onClick={allowMobileBackgroundInteraction ? undefined : close}
+                aria-hidden="true"
+              />
+              <div
+                className="glass-sheet edge pointer-events-auto absolute inset-x-3 bottom-3 max-h-[70dvh] overflow-y-auto rounded-2xl p-2 animate-fade-in-fast"
                 role="menu"
               >
+                {allowMobileBackgroundInteraction && (
+                  <div className="mb-1 flex items-center justify-between gap-3 px-2 py-1">
+                    <span className="text-[11px] text-gray-500">Album remains available for drag and drop</span>
+                    <button
+                      type="button"
+                      onClick={close}
+                      className="edge glass-chip flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-gray-300 transition hover:text-white"
+                    >
+                      Done
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
                 {typeof children === 'function' ? children(close) : children}
               </div>
             </div>,

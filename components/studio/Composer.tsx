@@ -602,6 +602,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
           disabled={isLoading}
           badge={mode === 'image' ? imageReferenceCount : videoReferenceCount}
           panelWidthClassName="sm:w-96"
+          allowMobileBackgroundInteraction
         >
           <div className="flex flex-col gap-3 p-1.5">
             {mode === 'image' && !imageSupportsReferences ? (
