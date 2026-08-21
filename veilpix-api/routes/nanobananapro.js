@@ -30,6 +30,7 @@ const {
     normalizeResponse,
     urlToBase64
 } = require('../utils/nanobananaproAdapter');
+const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
 
 const router = express.Router();
 
@@ -183,6 +184,10 @@ async function callNanoBananaProAPI(requestBody) {
 // Helper function to deduct 2 credits and track usage
 async function deductCreditsAndTrack(req, startTime, requestType, result, success = true, errorMessage = null) {
     const { user } = req;
+    const generationId = getGenerationId(req);
+    const storedResult = success && generationId
+        ? serializeImageGenerationResult(result, CREDITS_PER_GENERATION)
+        : errorMessage;
 
     console.log('CREDIT DEDUCT: Starting credit deduction (2 credits) and tracking', {
         userId: user?.userId,
@@ -195,11 +200,11 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
             userId: user.id,
             clerkUserId: user.userId,
             requestType,
-            geminiRequestId: 'nanobananapro-' + Date.now(),
+            geminiRequestId: generationId || 'nanobananapro-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
         });
 
         console.log('CREDIT DEDUCT: Successfully logged usage');

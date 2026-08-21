@@ -364,9 +364,20 @@ async function createThumbnail(file: File): Promise<Blob> {
  * Creates a thumbnail and stores both the full image and thumbnail
  * Enforces MAX_GALLERY_IMAGES limit by removing oldest
  */
-export async function saveToGallery(image: File, prompt = ''): Promise<void> {
+export async function saveToGallery(image: File, prompt = '', generationId?: string): Promise<void> {
   try {
     const db = await openDB();
+    if (generationId) {
+      const alreadySaved = await new Promise<boolean>((resolve, reject) => {
+        const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+        const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(
+          (request.result as GalleryImage[]).some(entry => entry.generationId === generationId)
+        );
+      });
+      if (alreadySaved) return;
+    }
     const thumbnail = await createThumbnail(image);
 
     const galleryImage: GalleryImage = {
@@ -375,6 +386,7 @@ export async function saveToGallery(image: File, prompt = ''): Promise<void> {
       createdAt: Date.now(),
       name: image.name,
       prompt,
+      generationId,
     };
 
     return new Promise((resolve, reject) => {

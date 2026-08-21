@@ -33,6 +33,7 @@ const {
     createKieApiError,
     getKieErrorHttpResponse
 } = require('../utils/kieApiError');
+const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
 
 const router = express.Router();
 
@@ -259,6 +260,10 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
     const { user } = req;
     const creditDetails = req.creditsInfo || getCreditDetailsForRequest(req);
     const creditsToDeduct = creditDetails.required || creditDetails.credits || 1;
+    const generationId = getGenerationId(req);
+    const storedResult = success && generationId
+        ? serializeImageGenerationResult(result, creditsToDeduct)
+        : errorMessage;
 
     try {
         if (success) {
@@ -279,11 +284,11 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
             requestType,
             costUsd: success ? creditDetails.costUsd : 0,
             chargedAmountUsd: success ? creditDetails.chargedAmountUsd : 0,
-            geminiRequestId: 'seedream-' + Date.now(),
+            geminiRequestId: generationId || 'seedream-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
             });
         } catch (logError) {
             console.error('Failed to log Seedream usage:', logError);

@@ -19,6 +19,8 @@ export interface ImageGenerationResponse {
   success: boolean
   message?: string
   creditsRemaining?: number
+  creditsUsed?: number
+  processingTime?: number
 }
 
 export interface UsageStats {
@@ -29,6 +31,7 @@ export interface UsageStats {
 }
 
 export interface GenerateEditRequest {
+  generationId?: string
   image: File
   prompt: string
   x: number
@@ -41,6 +44,7 @@ export interface GenerateEditRequest {
 }
 
 export interface GenerateFilterRequest {
+  generationId?: string
   image: File
   filterType: string
   resolution?: string  // For SeeDream API
@@ -51,6 +55,7 @@ export interface GenerateFilterRequest {
 }
 
 export interface GenerateAdjustRequest {
+  generationId?: string
   image: File
   prompt: string
   resolution?: string  // For Kie image model APIs
@@ -62,6 +67,7 @@ export interface GenerateAdjustRequest {
 }
 
 export interface GenerateCompositeRequest {
+  generationId?: string
   image1: File
   image2: File
   prompt: string
@@ -74,12 +80,17 @@ export interface GenerateCompositeRequest {
 }
 
 export interface GenerateTextToImageRequest {
+  generationId?: string
   prompt: string
   resolution?: string  // For Nano Banana 2 / Wan Image text-to-image
   aspectRatio?: string  // For Nano Banana 2 / Wan Image text-to-image
   seedreamTier?: 'lite' | 'pro'
   outputFormat?: 'png' | 'jpeg'
   nsfwFilterEnabled?: boolean  // For Wan Image text-to-image
+}
+
+function generationHeaders(generationId?: string): Record<string, string> {
+  return generationId ? { 'X-Generation-ID': generationId } : {}
 }
 
 // Custom hook for usage statistics (authenticated only)
@@ -141,7 +152,7 @@ export function useGenerateEditNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-edit', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -174,7 +185,7 @@ export function useGenerateFilterNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-filter', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -208,7 +219,7 @@ export function useGenerateAdjustNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-adjust', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -248,7 +259,7 @@ export function useGenerateCompositeNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/combine-photos', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -271,6 +282,7 @@ export function useGenerateTextToImage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
         },
         body: JSON.stringify({
           prompt: data.prompt,
@@ -326,7 +338,7 @@ export function useGenerateEditSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-edit', {
         method: 'POST',
         body: formData,
-        headers: {}, // Let browser set Content-Type for FormData
+        headers: generationHeaders(data.generationId), // Let browser set Content-Type for FormData
         requiresAuth: true
       })
     },
@@ -361,7 +373,7 @@ export function useGenerateFilterSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-filter', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -399,7 +411,7 @@ export function useGenerateAdjustSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-adjust', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -441,7 +453,7 @@ export function useGenerateCompositeSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/combine-photos', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -462,6 +474,7 @@ export function useGenerateTextToImageSeeDream() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
         },
         body: JSON.stringify({
           prompt: data.prompt,
@@ -511,7 +524,7 @@ export function useGenerateEditWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-edit', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -544,7 +557,7 @@ export function useGenerateFilterWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-filter', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -578,7 +591,7 @@ export function useGenerateAdjustWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-adjust', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -618,7 +631,7 @@ export function useGenerateCompositeWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/combine-photos', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -639,6 +652,7 @@ export function useGenerateTextToImageWanImage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
         },
         body: JSON.stringify({
           prompt: data.prompt,
@@ -666,6 +680,7 @@ export function useGenerateTextToImageZImage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
         },
         body: JSON.stringify({
           prompt: data.prompt,
@@ -680,6 +695,30 @@ export function useGenerateTextToImageZImage() {
     },
     retry: false,
   })
+}
+
+export interface ImageGenerationJobStatus {
+  status: 'pending' | 'succeeded' | 'failed'
+  image?: ImageGenerationResponse['image']
+  message?: string
+  creditsUsed?: number
+  processingTime?: number
+}
+
+export function useImageGenerationRecovery() {
+  const { apiRequest } = useApiClient()
+
+  return React.useCallback(async (generationId: string) => {
+    const status = await apiRequest<ImageGenerationJobStatus>(`/api/image-jobs/${encodeURIComponent(generationId)}`, {
+      method: 'GET',
+      cache: 'no-store',
+      requiresAuth: true,
+    })
+    if (status.status === 'succeeded') {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    }
+    return status
+  }, [apiRequest])
 }
 
 // Custom hook for optimistic image updates using React 19's useOptimistic

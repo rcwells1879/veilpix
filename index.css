@@ -233,6 +233,48 @@ body {
   box-shadow: none;
 }
 
+/* Short desktop viewports need a smaller vertical budget than large monitors.
+   Completed results remain in normal flow, while these rules keep the primary
+   media, action row, and composer visible together at common 720p/768p sizes. */
+@media (min-width: 768px) and (max-height: 820px) {
+  .studio-main {
+    padding-bottom: 1rem;
+  }
+
+  .studio-result-stage {
+    padding-block: 0.5rem;
+  }
+
+  .studio-result-media {
+    max-height: 40dvh;
+  }
+
+  .studio-composer-wrap {
+    margin-bottom: 0.75rem;
+  }
+
+  .studio-composer {
+    gap: 0.375rem;
+    padding: 0.75rem;
+  }
+
+  .composer-prompt-input {
+    height: 4.5rem;
+    min-height: 4.5rem;
+  }
+}
+
+@media (min-width: 768px) and (max-height: 680px) {
+  .studio-result-media {
+    max-height: 32dvh;
+  }
+
+  .composer-prompt-input {
+    height: 3.75rem;
+    min-height: 3.75rem;
+  }
+}
+
 /* Respect users who prefer less motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -365,7 +365,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
 
   /* ------------------------------------------------------------------ */
   return (
-    <section className="glass-panel edge flex w-full flex-col gap-2.5 rounded-3xl p-3 sm:p-4" aria-label="Prompt composer">
+    <section className="studio-composer glass-panel edge flex w-full flex-col gap-2.5 rounded-3xl p-3 sm:p-4" aria-label="Prompt composer">
       {/* Mode toggle + new session */}
       <div className="flex items-center justify-between gap-2">
         <SegmentedControl<StudioMode>

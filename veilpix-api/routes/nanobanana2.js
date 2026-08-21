@@ -32,6 +32,7 @@ const {
     normalizeResponse,
     urlToBase64
 } = require('../utils/nanobanana2Adapter');
+const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
 const {
     IMAGE_WORKFLOWS,
     getImageCreditDetails
@@ -200,6 +201,10 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
     const { user } = req;
     const creditDetails = req.creditsInfo || getCreditDetailsForRequest(req);
     const creditsToDeduct = creditDetails.required || creditDetails.credits || 1;
+    const generationId = getGenerationId(req);
+    const storedResult = success && generationId
+        ? serializeImageGenerationResult(result, creditsToDeduct)
+        : errorMessage;
 
     try {
         if (success) {
@@ -220,11 +225,11 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
             requestType,
             costUsd: success ? creditDetails.costUsd : 0,
             chargedAmountUsd: success ? creditDetails.chargedAmountUsd : 0,
-            geminiRequestId: 'nanobanana2-' + Date.now(),
+            geminiRequestId: generationId || 'nanobanana2-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
             });
         } catch (logError) {
             console.error('Failed to log Nano Banana 2 usage:', logError);

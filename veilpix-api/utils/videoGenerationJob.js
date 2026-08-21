@@ -17,6 +17,9 @@ function getVideoGenerationId(req) {
     return normalizeVideoGenerationId(req.get('X-Generation-ID'));
 }
 
+const normalizeGenerationId = normalizeVideoGenerationId;
+const getGenerationId = getVideoGenerationId;
+
 function serializeVideoGenerationResult(videoUrl, creditsUsed) {
     return JSON.stringify({
         videoUrl,
@@ -57,6 +60,8 @@ function videoGenerationJobResponse(record) {
 
 module.exports = {
     VIDEO_GENERATION_REQUEST_TYPES,
+    normalizeGenerationId,
+    getGenerationId,
     normalizeVideoGenerationId,
     getVideoGenerationId,
     serializeVideoGenerationResult,

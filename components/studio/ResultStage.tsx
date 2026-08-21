@@ -121,7 +121,9 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
   const sliderActive = showImage && showSlider && canUndo && activeTool === 'none' && Boolean(sliderBeforeImage);
 
   return (
-    <div className="relative flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 self-center py-4 min-h-[38vh]">
+    <div className={`studio-result-stage relative flex w-full max-w-3xl flex-col items-center justify-center gap-3 self-center py-4 ${
+      isEmpty ? 'min-h-[38vh] flex-1' : 'min-h-0 shrink-0'
+    }`}>
       {/* Empty state - the serene hero over the wallpaper */}
       <SeedanceAnnouncement />
       {isEmpty && !isLoading && (
@@ -144,7 +146,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
               src={videoUrl || undefined}
               controls
               playsInline
-              className="max-h-[52dvh] w-full bg-black object-contain"
+              className="studio-result-media max-h-[52dvh] w-full bg-black object-contain"
             />
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
@@ -185,7 +187,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
         <div className="flex w-full flex-col items-center gap-3 animate-fade-in">
           <div className="relative flex w-full items-center justify-center">
             {activeTool === 'crop' ? (
-              <Suspense fallback={<img src={currentImageUrl} alt="Crop this image" className="max-h-[48dvh] w-auto max-w-full rounded-2xl object-contain" />}>
+              <Suspense fallback={<img src={currentImageUrl} alt="Crop this image" className="studio-result-media max-h-[48dvh] w-auto max-w-full rounded-2xl object-contain" />}>
                 <CropEditor
                   src={currentImageUrl}
                   imageRef={imgRef}
@@ -213,7 +215,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
                     key={originalImageUrl}
                     src={originalImageUrl}
                     alt="Original"
-                    className="pointer-events-none max-h-[48dvh] w-auto max-w-full rounded-2xl object-contain"
+                    className="studio-result-media pointer-events-none max-h-[48dvh] w-auto max-w-full rounded-2xl object-contain"
                   />
                 )}
                 <img
@@ -222,7 +224,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
                   src={currentImageUrl}
                   alt="Current result"
                   onClick={onImageClick}
-                  className={`${originalImageUrl && isComparing && canUndo ? 'absolute left-0 top-0' : ''} max-h-[48dvh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-200 ${
+                  className={`${originalImageUrl && isComparing && canUndo ? 'absolute left-0 top-0' : ''} studio-result-media max-h-[48dvh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-200 ${
                     isComparing && canUndo ? 'opacity-0' : 'opacity-100'
                   } ${activeTool === 'retouch' ? 'cursor-crosshair' : ''}`}
                 />

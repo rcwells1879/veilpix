@@ -15,6 +15,7 @@ const {
     normalizeResponse,
     urlToBase64
 } = require('../utils/zImageAdapter');
+const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
 
 const router = express.Router();
 
@@ -153,8 +154,12 @@ async function checkUserCredits(req, res, next) {
     }
 }
 
-async function trackUsage(req, startTime, success, errorMessage = null) {
+async function trackUsage(req, startTime, success, errorMessage = null, result = null) {
     const creditDetails = req.creditsInfo || getCreditDetails();
+    const generationId = getGenerationId(req);
+    const storedResult = success && generationId
+        ? serializeImageGenerationResult(result, creditDetails.required)
+        : errorMessage;
 
     if (success) {
         const deduction = await db.deductUserCredits(req.user.userId, creditDetails.required);
@@ -174,11 +179,11 @@ async function trackUsage(req, startTime, success, errorMessage = null) {
             requestType: 'z-image text-to-image',
             costUsd: success ? creditDetails.costUsd : 0,
             chargedAmountUsd: success ? creditDetails.chargedAmountUsd : 0,
-            geminiRequestId: `zimage-${Date.now()}`,
+            geminiRequestId: generationId || `zimage-${Date.now()}`,
             imageSize: 'standard',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
         });
     } catch (logError) {
         console.error('Failed to log Z-Image usage:', logError);
@@ -224,7 +229,7 @@ router.post('/generate-text-to-image', express.json({ limit: '50kb' }), checkUse
             throw new Error(`Failed to convert image: ${conversionResult.error}`);
         }
 
-        await trackUsage(req, startTime, true);
+        await trackUsage(req, startTime, true, null, completedTask);
         usageLogged = true;
 
         res.json({

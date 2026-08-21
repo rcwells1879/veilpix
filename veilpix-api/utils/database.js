@@ -367,6 +367,26 @@ const db = {
         }
     },
 
+    async getImageGenerationJob(clerkUserId, generationId) {
+        try {
+            const supabase = getSupabaseClient();
+            const { IMAGE_GENERATION_REQUEST_TYPES } = require('./imageGenerationJob');
+            const { data, error } = await supabase
+                .from('usage_logs')
+                .select('success, error_message, processing_time_ms, request_type, created_at')
+                .eq('clerk_user_id', clerkUserId)
+                .eq('gemini_request_id', generationId)
+                .in('request_type', IMAGE_GENERATION_REQUEST_TYPES)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            return { job: data?.[0] || null, error };
+        } catch (error) {
+            console.error('Error getting image generation job:', error);
+            return { job: null, error };
+        }
+    },
+
     // Get user usage count for current month
     async getUserUsageCount(clerkUserId, periodStart = null) {
         try {

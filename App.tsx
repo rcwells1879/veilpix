@@ -28,11 +28,13 @@ import {
   useGenerateTextToImageSeeDream,
   useGenerateTextToImageWanImage,
   useGenerateTextToImageZImage,
+  useImageGenerationRecovery,
   useGenerateVideo,
   useGenerateReferenceToVideo,
   useGenerateTextToVideo,
   useGenerateSeedanceVideo,
   useVideoGenerationRecovery,
+  type ImageGenerationResponse,
   type VideoGenerationResponse,
   useUsageStats
 } from './src/hooks/useImageGeneration';
@@ -191,8 +193,19 @@ const getGenerationErrorMessage = (error: unknown, fallbackPrefix: string): stri
 /* ------------------------------------------------------------------ */
 
 const SETTINGS_STORAGE_KEY = 'veilpix-settings';
+const PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generation';
 const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
-const VIDEO_RECOVERY_TIMEOUT_MS = 30 * 60 * 1000;
+const GENERATION_RECOVERY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
+type RecoverableImageWorkflow = 'text-to-image' | 'retouch' | 'composite' | 'adjust';
+
+interface PendingImageGeneration {
+  id: string;
+  provider: ImageProvider;
+  prompt: string;
+  workflow: RecoverableImageWorkflow;
+  createdAt: number;
+}
 
 interface PendingVideoGeneration {
   id: string;
@@ -212,6 +225,36 @@ interface PendingVideoFiles {
   referenceImages: File[];
   referenceVideoFiles: File[];
   referenceVideoUrl: string | null;
+}
+
+function readPendingImageGeneration(): PendingImageGeneration | null {
+  try {
+    const raw = localStorage.getItem(PENDING_IMAGE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingImageGeneration>;
+    if (
+      typeof parsed.id !== 'string' ||
+      !['nanobanana2', 'seedream', 'wanimage', 'zimage'].includes(parsed.provider || '') ||
+      typeof parsed.prompt !== 'string' ||
+      !['text-to-image', 'retouch', 'composite', 'adjust'].includes(parsed.workflow || '') ||
+      typeof parsed.createdAt !== 'number'
+    ) {
+      localStorage.removeItem(PENDING_IMAGE_STORAGE_KEY);
+      return null;
+    }
+    return parsed as PendingImageGeneration;
+  } catch {
+    return null;
+  }
+}
+
+function storePendingImageGeneration(job: PendingImageGeneration | null): void {
+  try {
+    if (job) localStorage.setItem(PENDING_IMAGE_STORAGE_KEY, JSON.stringify(job));
+    else localStorage.removeItem(PENDING_IMAGE_STORAGE_KEY);
+  } catch {
+    // Recovery still works during this page lifetime when storage is unavailable.
+  }
 }
 
 function readPendingVideoGeneration(): PendingVideoGeneration | null {
@@ -246,8 +289,10 @@ function storePendingVideoGeneration(job: PendingVideoGeneration | null): void {
   }
 }
 
-function isNetworkInterruption(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && (error as { status?: number }).status === 0);
+function shouldRecoverGeneration(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const status = Number((error as { status?: number }).status);
+  return status === 0 || status === 408 || status >= 500;
 }
 
 const DEFAULT_SETTINGS: SettingsState = {
@@ -462,6 +507,7 @@ const App: React.FC = () => {
     : editableImageMutationsByProvider[imageGenerationOptions.provider];
   const activeTextToImageMutation = textToImageMutationsByProvider[imageGenerationOptions.provider]
     ?? textToImageMutationsByProvider.seedream;
+  const getImageGenerationStatus = useImageGenerationRecovery();
 
   const videoMutation = useGenerateVideo();
   const referenceVideoMutation = useGenerateReferenceToVideo();
@@ -489,6 +535,11 @@ const App: React.FC = () => {
   const [galleryVideoFile, setGalleryVideoFile] = useState<File | null>(null);
   const galleryVideoObjectUrlRef = useRef<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [pendingImageGeneration, setPendingImageGeneration] = useState<PendingImageGeneration | null>(
+    () => readPendingImageGeneration()
+  );
+  const finalizingImageJobsRef = useRef(new Set<string>());
+  const imageRecoveryRequestInFlightRef = useRef(false);
   const [pendingVideoGeneration, setPendingVideoGeneration] = useState<PendingVideoGeneration | null>(
     () => readPendingVideoGeneration()
   );
@@ -515,7 +566,8 @@ const App: React.FC = () => {
     || referenceVideoMutation.isPending
     || textToVideoMutation.isPending
     || seedanceVideoMutation.isPending;
-  const isImagePending = editNB2.isPending || editSeeDream.isPending || editWan.isPending
+  const isImagePending = Boolean(pendingImageGeneration)
+    || editNB2.isPending || editSeeDream.isPending || editWan.isPending
     || adjustNB2.isPending || adjustSeeDream.isPending || adjustWan.isPending
     || compositeNB2.isPending || compositeSeeDream.isPending || compositeWan.isPending
     || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending
@@ -526,7 +578,9 @@ const App: React.FC = () => {
     ? 'Processing image…'
     : isVideoPending
       ? 'Rendering your video — you can leave this tab and return later.'
-      : 'Creating…';
+      : isImagePending
+        ? 'Creating your image — you can leave this tab and return later.'
+        : 'Creating…';
 
   /* ---------------- derived image state ---------------- */
   const currentImage = history[historyIndex] ?? null;
@@ -691,9 +745,9 @@ const App: React.FC = () => {
         return;
       }
 
-      if (Date.now() - job.createdAt > VIDEO_RECOVERY_TIMEOUT_MS) {
+      if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
         clearPendingVideoJob(job.id);
-        setVideoError('We could not recover that video after 30 minutes. Please contact support so the generation and credit charge can be reviewed.');
+        setVideoError('We could not recover that video within 24 hours. Please contact support so the generation and credit charge can be reviewed.');
       }
     } catch {
       // A status check can also be suspended on mobile. Keep the durable job
@@ -770,7 +824,11 @@ const App: React.FC = () => {
     }
   }, [activeTool, imageGenerationOptions.provider, resetImageTools]);
 
-  const addImageToHistory = useCallback((newImageFile: File, prompt = historyPrompts[historyIndex] ?? '') => {
+  const addImageToHistory = useCallback((
+    newImageFile: File,
+    prompt = historyPrompts[historyIndex] ?? '',
+    generationId?: string,
+  ) => {
     const newHistory = history.slice(0, historyIndex + 1);
     const newHistoryPrompts = historyPrompts.slice(0, historyIndex + 1);
     newHistory.push(newImageFile);
@@ -780,8 +838,123 @@ const App: React.FC = () => {
     setHistoryIndex(newHistory.length - 1);
     setCrop(undefined);
     setCompletedCrop(undefined);
-    saveToGallery(newImageFile, prompt).then(() => setGalleryRefreshTrigger(n => n + 1));
+    saveToGallery(newImageFile, prompt, generationId).then(() => setGalleryRefreshTrigger(n => n + 1));
   }, [history, historyIndex, historyPrompts]);
+
+  const clearPendingImageJob = useCallback((generationId: string) => {
+    setPendingImageGeneration(current => current?.id === generationId ? null : current);
+    const stored = readPendingImageGeneration();
+    if (stored?.id === generationId) storePendingImageGeneration(null);
+  }, []);
+
+  const finalizeImageGeneration = useCallback(async (
+    response: ImageGenerationResponse,
+    job: PendingImageGeneration,
+  ) => {
+    if (!response.success || !response.image || finalizingImageJobsRef.current.has(job.id)) return;
+    finalizingImageJobsRef.current.add(job.id);
+
+    try {
+      const newImageFile = await generatedImageToFile(response.image, job.workflow);
+      setStudioMode('image');
+      setImagePrompt(job.prompt);
+      setSettings(current => ({ ...current, apiProvider: job.provider }));
+
+      if (job.workflow === 'text-to-image') {
+        setHistory([newImageFile]);
+        setHistoryPrompts([job.prompt]);
+        setHistoryIndex(0);
+        setStyleImage(null);
+        resetImageTools();
+        await saveToGallery(newImageFile, job.prompt, job.id);
+        setGalleryRefreshTrigger(count => count + 1);
+      } else {
+        addImageToHistory(newImageFile, job.prompt, job.id);
+        if (job.workflow === 'composite') setStyleImage(null);
+        if (job.workflow === 'retouch') resetImageTools();
+      }
+
+      setError(null);
+      clearPendingImageJob(job.id);
+    } catch (finalizeError) {
+      finalizingImageJobsRef.current.delete(job.id);
+      setError(getGenerationErrorMessage(finalizeError, 'The image finished, but VeilPix could not save it.'));
+    }
+  }, [addImageToHistory, clearPendingImageJob, resetImageTools]);
+
+  const recoverPendingImage = useCallback(async (job: PendingImageGeneration) => {
+    if (imageRecoveryRequestInFlightRef.current || finalizingImageJobsRef.current.has(job.id)) return;
+    imageRecoveryRequestInFlightRef.current = true;
+
+    try {
+      const status = await getImageGenerationStatus(job.id);
+      if (status.status === 'succeeded' && status.image) {
+        await finalizeImageGeneration({
+          success: true,
+          image: status.image,
+          creditsUsed: status.creditsUsed,
+          processingTime: status.processingTime,
+        }, job);
+        return;
+      }
+
+      if (status.status === 'failed') {
+        clearPendingImageJob(job.id);
+        setError(`Failed to generate the image. ${status.message || 'The provider could not complete it.'}`);
+        return;
+      }
+
+      if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
+        clearPendingImageJob(job.id);
+        setError('We could not recover that image within 24 hours. Please contact support so the generation and credit charge can be reviewed.');
+      }
+    } catch {
+      // Mobile browsers can suspend this status request too. Keep the job and
+      // check it again when the page becomes visible or the timer fires.
+    } finally {
+      imageRecoveryRequestInFlightRef.current = false;
+    }
+  }, [clearPendingImageJob, finalizeImageGeneration, getImageGenerationStatus]);
+
+  useEffect(() => {
+    if (!pendingImageGeneration || !isLoaded || !isSignedIn) return;
+
+    let timer: number | null = null;
+    let disposed = false;
+
+    const scheduleCheck = () => {
+      if (disposed) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await recoverPendingImage(pendingImageGeneration);
+        }
+        scheduleCheck();
+      }, 5000);
+    };
+
+    const checkNow = () => {
+      if (document.visibilityState === 'visible') {
+        void recoverPendingImage(pendingImageGeneration);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkNow();
+    };
+
+    checkNow();
+    scheduleCheck();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', checkNow);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pageshow', checkNow);
+    };
+  }, [isLoaded, isSignedIn, pendingImageGeneration, recoverPendingImage]);
 
   /* ---------------- image reference handlers ---------------- */
   const handleBaseImageSelect = useCallback((file: File | null) => {
@@ -825,6 +998,10 @@ const App: React.FC = () => {
   /* ---------------- image generation ---------------- */
   const handleGenerateImage = useCallback(async (submittedPrompt: string) => {
     if (!requireAuth()) return;
+    if (pendingImageGeneration) {
+      setError('Your previous image is still being recovered. Please wait for it to finish.');
+      return;
+    }
 
     const trimmedPrompt = submittedPrompt.trim();
     if (!trimmedPrompt) {
@@ -840,7 +1017,31 @@ const App: React.FC = () => {
       setError('Z-Image prompts must be between 3 and 1000 characters.');
       return;
     }
+    let recoverableWorkflow: RecoverableImageWorkflow;
+    if (!supportsReferences || !currentImage) {
+      recoverableWorkflow = 'text-to-image';
+    } else if (activeTool === 'retouch') {
+      if (!editHotspot) {
+        setError('Tap a point on the image to select an area to edit.');
+        return;
+      }
+      recoverableWorkflow = 'retouch';
+    } else if (styleImage) {
+      recoverableWorkflow = 'composite';
+    } else {
+      recoverableWorkflow = 'adjust';
+    }
+
+    const generationId = crypto.randomUUID();
+    const pendingJob: PendingImageGeneration = {
+      id: generationId,
+      provider: options.provider,
+      prompt: trimmedPrompt,
+      workflow: recoverableWorkflow,
+      createdAt: Date.now(),
+    };
     const requestBase = {
+      generationId,
       resolution: options.resolution,
       aspectRatio: options.aspectRatio,
       seedreamTier: options.seedreamTier,
@@ -849,80 +1050,63 @@ const App: React.FC = () => {
     };
 
     setError(null);
+    setPendingImageGeneration(pendingJob);
+    storePendingImageGeneration(pendingJob);
 
     try {
-      if (!supportsReferences || !currentImage) {
-        const response = await activeTextToImageMutation.mutateAsync({
+      let response: ImageGenerationResponse;
+
+      if (recoverableWorkflow === 'text-to-image') {
+        response = await activeTextToImageMutation.mutateAsync({
           prompt: trimmedPrompt,
           ...requestBase,
         });
-        if (response.success && response.image) {
-          const newImageFile = await generatedImageToFile(response.image, 'text-to-image');
-          setHistory([newImageFile]);
-          setHistoryPrompts([trimmedPrompt]);
-          setHistoryIndex(0);
-          setStyleImage(null);
-          resetImageTools();
-          saveToGallery(newImageFile, trimmedPrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } else {
-          throw new Error(response.message || 'Failed to generate image from text');
-        }
-      } else if (activeTool === 'retouch' && currentImage) {
-        if (!editHotspot) {
-          setError('Tap a point on the image to select an area to edit.');
-          return;
-        }
-        const response = await activeEditableImageMutations!.edit.mutateAsync({
+      } else if (recoverableWorkflow === 'retouch' && currentImage && editHotspot) {
+        response = await activeEditableImageMutations!.edit.mutateAsync({
           image: currentImage,
           prompt: trimmedPrompt,
           x: editHotspot.x,
           y: editHotspot.y,
           ...requestBase,
         });
-        if (response.success && response.image) {
-          const newImageFile = await generatedImageToFile(response.image, 'edited');
-          addImageToHistory(newImageFile, trimmedPrompt);
-          setEditHotspot(null);
-          setDisplayHotspot(null);
-          setActiveTool('none');
-        } else {
-          throw new Error(response.message || 'Failed to generate image');
-        }
-      } else if (currentImage && styleImage) {
-        const response = await activeEditableImageMutations!.composite.mutateAsync({
+      } else if (recoverableWorkflow === 'composite' && currentImage && styleImage) {
+        response = await activeEditableImageMutations!.composite.mutateAsync({
           image1: currentImage,
           image2: styleImage,
           prompt: trimmedPrompt,
           ...requestBase,
         });
-        if (response.success && response.image) {
-          const newImageFile = await generatedImageToFile(response.image, 'composite');
-          addImageToHistory(newImageFile, trimmedPrompt);
-          setStyleImage(null);
-        } else {
-          throw new Error(response.message || 'Failed to combine the images');
-        }
       } else if (currentImage) {
-        const response = await activeEditableImageMutations!.adjust.mutateAsync({
+        response = await activeEditableImageMutations!.adjust.mutateAsync({
           image: currentImage,
           prompt: trimmedPrompt,
           ...requestBase,
         });
-        if (response.success && response.image) {
-          const newImageFile = await generatedImageToFile(response.image, 'adjusted');
-          addImageToHistory(newImageFile, trimmedPrompt);
-        } else {
-          throw new Error(response.message || 'Failed to apply the edit');
-        }
+      } else {
+        throw new Error('The selected image was unavailable.');
+      }
+
+      if (response.success && response.image) {
+        await finalizeImageGeneration(response, pendingJob);
+      } else {
+        throw new Error(response.message || 'Failed to generate image');
       }
     } catch (err) {
+      if (shouldRecoverGeneration(err)) {
+        setError(null);
+        void recoverPendingImage(pendingJob);
+        console.warn('Image response was interrupted; recovery will continue in the background.', err);
+        return;
+      }
+
+      clearPendingImageJob(generationId);
       setError(getGenerationErrorMessage(err, 'Failed to generate the image.'));
       console.error(err);
     }
   }, [
-    requireAuth, currentImage, styleImage, activeTool, editHotspot,
+    requireAuth, pendingImageGeneration, currentImage, styleImage, activeTool, editHotspot,
     imageGenerationOptions, settings.nsfwFilterEnabled, activeEditableImageMutations,
-    activeTextToImageMutation, addImageToHistory, resetImageTools,
+    activeTextToImageMutation, clearPendingImageJob, finalizeImageGeneration, recoverPendingImage,
   ]);
 
   /* ---------------- video generation ---------------- */
@@ -1060,7 +1244,7 @@ const App: React.FC = () => {
         throw new Error(response.message || 'Failed to generate video');
       }
     } catch (err) {
-      if (isNetworkInterruption(err)) {
+      if (shouldRecoverGeneration(err)) {
         setVideoError(null);
         void recoverPendingVideo(pendingJob);
         console.warn('Video response was interrupted; recovery will continue in the background.', err);
@@ -1710,7 +1894,7 @@ const App: React.FC = () => {
 
       <div className="relative flex flex-1 flex-col overflow-visible md:min-h-0 md:flex-row md:overflow-hidden">
         {/* Main column: stage + composer */}
-        <main className="flex min-h-full min-w-0 shrink-0 flex-col overflow-visible px-3 pb-9 sm:px-6 sm:pb-12 md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto md:overflow-x-hidden md:px-[11.5rem] lg:px-[13.5rem]">
+        <main className="studio-main flex min-h-full min-w-0 shrink-0 flex-col overflow-visible px-3 pb-9 sm:px-6 sm:pb-12 md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto md:overflow-x-hidden md:ps-6 md:pe-[11.5rem] lg:ps-8 lg:pe-[13.5rem] xl:px-[13.5rem]">
           {isVideoEditorOpen ? (
             <Suspense fallback={<div className="flex flex-1 items-center justify-center"><Spinner /></div>}>
               <VideoEditor
@@ -1764,7 +1948,7 @@ const App: React.FC = () => {
 
           {errorBanner}
 
-          <div className="mx-auto mb-[25px] w-full max-w-[62rem] shrink-0">
+          <div className="studio-composer-wrap mx-auto mb-[25px] w-full max-w-[62rem] shrink-0">
             <Composer
               mode={studioMode}
               onModeChange={handleModeChange}
