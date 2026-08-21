@@ -7,6 +7,7 @@
  */
 
 const { getSupabaseClient } = require('./database');
+const { createProviderMediaUrl } = require('./providerMediaUrl');
 const crypto = require('crypto');
 const tus = require('tus-js-client');
 
@@ -198,7 +199,12 @@ async function uploadTemporaryFile(fileBuffer, mimeType, _userId = 'anonymous', 
 
         return {
             success: true,
-            url: uploadResult.url,
+            url: createProviderMediaUrl(filename, {
+                baseUrl: options.providerMediaBaseUrl,
+                signingSecret: options.providerMediaSigningSecret || options.serviceRoleKey,
+                ttlSeconds: options.providerMediaTtlSeconds,
+                nowMs: options.nowMs
+            }),
             filename
         };
     } catch (error) {

@@ -68,9 +68,15 @@ app.use(clerkMiddleware());
 
 // Import webhook routes (before other middleware)
 const webhookRoutes = require('./routes/webhooks');
+const providerMediaRoutes = require('./routes/providerMedia');
 
 // Webhook routes need raw body parsing - must come before JSON parsing
 app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookRoutes);
+
+// Kie.ai receives short-lived signed URLs for provider inputs. Mount this
+// streaming relay before shared rate limits so multiple users are not grouped
+// under a provider downloader IP.
+app.use('/api/provider-media', providerMediaRoutes);
 
 // Apply different rate limits (exclude webhooks from rate limiting)
 app.use('/api/auth', createRateLimiter(15 * 60 * 1000, 20, 'Too many authentication requests'));

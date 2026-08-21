@@ -6,6 +6,7 @@ const {
     TUS_CHUNK_SIZE_BYTES,
     uploadTemporaryFile
 } = require('./imageUpload');
+const { isValidProviderMediaSignature } = require('./providerMediaUrl');
 
 class SuccessfulUpload {
     static instances = [];
@@ -43,16 +44,31 @@ test.beforeEach(() => {
     SuccessfulUpload.instances = [];
 });
 
-test('uploads provider inputs through the direct resumable Storage endpoint', async () => {
+test('uploads through direct Storage and returns a signed provider relay URL', async () => {
     const source = Buffer.from('provider-reference-bytes');
-    const result = await uploadTemporaryFile(source, 'image/png', 'user-id', 'image', storageOptions);
+    const nowMs = 1_787_350_000_000;
+    const result = await uploadTemporaryFile(source, 'image/png', 'user-id', 'image', {
+        ...storageOptions,
+        providerMediaBaseUrl: 'https://api.example.com/api/provider-media',
+        providerMediaSigningSecret: 'test-signing-secret',
+        nowMs
+    });
     const upload = SuccessfulUpload.instances[0];
+    const providerUrl = new URL(result.url);
 
     assert.equal(result.success, true);
     assert.match(result.filename, /^\d+_[a-f0-9]{16}\.png$/);
+    assert.equal(providerUrl.origin, 'https://api.example.com');
+    assert.equal(providerUrl.pathname, `/api/provider-media/${result.filename}`);
+    assert.equal(providerUrl.searchParams.get('expires'), String(Math.floor(nowMs / 1000) + 900));
     assert.equal(
-        result.url,
-        `https://project-ref.storage.supabase.co/storage/v1/object/public/temp-images/${result.filename}`
+        isValidProviderMediaSignature(
+            result.filename,
+            providerUrl.searchParams.get('expires'),
+            providerUrl.searchParams.get('signature'),
+            { signingSecret: 'test-signing-secret', nowMs }
+        ),
+        true
     );
     assert.equal(upload.file, source);
     assert.equal(
