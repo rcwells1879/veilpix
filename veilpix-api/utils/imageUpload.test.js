@@ -52,7 +52,7 @@ test('uploads provider inputs through the direct resumable Storage endpoint', as
     assert.match(result.filename, /^\d+_[a-f0-9]{16}\.png$/);
     assert.equal(
         result.url,
-        `https://project-ref.supabase.co/storage/v1/object/public/temp-images/${result.filename}`
+        `https://project-ref.storage.supabase.co/storage/v1/object/public/temp-images/${result.filename}`
     );
     assert.equal(upload.file, source);
     assert.equal(

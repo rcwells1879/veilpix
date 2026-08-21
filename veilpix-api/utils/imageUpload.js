@@ -110,10 +110,11 @@ function storageSettings(options = {}) {
     );
 
     return {
-        supabaseUrl,
         serviceRoleKey,
         endpoint: options.endpoint
             || `https://${projectRef}.storage.supabase.co/storage/v1/upload/resumable`,
+        downloadBaseUrl: options.downloadBaseUrl
+            || `https://${projectRef}.storage.supabase.co`,
         UploadClass: options.UploadClass || tus.Upload,
         httpStack: options.httpStack || new TimedHttpStack(timeoutMs, {
             agent: false
@@ -124,9 +125,9 @@ function storageSettings(options = {}) {
 
 function uploadStorageObject(fileBuffer, mimeType, filename, options = {}) {
     const {
-        supabaseUrl,
         serviceRoleKey,
         endpoint,
+        downloadBaseUrl,
         UploadClass,
         httpStack,
         retryDelays
@@ -155,7 +156,10 @@ function uploadStorageObject(fileBuffer, mimeType, filename, options = {}) {
             httpStack,
             onError: reject,
             onSuccess: () => resolve({
-                url: `${supabaseUrl}/storage/v1/object/public/${TEMP_IMAGE_BUCKET}/${encodeURIComponent(filename)}`,
+                // Use the direct Storage hostname for provider downloads too.
+                // The project API gateway has intermittently timed out when
+                // Kie.ai downloads input media, even after a successful upload.
+                url: `${downloadBaseUrl}/storage/v1/object/public/${TEMP_IMAGE_BUCKET}/${encodeURIComponent(filename)}`,
                 elapsedMs: Date.now() - startedAt
             })
         });
