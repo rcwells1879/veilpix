@@ -17,6 +17,7 @@ export const SEEDANCE_VARIANTS: SeedanceVariant[] = ['v2_5', 'regular', 'fast', 
 export const SEEDANCE_MAX_REFERENCE_IMAGES = 30;
 export const SEEDANCE_MAX_REFERENCE_VIDEOS = 10;
 export const SEEDANCE_MAX_REFERENCE_AUDIOS = 10;
+export const SEEDANCE_MEDIA_DURATION_TOLERANCE_SECONDS = 0.25;
 
 const SEEDANCE_REFERENCE_LIMITS: Record<SeedanceVariant, { images: number; videos: number; audios: number; mediaSeconds: number }> = {
   v2_5: { images: 30, videos: 10, audios: 10, mediaSeconds: 30 },
@@ -106,6 +107,11 @@ export function getSeedanceCreditCost(
 
 export function getSeedanceReferenceLimits(variant: SeedanceVariant) {
   return SEEDANCE_REFERENCE_LIMITS[variant];
+}
+
+export function exceedsSeedanceMediaDurationLimit(duration: number | null | undefined, variant: SeedanceVariant): boolean {
+  if (duration === null || duration === undefined || !Number.isFinite(duration)) return false;
+  return duration > SEEDANCE_REFERENCE_LIMITS[variant].mediaSeconds + SEEDANCE_MEDIA_DURATION_TOLERANCE_SECONDS;
 }
 
 export function getWanMaxReferenceImages(hasVideoReference: boolean): number {

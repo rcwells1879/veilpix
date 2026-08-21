@@ -52,7 +52,7 @@ import {
 } from './components/ImageModelControlsPanel';
 import Composer from './components/studio/Composer';
 import ResultStage from './components/studio/ResultStage';
-import GalleryRail, { type GalleryReferenceTarget } from './components/studio/GalleryRail';
+import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } from './components/studio/GalleryRail';
 import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, VideoGenerateOptions } from './components/studio/types';
 import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES } from './components/studio/videoPricing';
 import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
@@ -92,7 +92,10 @@ function getVideoDurationSeconds(source: File | string): Promise<number | null> 
 
     video.preload = 'metadata';
     video.onloadedmetadata = () => {
-      finish(Number.isFinite(video.duration) ? Math.ceil(video.duration) : null);
+      // Keep the measured duration instead of rounding up. Encoders commonly
+      // add a fraction of a second of container padding, so a nominal 30s clip
+      // must not become 31s before Seedance validation runs.
+      finish(Number.isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : null);
     };
     video.onerror = () => finish(null);
     video.src = objectUrl || (source as string);
@@ -597,6 +600,19 @@ const App: React.FC = () => {
     MAX_GENERATION_QUEUE_SIZE,
     activeGenerationCount + queuedGenerations.length,
   );
+  const pendingGalleryItems: PendingGalleryItem[] = [
+    ...(pendingImageGeneration
+      ? [{ id: pendingImageGeneration.id, type: 'image' as const, status: 'generating' as const }]
+      : []),
+    ...(pendingVideoGeneration
+      ? [{ id: pendingVideoGeneration.id, type: 'video' as const, status: 'generating' as const }]
+      : []),
+    ...queuedGenerations.map((generation) => ({
+      id: generation.job.id,
+      type: generation.kind,
+      status: 'queued' as const,
+    })),
+  ];
 
   /* ---------------- derived image state ---------------- */
   const currentImage = history[historyIndex] ?? null;
@@ -2091,6 +2107,7 @@ const App: React.FC = () => {
         {/* Creations rail (desktop) */}
         <GalleryRail
           refreshTrigger={galleryRefreshTrigger}
+          pendingItems={pendingGalleryItems}
           onSelectImage={handleGallerySelectImage}
           onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
           onUseImageAsReference={handleGalleryUseImageAsReference}

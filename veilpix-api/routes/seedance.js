@@ -16,6 +16,7 @@ const {
     clampDuration,
     estimateSeedanceKieCredits,
     estimateSeedanceVeilPixCredits,
+    exceedsSeedanceMediaDurationLimit,
     normalizeResolution,
     normalizeSeedanceResponse,
     normalizeVariant,
@@ -129,7 +130,7 @@ function getReferenceVideoDuration(file) {
         try {
             const parsed = parseMp4DurationSeconds(file.buffer);
             if (parsed && Number.isFinite(parsed)) {
-                return Math.max(0, Math.ceil(parsed));
+                return Math.max(0, Math.round(parsed * 1000) / 1000);
             }
         } catch (error) {
             console.warn('Unable to parse video duration from uploaded file:', error.message);
@@ -399,10 +400,10 @@ router.post('/generate-video', upload.fields([
                     : referenceLimits.mediaSeconds
             : 0;
         const clientAudioDuration = Number(referenceAudioDuration);
-        if (measuredVideoDuration > referenceLimits.mediaSeconds) {
+        if (exceedsSeedanceMediaDurationLimit(measuredVideoDuration, referenceLimits.mediaSeconds)) {
             return res.status(400).json({ error: `Reference videos must total ${referenceLimits.mediaSeconds} seconds or less` });
         }
-        if (audioFiles.length > 0 && Number.isFinite(clientAudioDuration) && clientAudioDuration > referenceLimits.mediaSeconds) {
+        if (audioFiles.length > 0 && exceedsSeedanceMediaDurationLimit(clientAudioDuration, referenceLimits.mediaSeconds)) {
             return res.status(400).json({ error: `Reference audio must total ${referenceLimits.mediaSeconds} seconds or less` });
         }
         const seedancePricingContext = {

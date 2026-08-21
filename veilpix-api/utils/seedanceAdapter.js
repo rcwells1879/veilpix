@@ -9,6 +9,7 @@ const VEILPIX_CREDIT_USD = 6.99 / 100;
 const TARGET_MARGIN = 0.12;
 const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
 const KIE_CREDIT_USD = 0.005;
+const SEEDANCE_MEDIA_DURATION_TOLERANCE_SECONDS = 0.25;
 
 const SEEDANCE_MODELS = {
     v2_5: 'bytedance/seedance-2-5',
@@ -82,6 +83,12 @@ function normalizeOutputFormat(outputFormat) {
 
 function getSeedanceReferenceLimits(variant = 'regular') {
     return SEEDANCE_REFERENCE_LIMITS[normalizeVariant(variant)];
+}
+
+function exceedsSeedanceMediaDurationLimit(duration, limitSeconds) {
+    const measuredDuration = Number(duration);
+    return Number.isFinite(measuredDuration)
+        && measuredDuration > Number(limitSeconds) + SEEDANCE_MEDIA_DURATION_TOLERANCE_SECONDS;
 }
 
 function veilpixCreditsFromUsd(usdCost) {
@@ -252,6 +259,7 @@ module.exports = {
     ASPECT_RATIOS,
     BILLABLE_USD_PER_VEILPIX_CREDIT,
     KIE_CREDIT_USD,
+    SEEDANCE_MEDIA_DURATION_TOLERANCE_SECONDS,
     SEEDANCE_MODELS,
     SEEDANCE_PRICING,
     SEEDANCE_DURATION_LIMITS,
@@ -260,6 +268,7 @@ module.exports = {
     clampDuration,
     estimateSeedanceKieCredits,
     estimateSeedanceVeilPixCredits,
+    exceedsSeedanceMediaDurationLimit,
     normalizeAspectRatio,
     normalizeOutputFormat,
     normalizeResolution,

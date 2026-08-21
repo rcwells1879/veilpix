@@ -26,6 +26,7 @@ import {
 } from '../../src/utils/imageTransfer';
 import { VEILSTUDIO_CONTACT_URL } from '../../src/constants/links';
 import { XIcon } from './controls';
+import { PhotoIcon, VideoIcon } from '../icons';
 
 const CONTACT_HELP_TEXT = 'Questions, problems, or suggestions? Contact us here.';
 
@@ -48,8 +49,15 @@ export interface GalleryReferenceTarget {
   label: string;
 }
 
+export interface PendingGalleryItem {
+  id: string;
+  type: 'image' | 'video';
+  status: 'generating' | 'queued';
+}
+
 export interface GalleryRailProps {
   refreshTrigger?: number;
+  pendingItems?: PendingGalleryItem[];
   onSelectImage: (file: File, prompt: string) => void;
   onSelectVideo: (details: GalleryVideoDetails) => void;
   onUseImageAsReference: (file: File, prompt: string) => void;
@@ -69,6 +77,7 @@ interface ContextMenuState {
 
 const GalleryRail: React.FC<GalleryRailProps> = ({
   refreshTrigger,
+  pendingItems = [],
   onSelectImage,
   onSelectVideo,
   onUseImageAsReference,
@@ -237,9 +246,34 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
 
       {/* Thumbnails: production-style grid on mobile, vertical rail on desktop. */}
       <div className="grid grid-cols-2 gap-3 overflow-visible px-4 pb-6 pt-1 sm:grid-cols-3 md:flex md:min-h-0 md:flex-1 md:flex-col md:gap-4 md:overflow-y-auto">
-        {loading ? (
+        {pendingItems.map((item) => {
+          const label = item.status === 'queued'
+            ? `Queued ${item.type}`
+            : `Generating ${item.type}`;
+
+          return (
+            <div
+              key={`pending-${item.id}`}
+              className="edge relative aspect-square w-full shrink-0 overflow-hidden rounded-2xl bg-gray-800/70 grayscale"
+              role="status"
+              aria-label={label}
+            >
+              <span className="absolute inset-0 flex items-center justify-center text-white/10" aria-hidden="true">
+                {item.type === 'video'
+                  ? <VideoIcon className="h-16 w-16" />
+                  : <PhotoIcon className="h-16 w-16" />}
+              </span>
+              <span className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-black/45 px-2 text-center backdrop-blur-[1px]">
+                <span className="h-7 w-7 animate-spin rounded-full border-[3px] border-white/20 border-t-white/80" aria-hidden="true" />
+                <span className="text-[11px] font-semibold text-gray-200">{label}</span>
+              </span>
+            </div>
+          );
+        })}
+
+        {loading && items.length === 0 ? (
           <p className="col-span-full rounded-2xl border border-white/[0.05] bg-black/10 py-6 text-center text-[11px] text-gray-600">Loading…</p>
-        ) : items.length === 0 ? (
+        ) : items.length === 0 && pendingItems.length === 0 ? (
           <p className="col-span-full rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-6 text-center text-[11px] leading-relaxed text-gray-500 md:border-0 md:bg-transparent md:pt-4 md:text-gray-600">
             Your creations will appear here
           </p>

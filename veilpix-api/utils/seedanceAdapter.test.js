@@ -5,6 +5,7 @@ const {
     buildSeedanceRequest,
     estimateSeedanceKieCredits,
     estimateSeedanceVeilPixCredits,
+    exceedsSeedanceMediaDurationLimit,
     resolveSeedanceInputMode
 } = require('./seedanceAdapter');
 
@@ -149,6 +150,13 @@ test('prices automatic Seedance 2.5 duration against the 30 second ceiling', () 
         resolution: '480p',
         duration: -1
     }), 28 * 30);
+});
+
+test('accepts nominal 30 second reference media with encoder padding', () => {
+    assert.equal(exceedsSeedanceMediaDurationLimit(30, 30), false);
+    assert.equal(exceedsSeedanceMediaDurationLimit(30.2, 30), false);
+    assert.equal(exceedsSeedanceMediaDurationLimit(30.251, 30), true);
+    assert.equal(exceedsSeedanceMediaDurationLimit(31, 30), true);
 });
 
 test('enforces Seedance 2.5 multimodal reference limits', () => {

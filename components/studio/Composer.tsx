@@ -46,6 +46,7 @@ import {
   getWanMaxReferenceImages,
   getSeedanceReferenceLimits,
   clampSeedanceDuration,
+  exceedsSeedanceMediaDurationLimit,
 } from './videoPricing';
 import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, VideoGenerateOptions } from './types';
 
@@ -223,8 +224,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const seedanceDurationLimits = SEEDANCE_DURATION_LIMITS[seedanceVariant];
   const seedanceReferenceLimits = getSeedanceReferenceLimits(seedanceVariant);
   const seedanceMediaDurationInvalid = seedanceInputMode === 'references' && (
-    (seedanceReferenceVideoDuration ?? 0) > seedanceReferenceLimits.mediaSeconds
-    || (seedanceReferenceAudioDuration ?? 0) > seedanceReferenceLimits.mediaSeconds
+    exceedsSeedanceMediaDurationLimit(seedanceReferenceVideoDuration, seedanceVariant)
+    || exceedsSeedanceMediaDurationLimit(seedanceReferenceAudioDuration, seedanceVariant)
   );
   const activeVideoModel = VIDEO_MODELS.find((model) =>
     model.provider === videoProvider && (model.provider !== 'seedance' || model.variant === seedanceVariant)
