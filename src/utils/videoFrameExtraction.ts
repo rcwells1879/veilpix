@@ -282,6 +282,24 @@ export async function extractVideoThumbnailFrame(source: File | string): Promise
   });
 }
 
+/** Extracts the exact presented frame nearest a requested playback time. */
+export async function extractVideoFrameAtTime(source: File | string, timeSeconds: number): Promise<File> {
+  if (!Number.isFinite(timeSeconds) || timeSeconds < 0) {
+    throw new Error('The selected video time is invalid.');
+  }
+
+  const frameBlob = await withLoadedVideo(source, async (video) => {
+    await seekToPresentedFrame(video, timeSeconds);
+    return captureCurrentFrame(video, { type: 'image/png' });
+  });
+
+  const timestamp = Date.now();
+  return new File([frameBlob], `video-frame-${timestamp}.png`, {
+    type: 'image/png',
+    lastModified: timestamp,
+  });
+}
+
 /**
  * Extracts the latest usable, non-black frame from a local or remote video.
  * Boundary frames are checked from newest to oldest so encoder padding or a

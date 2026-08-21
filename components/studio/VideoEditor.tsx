@@ -8,8 +8,9 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { getGalleryVideoDetails, saveVideoToGallery, type GalleryVideoDetails } from '../../src/utils/workflowStorage';
+import { getGalleryVideoDetails, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from '../../src/utils/workflowStorage';
 import { getGalleryVideoDragId } from '../../src/utils/imageTransfer';
+import { extractLastVideoFrame, extractVideoFrameAtTime } from '../../src/utils/videoFrameExtraction';
 import { extractFilmstrip, stitchVideos, stitchedFileExtension, formatTimecode, type StitchProgress } from './videoStitch';
 import { XIcon, PlusIcon } from './controls';
 
@@ -26,7 +27,7 @@ export interface VideoEditorProps {
   /** A gallery video routed into the editor (click or context menu). */
   incomingVideo: GalleryVideoDetails | null;
   onIncomingVideoConsumed: () => void;
-  /** Called after a stitched video is saved so the gallery can refresh. */
+  /** Called after a stitched video or extracted frame is saved so the gallery can refresh. */
   onSaved: () => void;
   /** Lets the shell prevent closing/replacing clips during a render. */
   onRenderingChange?: (isRendering: boolean) => void;
@@ -46,11 +47,14 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   const [dragOverSlot, setDragOverSlot] = useState<number | null>(null);
   const [previewSlot, setPreviewSlot] = useState<number | null>(null);
   const [scrub, setScrub] = useState<{ slot: number; fraction: number } | null>(null);
+  const [scrubFractions, setScrubFractions] = useState<[number, number]>([0, 0]);
   const [isStitching, setIsStitching] = useState(false);
   const [stitchProgress, setStitchProgress] = useState<StitchProgress | null>(null);
   const [result, setResult] = useState<{ url: string; blob: Blob; duration: number } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [extractingFrame, setExtractingFrame] = useState<{ slot: number; kind: 'current' | 'last' } | null>(null);
+  const [frameSavedSlot, setFrameSavedSlot] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
@@ -81,6 +85,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
       return;
     }
     setError(null);
+    setFrameSavedSlot(null);
     setLoadingSlot(slot);
     try {
       const strip = await extractFilmstrip(file, FRAME_COUNT);
@@ -99,6 +104,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
       clearResult();
       setPreviewSlot(slot);
       setScrub(null);
+      setScrubFractions((prev) => (slot === 0 ? [0, prev[1]] : [prev[0], 0]));
     } catch (loadError) {
       const details = loadError instanceof Error ? loadError.message : 'Please try a different file.';
       setError(`Could not load that video. ${details}`);
@@ -158,6 +164,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     clearResult();
     setPreviewSlot((prev) => (prev === slot ? null : prev));
     setScrub(null);
+    setScrubFractions((prev) => (slot === 0 ? [0, prev[1]] : [prev[0], 0]));
+    setFrameSavedSlot((prev) => (prev === slot ? null : prev));
   }, [clearResult]);
 
   const swapClips = useCallback(() => {
@@ -165,6 +173,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     clearResult();
     setPreviewSlot((prev) => (prev === null ? null : prev === 0 ? 1 : 0));
     setScrub(null);
+    setScrubFractions(([first, second]) => [second, first]);
+    setFrameSavedSlot(null);
   }, [clearResult]);
 
   /* ------------------------- drag & drop ------------------------- */
@@ -208,7 +218,15 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     const fraction = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
     setPreviewSlot(slot);
     setScrub({ slot, fraction });
+    setScrubFractions((prev) => (slot === 0 ? [fraction, prev[1]] : [prev[0], fraction]));
   }, [clips]);
+
+  const handleScrubChange = useCallback((slot: number, fraction: number) => {
+    const clampedFraction = Math.min(Math.max(fraction, 0), 1);
+    setPreviewSlot(slot);
+    setScrub({ slot, fraction: clampedFraction });
+    setScrubFractions((prev) => (slot === 0 ? [clampedFraction, prev[1]] : [prev[0], clampedFraction]));
+  }, []);
 
   /* Keep the preview element in sync with the selected clip */
   const previewClip = previewSlot !== null ? clips[previewSlot] : null;
@@ -248,6 +266,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     setError(null);
     setIsStitching(true);
     setStitchProgress({ phase: 'preparing', progress: 0 });
+    setScrub(null);
     clearResult();
 
     try {
@@ -302,11 +321,39 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     }
   }, [result, saved, onSaved]);
 
+  const handleExtractFrame = useCallback(async (slot: number, kind: 'current' | 'last') => {
+    const clip = clips[slot];
+    if (!clip || extractingFrame || isStitching) return;
+
+    const selectedFraction = scrubFractions[slot] ?? 0;
+    setError(null);
+    setFrameSavedSlot(null);
+    setExtractingFrame({ slot, kind });
+
+    try {
+      const frame = kind === 'last'
+        ? await extractLastVideoFrame(clip.file)
+        : await extractVideoFrameAtTime(clip.file, selectedFraction * clip.duration);
+      await saveToGallery(frame);
+      setFrameSavedSlot(slot);
+      onSaved();
+    } catch (extractError) {
+      const details = extractError instanceof Error ? extractError.message : 'Please try again.';
+      setError(`Could not extract that frame. ${details}`);
+    } finally {
+      setExtractingFrame(null);
+    }
+  }, [clips, extractingFrame, isStitching, onSaved, scrubFractions]);
+
   /* ------------------------- render ------------------------- */
 
   const renderSlot = (slot: number) => {
     const clip = clips[slot];
     const isLoading = loadingSlot === slot;
+    const selectedFraction = scrubFractions[slot] ?? 0;
+    const selectedTime = selectedFraction * (clip?.duration ?? 0);
+    const isExtractingCurrent = extractingFrame?.slot === slot && extractingFrame.kind === 'current';
+    const isExtractingLast = extractingFrame?.slot === slot && extractingFrame.kind === 'last';
 
     return (
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
@@ -342,9 +389,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
             /* Film roll */
             <div
               className="relative flex h-18 cursor-crosshair touch-none select-none"
-              onPointerMove={(event) => handleStripPointerMove(event, slot)}
+              onPointerMove={(event) => {
+                if (event.buttons !== 0 || event.pointerType === 'touch') handleStripPointerMove(event, slot);
+              }}
               onPointerDown={(event) => handleStripPointerMove(event, slot)}
-              onPointerLeave={() => setScrub((prev) => (prev?.slot === slot ? null : prev))}
             >
               {clip.frames.map((frame, index) => (
                 <img
@@ -356,20 +404,16 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
                 />
               ))}
               {/* Playhead */}
-              {scrub?.slot === slot && (
-                <>
-                  <div
-                    className="pointer-events-none absolute inset-y-0 w-px bg-white shadow-[0_0_6px_rgba(255,255,255,0.9)]"
-                    style={{ left: `${scrub.fraction * 100}%` }}
-                  />
-                  <span
-                    className="pointer-events-none absolute bottom-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white"
-                    style={{ left: `min(max(${scrub.fraction * 100}% - 20px, 4px), calc(100% - 44px))` }}
-                  >
-                    {formatTimecode(scrub.fraction * clip.duration)}
-                  </span>
-                </>
-              )}
+              <div
+                className="pointer-events-none absolute inset-y-0 w-px bg-white shadow-[0_0_6px_rgba(255,255,255,0.9)]"
+                style={{ left: `${selectedFraction * 100}%` }}
+              />
+              <span
+                className="pointer-events-none absolute bottom-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                style={{ left: `min(max(${selectedFraction * 100}% - 20px, 4px), calc(100% - 44px))` }}
+              >
+                {formatTimecode(selectedTime)}
+              </span>
             </div>
           ) : (
             /* Empty drop zone */
@@ -399,6 +443,49 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
             </span>
           )}
         </div>
+
+        {clip && (
+          <div className="flex flex-col gap-2 px-1 pt-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min="0"
+                max="1000"
+                step="1"
+                value={Math.round(selectedFraction * 1000)}
+                onChange={(event) => handleScrubChange(slot, Number(event.target.value) / 1000)}
+                aria-label={`Choose a frame from clip ${slot + 1}`}
+                className="h-1.5 min-w-0 flex-1 cursor-pointer accent-[#e04f67]"
+              />
+              <span className="w-12 text-right text-[10px] font-medium tabular-nums text-gray-500">
+                {formatTimecode(selectedTime)}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleExtractFrame(slot, 'current')}
+                disabled={Boolean(extractingFrame) || isStitching}
+                className="edge glass-chip flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold text-gray-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {isExtractingCurrent && <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" aria-hidden="true" />}
+                {isExtractingCurrent ? 'Extracting…' : 'Extract current frame'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExtractFrame(slot, 'last')}
+                disabled={Boolean(extractingFrame) || isStitching}
+                className="edge glass-chip flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold text-gray-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {isExtractingLast && <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" aria-hidden="true" />}
+                {isExtractingLast ? 'Extracting…' : 'Extract last frame'}
+              </button>
+              {frameSavedSlot === slot && (
+                <span className="text-[10px] font-medium text-emerald-300" role="status">Saved to creations</span>
+              )}
+            </div>
+          </div>
+        )}
 
         <input
           ref={fileInputRefs[slot]}
@@ -458,7 +545,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
               className="max-h-[52vh] w-auto max-w-full"
             />
             <span className="absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold text-gray-200 backdrop-blur-sm">
-              Clip {previewSlot! + 1} · scrub the film roll below
+              Clip {previewSlot! + 1} · drag its timeline below to choose a frame
             </span>
           </>
         ) : (
