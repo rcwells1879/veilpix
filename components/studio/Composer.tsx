@@ -81,6 +81,8 @@ export interface ComposerProps {
   mode: StudioMode;
   onModeChange: (mode: StudioMode) => void;
   isLoading: boolean;
+  generationQueueCount: number;
+  generationQueueLimit: number;
   prompt: string;
   onPromptChange: (value: string) => void;
   onNewSession: () => void;
@@ -162,7 +164,8 @@ const storedVideoSettings: Partial<StoredVideoSettings> = (() => {
 
 const Composer: React.FC<ComposerProps> = (props) => {
   const {
-    mode, onModeChange, isLoading, prompt, onPromptChange, onNewSession,
+    mode, onModeChange, isLoading, generationQueueCount, generationQueueLimit,
+    prompt, onPromptChange, onNewSession,
     imageOptions, onImageOptionsChange, baseImage, onBaseImageSelect, styleImage, onStyleImageSelect,
     onOpenWebcam, retouchActive, hasHotspot, imageCreditCost, onGenerateImage,
     videoProvider, onVideoProviderChange, onGenerateVideo, hasGeneratedVideo, onUseGeneratedVideoAsReference,
@@ -340,6 +343,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
   };
 
   const generateDisabled = isLoading
+    || generationQueueCount >= generationQueueLimit
     || !prompt.trim()
     || (mode === 'video' && videoProvider === 'seedance' && seedanceInputMode === 'frames' && !seedanceFirstFrame)
     || (mode === 'video' && videoProvider === 'seedance' && seedanceMediaDurationInvalid)
@@ -862,7 +866,15 @@ const Composer: React.FC<ComposerProps> = (props) => {
           </Dropdown>
         )}
 
-        {/* Generate — same row as the pills, pinned right */}
+        {generationQueueCount > 0 && (
+          <span className="text-[11px] font-medium text-gray-400" role="status" aria-live="polite">
+            {generationQueueCount === 1
+              ? '1 generation active'
+              : `${generationQueueCount} generations active or queued`}
+          </span>
+        )}
+
+        {/* Generate / queue — same row as the pills, pinned right */}
         <button
           type="button"
           onClick={handleGenerate}
@@ -876,7 +888,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
             </>
           ) : (
             <>
-              Generate
+              {generationQueueCount > 0 ? 'Add to queue' : 'Generate'}
               <span className="text-[12px] font-medium opacity-60">{formatCreditAmount(creditCost)} cr</span>
             </>
           )}

@@ -196,6 +196,7 @@ const SETTINGS_STORAGE_KEY = 'veilpix-settings';
 const PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generation';
 const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
 const GENERATION_RECOVERY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const MAX_GENERATION_QUEUE_SIZE = 3;
 
 type RecoverableImageWorkflow = 'text-to-image' | 'retouch' | 'composite' | 'adjust';
 
@@ -226,6 +227,36 @@ interface PendingVideoFiles {
   referenceVideoFiles: File[];
   referenceVideoUrl: string | null;
 }
+
+interface QueuedImageGeneration {
+  kind: 'image';
+  job: PendingImageGeneration;
+  options: ImageGenerationOptions;
+  sourceImage: File | null;
+  styleImage: File | null;
+  hotspot: { x: number; y: number } | null;
+  nsfwFilterEnabled: boolean;
+}
+
+interface QueuedVideoGeneration {
+  kind: 'video';
+  job: PendingVideoGeneration;
+  options: VideoGenerateOptions;
+  wanReferenceImages: File[];
+  referenceVideoFile: File | null;
+  referenceVideoUrl: string | null;
+  seedanceFirstFrame: File | null;
+  seedanceLastFrame: File | null;
+  seedanceReferenceImages: File[];
+  seedanceReferenceVideoFiles: File[];
+  seedanceReferenceVideoUrl: string | null;
+  seedanceReferenceVideoDuration: number | null;
+  seedanceReferenceAudioFiles: File[];
+  seedanceReferenceAudioDuration: number | null;
+  nsfwFilterEnabled: boolean;
+}
+
+type QueuedGeneration = QueuedImageGeneration | QueuedVideoGeneration;
 
 function readPendingImageGeneration(): PendingImageGeneration | null {
   try {
@@ -502,11 +533,6 @@ const App: React.FC = () => {
     mutateAsync: typeof textToImageNB2.mutateAsync;
   }>;
 
-  const activeEditableImageMutations = imageGenerationOptions.provider === 'zimage'
-    ? null
-    : editableImageMutationsByProvider[imageGenerationOptions.provider];
-  const activeTextToImageMutation = textToImageMutationsByProvider[imageGenerationOptions.provider]
-    ?? textToImageMutationsByProvider.seedream;
   const getImageGenerationStatus = useImageGenerationRecovery();
 
   const videoMutation = useGenerateVideo();
@@ -543,6 +569,10 @@ const App: React.FC = () => {
   const [pendingVideoGeneration, setPendingVideoGeneration] = useState<PendingVideoGeneration | null>(
     () => readPendingVideoGeneration()
   );
+  const [queuedGenerations, setQueuedGenerations] = useState<QueuedGeneration[]>([]);
+  const generationQueueRef = useRef<QueuedGeneration[]>([]);
+  const activeQueueItemRef = useRef<QueuedGeneration | null>(null);
+  const queueWorkerBusyRef = useRef(false);
   const pendingVideoFilesRef = useRef<PendingVideoFiles | null>(null);
   const finalizingVideoJobsRef = useRef(new Set<string>());
   const recoveryRequestInFlightRef = useRef(false);
@@ -561,26 +591,12 @@ const App: React.FC = () => {
   const [seedanceReferenceAudioFiles, setSeedanceReferenceAudioFiles] = useState<File[]>([]);
   const [seedanceReferenceAudioDuration, setSeedanceReferenceAudioDuration] = useState<number | null>(null);
 
-  const isVideoPending = Boolean(pendingVideoGeneration)
-    || videoMutation.isPending
-    || referenceVideoMutation.isPending
-    || textToVideoMutation.isPending
-    || seedanceVideoMutation.isPending;
-  const isImagePending = Boolean(pendingImageGeneration)
-    || editNB2.isPending || editSeeDream.isPending || editWan.isPending
-    || adjustNB2.isPending || adjustSeeDream.isPending || adjustWan.isPending
-    || compositeNB2.isPending || compositeSeeDream.isPending || compositeWan.isPending
-    || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending
-    || textToImageZImage.isPending;
-  const isLoading = isImagePending || isVideoPending || isProcessingFile;
-
-  const loadingLabel = isProcessingFile
-    ? 'Processing image…'
-    : isVideoPending
-      ? 'Rendering your video — you can leave this tab and return later.'
-      : isImagePending
-        ? 'Creating your image — you can leave this tab and return later.'
-        : 'Creating…';
+  const activeGenerationCount = Number(Boolean(pendingImageGeneration))
+    + Number(Boolean(pendingVideoGeneration));
+  const generationQueueCount = Math.min(
+    MAX_GENERATION_QUEUE_SIZE,
+    activeGenerationCount + queuedGenerations.length,
+  );
 
   /* ---------------- derived image state ---------------- */
   const currentImage = history[historyIndex] ?? null;
@@ -691,15 +707,6 @@ const App: React.FC = () => {
         ? pendingVideoFilesRef.current
         : null;
 
-    setStudioMode('video');
-    setVideoProvider(job.provider);
-    setVideoPrompt(job.prompt);
-    if (job.provider === 'seedance' && job.seedanceInputMode) {
-      setSeedanceInputMode(job.seedanceInputMode);
-    }
-    setVideoOutputFormat(job.provider === 'seedance' ? job.seedanceOutputFormat ?? 'mp4' : 'mp4');
-    setVideoLastFrameUrl(response.lastFrameUrl ?? null);
-    showRemoteVideoResult(response.videoUrl);
     setVideoError(null);
     const finalizedVideoDuration = job.duration === -1
       ? await getVideoDurationSeconds(response.videoUrl) ?? 30
@@ -721,7 +728,7 @@ const App: React.FC = () => {
     });
     setGalleryRefreshTrigger(count => count + 1);
     clearPendingVideoJob(job.id);
-  }, [clearPendingVideoJob, showRemoteVideoResult]);
+  }, [clearPendingVideoJob]);
 
   const recoverPendingVideo = useCallback(async (job: PendingVideoGeneration) => {
     if (recoveryRequestInFlightRef.current || finalizingVideoJobsRef.current.has(job.id)) return;
@@ -856,23 +863,8 @@ const App: React.FC = () => {
 
     try {
       const newImageFile = await generatedImageToFile(response.image, job.workflow);
-      setStudioMode('image');
-      setImagePrompt(job.prompt);
-      setSettings(current => ({ ...current, apiProvider: job.provider }));
-
-      if (job.workflow === 'text-to-image') {
-        setHistory([newImageFile]);
-        setHistoryPrompts([job.prompt]);
-        setHistoryIndex(0);
-        setStyleImage(null);
-        resetImageTools();
-        await saveToGallery(newImageFile, job.prompt, job.id);
-        setGalleryRefreshTrigger(count => count + 1);
-      } else {
-        addImageToHistory(newImageFile, job.prompt, job.id);
-        if (job.workflow === 'composite') setStyleImage(null);
-        if (job.workflow === 'retouch') resetImageTools();
-      }
+      await saveToGallery(newImageFile, job.prompt, job.id);
+      setGalleryRefreshTrigger(count => count + 1);
 
       setError(null);
       clearPendingImageJob(job.id);
@@ -880,7 +872,7 @@ const App: React.FC = () => {
       finalizingImageJobsRef.current.delete(job.id);
       setError(getGenerationErrorMessage(finalizeError, 'The image finished, but VeilPix could not save it.'));
     }
-  }, [addImageToHistory, clearPendingImageJob, resetImageTools]);
+  }, [clearPendingImageJob]);
 
   const recoverPendingImage = useCallback(async (job: PendingImageGeneration) => {
     if (imageRecoveryRequestInFlightRef.current || finalizingImageJobsRef.current.has(job.id)) return;
@@ -995,20 +987,254 @@ const App: React.FC = () => {
     setWebcamTarget(null);
   }, [webcamTarget, handleBaseImageSelect]);
 
-  /* ---------------- image generation ---------------- */
-  const handleGenerateImage = useCallback(async (submittedPrompt: string) => {
-    if (!requireAuth()) return;
-    if (pendingImageGeneration) {
-      setError('Your previous image is still being recovered. Please wait for it to finish.');
-      return;
+  /* ---------------- background generation queue ---------------- */
+  const enqueueGeneration = useCallback((generation: QueuedGeneration): boolean => {
+    const activeQueueId = activeQueueItemRef.current?.job.id;
+    const outstandingCount = generationQueueRef.current.length
+      + Number(Boolean(activeQueueItemRef.current))
+      + Number(Boolean(pendingImageGeneration && pendingImageGeneration.id !== activeQueueId))
+      + Number(Boolean(pendingVideoGeneration && pendingVideoGeneration.id !== activeQueueId));
+
+    if (outstandingCount >= MAX_GENERATION_QUEUE_SIZE) {
+      const message = `You can have up to ${MAX_GENERATION_QUEUE_SIZE} generations active or queued at once.`;
+      if (generation.kind === 'video') setVideoError(message);
+      else setError(message);
+      return false;
     }
+
+    generationQueueRef.current = [...generationQueueRef.current, generation];
+    setQueuedGenerations(generationQueueRef.current);
+    if (generation.kind === 'video') setVideoError(null);
+    else setError(null);
+    return true;
+  }, [pendingImageGeneration, pendingVideoGeneration]);
+
+  const executeImageGeneration = useCallback(async (queued: QueuedImageGeneration) => {
+    const activeJob: PendingImageGeneration = { ...queued.job, createdAt: Date.now() };
+    const { options, sourceImage, styleImage: queuedStyleImage, hotspot } = queued;
+    const requestBase = {
+      generationId: activeJob.id,
+      resolution: options.resolution,
+      aspectRatio: options.aspectRatio,
+      seedreamTier: options.seedreamTier,
+      outputFormat: options.outputFormat,
+      nsfwFilterEnabled: queued.nsfwFilterEnabled,
+    };
+    const textMutation = textToImageMutationsByProvider[options.provider];
+    const editableMutations = options.provider === 'zimage'
+      ? null
+      : editableImageMutationsByProvider[options.provider];
+
+    setError(null);
+    setPendingImageGeneration(activeJob);
+    storePendingImageGeneration(activeJob);
+
+    try {
+      let response: ImageGenerationResponse;
+
+      if (activeJob.workflow === 'text-to-image') {
+        response = await textMutation.mutateAsync({
+          prompt: activeJob.prompt,
+          ...requestBase,
+        });
+      } else if (activeJob.workflow === 'retouch' && sourceImage && hotspot && editableMutations) {
+        response = await editableMutations.edit.mutateAsync({
+          image: sourceImage,
+          prompt: activeJob.prompt,
+          x: hotspot.x,
+          y: hotspot.y,
+          ...requestBase,
+        });
+      } else if (activeJob.workflow === 'composite' && sourceImage && queuedStyleImage && editableMutations) {
+        response = await editableMutations.composite.mutateAsync({
+          image1: sourceImage,
+          image2: queuedStyleImage,
+          prompt: activeJob.prompt,
+          ...requestBase,
+        });
+      } else if (sourceImage && editableMutations) {
+        response = await editableMutations.adjust.mutateAsync({
+          image: sourceImage,
+          prompt: activeJob.prompt,
+          ...requestBase,
+        });
+      } else {
+        throw new Error('The selected image was unavailable.');
+      }
+
+      if (response.success && response.image) {
+        await finalizeImageGeneration(response, activeJob);
+      } else {
+        throw new Error(response.message || 'Failed to generate image');
+      }
+    } catch (err) {
+      if (shouldRecoverGeneration(err)) {
+        setError(null);
+        void recoverPendingImage(activeJob);
+        console.warn('Image response was interrupted; recovery will continue in the background.', err);
+        return;
+      }
+
+      clearPendingImageJob(activeJob.id);
+      setError(getGenerationErrorMessage(err, 'Failed to generate the image.'));
+      console.error(err);
+    }
+  }, [
+    editableImageMutationsByProvider,
+    textToImageMutationsByProvider,
+    clearPendingImageJob,
+    finalizeImageGeneration,
+    recoverPendingImage,
+  ]);
+
+  const executeVideoGeneration = useCallback(async (queued: QueuedVideoGeneration) => {
+    const {
+      provider,
+      prompt,
+      duration,
+      resolution,
+      ratio,
+      wanAudio = true,
+      wanMultiShots = false,
+      seedanceVariant = 'regular',
+      seedanceInputMode: selectedSeedanceInputMode = 'references',
+      seedanceGenerateAudio = false,
+      seedanceWebSearch = false,
+      seedanceReturnLastFrame = false,
+      seedanceOutputFormat = 'mp4',
+    } = queued.options;
+    const activeJob: PendingVideoGeneration = { ...queued.job, createdAt: Date.now() };
+    const wanHasReferenceVideo = Boolean(queued.referenceVideoFile || queued.referenceVideoUrl);
+    const wanReferenceImagesForRequest = queued.wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
+    const usesSeedanceFrameMode = selectedSeedanceInputMode === 'frames';
+    const seedanceReferenceLimits = getSeedanceReferenceLimits(seedanceVariant);
+    const selectedSeedanceReferenceImages = queued.seedanceReferenceImages.slice(0, seedanceReferenceLimits.images);
+    const maxUploadedSeedanceVideos = Math.max(0, seedanceReferenceLimits.videos - (queued.seedanceReferenceVideoUrl ? 1 : 0));
+    const selectedSeedanceReferenceVideos = queued.seedanceReferenceVideoFiles.slice(0, maxUploadedSeedanceVideos);
+    const selectedSeedanceReferenceAudios = queued.seedanceReferenceAudioFiles.slice(0, seedanceReferenceLimits.audios);
+    const pendingFiles: PendingVideoFiles = {
+      generationId: activeJob.id,
+      referenceImages: provider === 'seedance'
+        ? usesSeedanceFrameMode
+          ? [queued.seedanceFirstFrame, queued.seedanceLastFrame].filter((file): file is File => Boolean(file))
+          : selectedSeedanceReferenceImages
+        : wanReferenceImagesForRequest,
+      referenceVideoFiles: provider === 'seedance'
+        ? usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos
+        : queued.referenceVideoFile ? [queued.referenceVideoFile] : [],
+      referenceVideoUrl: provider === 'seedance'
+        ? usesSeedanceFrameMode ? null : queued.seedanceReferenceVideoUrl
+        : queued.referenceVideoUrl,
+    };
+
+    setVideoError(null);
+    setError(null);
+    pendingVideoFilesRef.current = pendingFiles;
+    setPendingVideoGeneration(activeJob);
+    storePendingVideoGeneration(activeJob);
+
+    try {
+      let response: VideoGenerationResponse;
+
+      if (provider === 'seedance') {
+        response = await seedanceVideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          firstFrame: usesSeedanceFrameMode ? queued.seedanceFirstFrame : null,
+          lastFrame: usesSeedanceFrameMode ? queued.seedanceLastFrame : null,
+          referenceImages: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceImages,
+          referenceVideos: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos,
+          referenceVideoUrl: usesSeedanceFrameMode ? null : queued.seedanceReferenceVideoUrl,
+          referenceVideoDuration: usesSeedanceFrameMode ? null : queued.seedanceReferenceVideoDuration,
+          referenceAudios: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceAudios,
+          referenceAudioDuration: usesSeedanceFrameMode ? null : queued.seedanceReferenceAudioDuration,
+          prompt,
+          variant: seedanceVariant,
+          inputMode: selectedSeedanceInputMode,
+          duration,
+          resolution,
+          aspectRatio: ratio,
+          generateAudio: seedanceGenerateAudio,
+          webSearch: seedanceWebSearch,
+          returnLastFrame: seedanceReturnLastFrame,
+          outputFormat: seedanceOutputFormat,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
+        response = await textToVideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          prompt,
+          duration,
+          resolution,
+          ratio,
+          multiShots: wanMultiShots,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else if (wanReferenceImagesForRequest.length === 1 && !wanHasReferenceVideo) {
+        response = await videoMutation.mutateAsync({
+          generationId: activeJob.id,
+          image: wanReferenceImagesForRequest[0],
+          prompt,
+          duration,
+          resolution,
+          audio: wanAudio,
+          multiShots: wanMultiShots,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else {
+        response = await referenceVideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          images: wanReferenceImagesForRequest,
+          video: queued.referenceVideoFile,
+          referenceVideoUrl: queued.referenceVideoUrl,
+          prompt,
+          duration,
+          resolution,
+          ratio,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      }
+
+      if (response.success && response.videoUrl) {
+        await finalizeVideoGeneration(response, activeJob, pendingFiles);
+      } else {
+        throw new Error(response.message || 'Failed to generate video');
+      }
+    } catch (err) {
+      if (shouldRecoverGeneration(err)) {
+        setVideoError(null);
+        void recoverPendingVideo(activeJob);
+        console.warn('Video response was interrupted; recovery will continue in the background.', err);
+        return;
+      }
+
+      clearPendingVideoJob(activeJob.id);
+      const errorMessage = getApiErrorMessage(err);
+      if (isSafetyFilterError(err)) {
+        setError(CONTENT_POLICY_ERROR_MESSAGE);
+      } else {
+        setVideoError(`Failed to generate video. ${errorMessage}`);
+      }
+      console.error('Video generation error:', err);
+    }
+  }, [
+    clearPendingVideoJob,
+    finalizeVideoGeneration,
+    recoverPendingVideo,
+    videoMutation,
+    referenceVideoMutation,
+    textToVideoMutation,
+    seedanceVideoMutation,
+  ]);
+
+  /* ---------------- image generation ---------------- */
+  const handleGenerateImage = useCallback((submittedPrompt: string) => {
+    if (!requireAuth()) return;
 
     const trimmedPrompt = submittedPrompt.trim();
     if (!trimmedPrompt) {
       setError('Describe what you want to create.');
       return;
     }
-    setImagePrompt(trimmedPrompt);
 
     const supportsReferences = imageProviderSupportsReferences(imageGenerationOptions.provider);
     const workflow: ImageWorkflow = supportsReferences && currentImage ? 'image-to-image' : 'text-to-image';
@@ -1017,6 +1243,7 @@ const App: React.FC = () => {
       setError('Z-Image prompts must be between 3 and 1000 characters.');
       return;
     }
+
     let recoverableWorkflow: RecoverableImageWorkflow;
     if (!supportsReferences || !currentImage) {
       recoverableWorkflow = 'text-to-image';
@@ -1033,256 +1260,116 @@ const App: React.FC = () => {
     }
 
     const generationId = crypto.randomUUID();
-    const pendingJob: PendingImageGeneration = {
-      id: generationId,
-      provider: options.provider,
-      prompt: trimmedPrompt,
-      workflow: recoverableWorkflow,
-      createdAt: Date.now(),
-    };
-    const requestBase = {
-      generationId,
-      resolution: options.resolution,
-      aspectRatio: options.aspectRatio,
-      seedreamTier: options.seedreamTier,
-      outputFormat: options.outputFormat,
+    enqueueGeneration({
+      kind: 'image',
+      job: {
+        id: generationId,
+        provider: options.provider,
+        prompt: trimmedPrompt,
+        workflow: recoverableWorkflow,
+        createdAt: Date.now(),
+      },
+      options: { ...options },
+      sourceImage: currentImage,
+      styleImage,
+      hotspot: editHotspot ? { ...editHotspot } : null,
       nsfwFilterEnabled: settings.nsfwFilterEnabled,
-    };
-
-    setError(null);
-    setPendingImageGeneration(pendingJob);
-    storePendingImageGeneration(pendingJob);
-
-    try {
-      let response: ImageGenerationResponse;
-
-      if (recoverableWorkflow === 'text-to-image') {
-        response = await activeTextToImageMutation.mutateAsync({
-          prompt: trimmedPrompt,
-          ...requestBase,
-        });
-      } else if (recoverableWorkflow === 'retouch' && currentImage && editHotspot) {
-        response = await activeEditableImageMutations!.edit.mutateAsync({
-          image: currentImage,
-          prompt: trimmedPrompt,
-          x: editHotspot.x,
-          y: editHotspot.y,
-          ...requestBase,
-        });
-      } else if (recoverableWorkflow === 'composite' && currentImage && styleImage) {
-        response = await activeEditableImageMutations!.composite.mutateAsync({
-          image1: currentImage,
-          image2: styleImage,
-          prompt: trimmedPrompt,
-          ...requestBase,
-        });
-      } else if (currentImage) {
-        response = await activeEditableImageMutations!.adjust.mutateAsync({
-          image: currentImage,
-          prompt: trimmedPrompt,
-          ...requestBase,
-        });
-      } else {
-        throw new Error('The selected image was unavailable.');
-      }
-
-      if (response.success && response.image) {
-        await finalizeImageGeneration(response, pendingJob);
-      } else {
-        throw new Error(response.message || 'Failed to generate image');
-      }
-    } catch (err) {
-      if (shouldRecoverGeneration(err)) {
-        setError(null);
-        void recoverPendingImage(pendingJob);
-        console.warn('Image response was interrupted; recovery will continue in the background.', err);
-        return;
-      }
-
-      clearPendingImageJob(generationId);
-      setError(getGenerationErrorMessage(err, 'Failed to generate the image.'));
-      console.error(err);
-    }
+    });
   }, [
-    requireAuth, pendingImageGeneration, currentImage, styleImage, activeTool, editHotspot,
-    imageGenerationOptions, settings.nsfwFilterEnabled, activeEditableImageMutations,
-    activeTextToImageMutation, clearPendingImageJob, finalizeImageGeneration, recoverPendingImage,
+    requireAuth,
+    imageGenerationOptions,
+    currentImage,
+    activeTool,
+    editHotspot,
+    styleImage,
+    settings.nsfwFilterEnabled,
+    enqueueGeneration,
   ]);
 
   /* ---------------- video generation ---------------- */
-  const handleGenerateVideo = useCallback(async (options: VideoGenerateOptions) => {
+  const handleGenerateVideo = useCallback((options: VideoGenerateOptions) => {
     if (!requireAuth()) return;
-    if (pendingVideoGeneration) {
-      setVideoError('Your previous video is still being recovered. Please wait for it to finish.');
-      return;
-    }
-
-    const {
-      provider,
-      prompt,
-      duration,
-      resolution,
-      ratio,
-      wanAudio = true,
-      wanMultiShots = false,
-      seedanceVariant = 'regular',
-      seedanceInputMode: selectedSeedanceInputMode = 'references',
-      seedanceGenerateAudio = false,
-      seedanceWebSearch = false,
-      seedanceReturnLastFrame = false,
-      seedanceOutputFormat = 'mp4'
-    } = options;
 
     const generationId = crypto.randomUUID();
-    const pendingJob: PendingVideoGeneration = {
-      id: generationId,
-      provider,
-      prompt,
-      duration,
-      resolution,
-      ratio,
-      seedanceVariant: provider === 'seedance' ? seedanceVariant : undefined,
-      seedanceInputMode: provider === 'seedance' ? selectedSeedanceInputMode : undefined,
-      seedanceOutputFormat: provider === 'seedance' ? seedanceOutputFormat : undefined,
-      createdAt: Date.now(),
-    };
-    const wanHasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
-    const wanReferenceImagesForRequest = wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
-    const usesSeedanceFrameMode = selectedSeedanceInputMode === 'frames';
-    const seedanceReferenceLimits = getSeedanceReferenceLimits(seedanceVariant);
-    const selectedSeedanceReferenceImages = seedanceReferenceImages.slice(0, seedanceReferenceLimits.images);
-    const maxUploadedSeedanceVideos = Math.max(0, seedanceReferenceLimits.videos - (seedanceReferenceVideoUrl ? 1 : 0));
-    const selectedSeedanceReferenceVideos = seedanceReferenceVideoFiles.slice(0, maxUploadedSeedanceVideos);
-    const selectedSeedanceReferenceAudios = seedanceReferenceAudioFiles.slice(0, seedanceReferenceLimits.audios);
-    const pendingFiles: PendingVideoFiles = {
-      generationId,
-      referenceImages: provider === 'seedance'
-        ? usesSeedanceFrameMode
-          ? [seedanceFirstFrame, seedanceLastFrame].filter((file): file is File => Boolean(file))
-          : selectedSeedanceReferenceImages
-        : wanReferenceImagesForRequest,
-      referenceVideoFiles: provider === 'seedance'
-        ? usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos
-        : referenceVideoFile ? [referenceVideoFile] : [],
-      referenceVideoUrl: provider === 'seedance'
-        ? usesSeedanceFrameMode ? null : seedanceReferenceVideoUrl
-        : referenceVideoUrl,
-    };
-
-    setVideoError(null);
-    setError(null);
-    setVideoPrompt(prompt);
-    clearVideoResult();
-    pendingVideoFilesRef.current = pendingFiles;
-    setPendingVideoGeneration(pendingJob);
-    storePendingVideoGeneration(pendingJob);
-
-    try {
-      let response: VideoGenerationResponse;
-
-      if (provider === 'seedance') {
-        response = await seedanceVideoMutation.mutateAsync({
-          generationId,
-          firstFrame: usesSeedanceFrameMode ? seedanceFirstFrame : null,
-          lastFrame: usesSeedanceFrameMode ? seedanceLastFrame : null,
-          referenceImages: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceImages,
-          referenceVideos: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos,
-          referenceVideoUrl: usesSeedanceFrameMode ? null : seedanceReferenceVideoUrl,
-          referenceVideoDuration: usesSeedanceFrameMode ? null : seedanceReferenceVideoDuration,
-          referenceAudios: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceAudios,
-          referenceAudioDuration: usesSeedanceFrameMode ? null : seedanceReferenceAudioDuration,
-          prompt,
-          variant: seedanceVariant,
-          inputMode: selectedSeedanceInputMode,
-          duration,
-          resolution,
-          aspectRatio: ratio,
-          generateAudio: seedanceGenerateAudio,
-          webSearch: seedanceWebSearch,
-          returnLastFrame: seedanceReturnLastFrame,
-          outputFormat: seedanceOutputFormat,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
-        response = await textToVideoMutation.mutateAsync({
-          generationId,
-          prompt,
-          duration,
-          resolution,
-          ratio,
-          multiShots: wanMultiShots,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      } else if (wanReferenceImagesForRequest.length === 1 && !wanHasReferenceVideo) {
-        response = await videoMutation.mutateAsync({
-          generationId,
-          image: wanReferenceImagesForRequest[0],
-          prompt,
-          duration,
-          resolution,
-          audio: wanAudio,
-          multiShots: wanMultiShots,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      } else {
-        response = await referenceVideoMutation.mutateAsync({
-          generationId,
-          images: wanReferenceImagesForRequest,
-          video: referenceVideoFile,
-          referenceVideoUrl,
-          prompt,
-          duration,
-          resolution,
-          ratio,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      }
-
-      if (response.success && response.videoUrl) {
-        await finalizeVideoGeneration(response, pendingJob, pendingFiles);
-      } else {
-        throw new Error(response.message || 'Failed to generate video');
-      }
-    } catch (err) {
-      if (shouldRecoverGeneration(err)) {
-        setVideoError(null);
-        void recoverPendingVideo(pendingJob);
-        console.warn('Video response was interrupted; recovery will continue in the background.', err);
-        return;
-      }
-
-      clearPendingVideoJob(generationId);
-      const errorMessage = getApiErrorMessage(err);
-      if (isSafetyFilterError(err)) {
-        setError(CONTENT_POLICY_ERROR_MESSAGE);
-      } else {
-        setVideoError(`Failed to generate video. ${errorMessage}`);
-      }
-      console.error('Video generation error:', err);
-    }
+    const selectedSeedanceInputMode = options.seedanceInputMode ?? 'references';
+    enqueueGeneration({
+      kind: 'video',
+      job: {
+        id: generationId,
+        provider: options.provider,
+        prompt: options.prompt,
+        duration: options.duration,
+        resolution: options.resolution,
+        ratio: options.ratio,
+        seedanceVariant: options.provider === 'seedance' ? options.seedanceVariant ?? 'regular' : undefined,
+        seedanceInputMode: options.provider === 'seedance' ? selectedSeedanceInputMode : undefined,
+        seedanceOutputFormat: options.provider === 'seedance' ? options.seedanceOutputFormat ?? 'mp4' : undefined,
+        createdAt: Date.now(),
+      },
+      options: { ...options },
+      wanReferenceImages: [...wanReferenceImages],
+      referenceVideoFile,
+      referenceVideoUrl,
+      seedanceFirstFrame,
+      seedanceLastFrame,
+      seedanceReferenceImages: [...seedanceReferenceImages],
+      seedanceReferenceVideoFiles: [...seedanceReferenceVideoFiles],
+      seedanceReferenceVideoUrl,
+      seedanceReferenceVideoDuration,
+      seedanceReferenceAudioFiles: [...seedanceReferenceAudioFiles],
+      seedanceReferenceAudioDuration,
+      nsfwFilterEnabled: settings.nsfwFilterEnabled,
+    });
   }, [
     requireAuth,
-    pendingVideoGeneration,
+    enqueueGeneration,
+    wanReferenceImages,
     referenceVideoFile,
     referenceVideoUrl,
-    wanReferenceImages,
-    seedanceReferenceAudioDuration,
-    seedanceReferenceAudioFiles,
     seedanceFirstFrame,
     seedanceLastFrame,
     seedanceReferenceImages,
-    seedanceReferenceVideoDuration,
     seedanceReferenceVideoFiles,
     seedanceReferenceVideoUrl,
-    clearVideoResult,
-    clearPendingVideoJob,
-    finalizeVideoGeneration,
-    recoverPendingVideo,
-    videoMutation,
-    referenceVideoMutation,
-    textToVideoMutation,
-    seedanceVideoMutation,
-    settings.nsfwFilterEnabled
+    seedanceReferenceVideoDuration,
+    seedanceReferenceAudioFiles,
+    seedanceReferenceAudioDuration,
+    settings.nsfwFilterEnabled,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isLoaded
+      || !isSignedIn
+      || queueWorkerBusyRef.current
+      || pendingImageGeneration
+      || pendingVideoGeneration
+    ) return;
+
+    const next = generationQueueRef.current.shift();
+    if (!next) return;
+
+    queueWorkerBusyRef.current = true;
+    activeQueueItemRef.current = next;
+    setQueuedGenerations([...generationQueueRef.current]);
+
+    const request = next.kind === 'image'
+      ? executeImageGeneration(next)
+      : executeVideoGeneration(next);
+
+    void request.finally(() => {
+      queueWorkerBusyRef.current = false;
+      activeQueueItemRef.current = null;
+      setQueuedGenerations([...generationQueueRef.current]);
+    });
+  }, [
+    executeImageGeneration,
+    executeVideoGeneration,
+    isLoaded,
+    isSignedIn,
+    pendingImageGeneration,
+    pendingVideoGeneration,
+    queuedGenerations,
   ]);
 
   /* ---------------- video reference handlers ---------------- */
@@ -1909,8 +1996,8 @@ const App: React.FC = () => {
             <>
           <ResultStage
             mode={studioMode}
-            isLoading={isLoading}
-            loadingLabel={loadingLabel}
+            isLoading={isProcessingFile}
+            loadingLabel="Processing image…"
             currentImageUrl={currentImageUrl}
             originalImageUrl={originalImageUrl}
             previousImageUrl={previousImageUrl}
@@ -1952,7 +2039,9 @@ const App: React.FC = () => {
             <Composer
               mode={studioMode}
               onModeChange={handleModeChange}
-              isLoading={isLoading}
+              isLoading={isProcessingFile}
+              generationQueueCount={generationQueueCount}
+              generationQueueLimit={MAX_GENERATION_QUEUE_SIZE}
               prompt={studioMode === 'video' ? videoPrompt : imagePrompt}
               onPromptChange={studioMode === 'video' ? setVideoPrompt : setImagePrompt}
               onNewSession={handleNewSession}
