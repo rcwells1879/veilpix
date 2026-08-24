@@ -81,9 +81,9 @@ function imageGenerationJobResponse(record) {
                 processingTime: record.processing_time_ms || undefined
             };
         }
-        // A delivery acknowledgement replaces the short-lived receipt with a
-        // privacy-safe marker. Treat an overlapping status poll as neutral;
-        // the browser has already verified and stored the local Album blob.
+        // Legacy single-browser delivery replaced the receipt with this marker.
+        // Keep it neutral so upgraded clients can clear the old stuck pending
+        // job; current multi-browser acknowledgement retains the delivery ID.
         if (result.delivered === true) {
             return { status: 'pending', delivered: true };
         }

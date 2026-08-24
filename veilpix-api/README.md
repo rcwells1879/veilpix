@@ -8,7 +8,7 @@ Authenticated Express backend for VeilPix image/video generation, credit account
 - Normalize model-specific input and send generation jobs to Kie.ai.
 - Poll jobs independently of the browser request lifecycle and expose recovery status by generation ID.
 - Deduct fractional VeilPix credits and record usage in Supabase.
-- Move successful output through a private, 48-hour delivery outbox until the browser verifies local Album storage.
+- Move successful output through a private, account-scoped 48-hour delivery outbox so each signed-in browser can verify its own local Album copy.
 - Keep provider credentials, Supabase service-role access, and Stripe secrets off the client.
 
 Anonymous generation and the old direct `/api/gemini` contract are no longer supported.
@@ -86,11 +86,11 @@ Every successful route serializes its provider result through `db.logUsage()`. `
 
 1. Fetches the provider result and streams it directly into private `media-deliveries` Storage without VPS disk persistence or a full in-memory blob.
 2. Creates an owner-scoped `media_deliveries` row with a 48-hour expiry and replaces the provider URL in `usage_logs` with a delivery receipt.
-3. Gives the authenticated browser a 10-minute signed download URL from `GET /api/media-deliveries`.
-4. Deletes the Storage object and delivery row only after the browser writes and verifies the blob in IndexedDB, then calls `POST /api/media-deliveries/:id/ack` (or the generation-ID ACK).
-5. Deletes unacknowledged output after 48 hours. Cleanup runs when deliveries are listed and every five minutes in the API process; the usage receipt is marked expired.
+3. Gives a browser authenticated as that Clerk account a 10-minute signed download URL from `GET /api/media-deliveries`; other accounts are excluded before URL creation.
+4. Lets each browser write and verify its own IndexedDB blob, retain a browser-local receipt, and call `POST /api/media-deliveries/:id/ack` (or the generation-ID ACK). ACK confirms ownership but does not delete the shared temporary object.
+5. Deletes the output object and delivery row at the hard 48-hour expiry. Cleanup runs when deliveries are listed and every five minutes in the API process; the usage receipt is marked expired.
 
-Closing the browser does not cancel provider polling. The browser stores only the pending generation metadata in localStorage, recovers status through `/api/image-jobs` or `/api/video-jobs`, and queries the delivery outbox on return.
+Closing the browser does not cancel provider polling. The browser stores pending generation metadata and short-lived delivery receipts in localStorage, recovers status through `/api/image-jobs` or `/api/video-jobs`, and polls the account outbox on return and while visible. Media blobs remain in IndexedDB, not localStorage.
 
 The deletion contract covers VeilPix-owned Supabase objects, not provider-side retention.
 

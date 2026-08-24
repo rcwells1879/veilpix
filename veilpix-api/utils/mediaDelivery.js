@@ -144,8 +144,8 @@ async function stageMediaDelivery({ clerkUserId, generationId, artifactType, pro
     return data;
 }
 
-async function getDeliveryByGeneration(clerkUserId, generationId, artifactType = null) {
-    const supabase = getSupabaseClient();
+async function getDeliveryByGeneration(clerkUserId, generationId, artifactType = null, client = null) {
+    const supabase = client || getSupabaseClient();
     let query = supabase
         .from('media_deliveries')
         .select('*')
@@ -160,8 +160,8 @@ async function getDeliveryByGeneration(clerkUserId, generationId, artifactType =
     return data || null;
 }
 
-async function listPendingDeliveries(clerkUserId) {
-    const supabase = getSupabaseClient();
+async function listPendingDeliveries(clerkUserId, client = null) {
+    const supabase = client || getSupabaseClient();
     const { data, error } = await supabase
         .from('media_deliveries')
         .select('*')
@@ -182,47 +182,38 @@ async function createDeliveryDownloadUrl(delivery) {
     return data.signedUrl;
 }
 
-async function acknowledgeDelivery(clerkUserId, deliveryId) {
-    const supabase = getSupabaseClient();
+async function acknowledgeDelivery(clerkUserId, deliveryId, client = null) {
+    const supabase = client || getSupabaseClient();
     const { data: delivery, error } = await supabase
         .from('media_deliveries')
         .select('*')
         .eq('id', deliveryId)
         .eq('clerk_user_id', clerkUserId)
+        .eq('status', 'pending')
+        .gt('expires_at', new Date().toISOString())
         .maybeSingle();
     if (error) throw error;
     if (!delivery) return { acknowledged: true, alreadyRemoved: true };
 
-    const { error: storageError } = await supabase.storage
-        .from(delivery.storage_bucket)
-        .remove([delivery.storage_path]);
-    if (storageError) throw storageError;
-
-    const { error: deleteError } = await supabase
-        .from('media_deliveries')
-        .delete()
-        .eq('id', delivery.id)
-        .eq('clerk_user_id', clerkUserId);
-    if (deleteError) throw deleteError;
-
-    await supabase
-        .from('usage_logs')
-        .update({ error_message: JSON.stringify({ delivered: true }) })
-        .eq('clerk_user_id', clerkUserId)
-        .eq('gemini_request_id', delivery.generation_id)
-        .eq('success', true);
-
-    return { acknowledged: true, alreadyRemoved: false };
+    // Acknowledgement is browser-local. Keep the account-scoped object until
+    // its hard 48-hour expiry so another signed-in browser can save its own
+    // IndexedDB Album copy. The browser retains its own short-lived receipt to
+    // avoid duplicate delivery or re-adding an item the user deleted locally.
+    return {
+        acknowledged: true,
+        alreadyRemoved: false,
+        retainedUntil: delivery.expires_at
+    };
 }
 
-async function acknowledgeDeliveryByGeneration(clerkUserId, generationId) {
-    const delivery = await getDeliveryByGeneration(clerkUserId, generationId);
+async function acknowledgeDeliveryByGeneration(clerkUserId, generationId, client = null) {
+    const delivery = await getDeliveryByGeneration(clerkUserId, generationId, null, client);
     if (!delivery) return { acknowledged: true, alreadyRemoved: true };
-    return acknowledgeDelivery(clerkUserId, delivery.id);
+    return acknowledgeDelivery(clerkUserId, delivery.id, client);
 }
 
-async function cleanupExpiredDeliveries() {
-    const supabase = getSupabaseClient();
+async function cleanupExpiredDeliveries(client = null) {
+    const supabase = client || getSupabaseClient();
     const { data: expired, error } = await supabase
         .from('media_deliveries')
         .select('*')

@@ -15,14 +15,14 @@ Current image models are Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, and 
 
 ## Media Privacy
 
-The user-facing Album lives in that browser's IndexedDB and stores real image and video blobs. It is not a cloud-synced account gallery and is subject to browser site-data cleanup and the 20-item Album limit.
+The durable Album lives in each browser's IndexedDB and stores real image and video blobs. During the temporary delivery window, another browser signed into the same account can save its own copy; VeilPix does not retain a permanent cloud gallery, so older items do not populate a new browser after the window. Each local Album remains subject to browser site-data cleanup and the 20-item limit.
 
 VeilPix uses Supabase only as temporary transport storage:
 
 1. Reference inputs are retained only while the provider job needs them. Wan 3.0 uploads large references directly from the browser to private Storage, avoiding persistent files and large upload bodies on the VPS.
 2. A successful provider output is streamed into a private delivery outbox for up to 48 hours. Closing the browser does not interrupt the server-side task.
-3. When the user returns, VeilPix downloads pending output into IndexedDB and verifies it is present in the Album.
-4. The browser then acknowledges delivery, which deletes the remote output object and its delivery row. Unretrieved items expire and are deleted after 48 hours.
+3. Any browser signed into the owning account during that window can download the output into its own IndexedDB Album. Clerk ownership checks prevent another account from listing, downloading, or acknowledging it.
+4. Each browser records a local receipt after verifying its copy. The private remote object remains available to the account until the 48-hour expiry, then VeilPix deletes the object and delivery row.
 
 The provider may have its own retention policy; this lifecycle describes storage controlled by VeilPix.
 

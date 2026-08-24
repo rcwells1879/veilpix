@@ -18,6 +18,52 @@ const STORE_NAME = 'workflow';
 const GALLERY_STORE_NAME = 'gallery';
 const WORKFLOW_KEY = 'current';
 const MAX_GALLERY_IMAGES = 20;
+const DELIVERY_RECEIPT_STORAGE_KEY = 'veilpix-media-delivery-receipts';
+const DELIVERY_RECEIPT_TTL_MS = 48 * 60 * 60 * 1000;
+
+type LocalDeliveryReceipts = Record<string, number>;
+
+function readLocalDeliveryReceipts(now = Date.now()): LocalDeliveryReceipts {
+  try {
+    const raw = localStorage.getItem(DELIVERY_RECEIPT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as LocalDeliveryReceipts : {};
+    const active = Object.fromEntries(
+      Object.entries(parsed).filter(([generationId, expiresAt]) => (
+        generationId.length > 0 && Number.isFinite(expiresAt) && expiresAt > now
+      ))
+    );
+    if (Object.keys(active).length !== Object.keys(parsed).length) {
+      localStorage.setItem(DELIVERY_RECEIPT_STORAGE_KEY, JSON.stringify(active));
+    }
+    return active;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Record that this browser has verified a delivery in its local Album. The
+ * receipt outlives Album deletion or eviction so a temporary account delivery
+ * does not re-add an item that was deliberately removed in this browser.
+ */
+export function markLocalDeliveryReceipt(generationId: string, expiresAt?: string): void {
+  if (!generationId) return;
+  try {
+    const receipts = readLocalDeliveryReceipts();
+    const parsedExpiry = expiresAt ? Date.parse(expiresAt) : NaN;
+    receipts[generationId] = Number.isFinite(parsedExpiry)
+      ? parsedExpiry
+      : Date.now() + DELIVERY_RECEIPT_TTL_MS;
+    localStorage.setItem(DELIVERY_RECEIPT_STORAGE_KEY, JSON.stringify(receipts));
+  } catch {
+    // IndexedDB verification still prevents duplication during this page load.
+  }
+}
+
+/** Whether this browser has already accepted this temporary account delivery. */
+export function hasLocalDeliveryReceipt(generationId: string): boolean {
+  return Boolean(generationId && readLocalDeliveryReceipts()[generationId]);
+}
 
 interface StoredWorkflow {
   images: Array<{

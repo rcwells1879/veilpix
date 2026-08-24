@@ -192,8 +192,8 @@
             </ul>
 
             <h2>Private delivery and browser recovery</h2>
-            <p>Wan 3.0 references upload directly from the browser to private temporary storage rather than being kept on the VeilPix application server. If the browser closes during generation, the server-side job continues. When the user returns within 48 hours, VeilPix can retrieve the finished result, save the real video blob in the browser-local Album, verify it, and then delete the temporary delivery copy.</p>
-            <p>The local Album is specific to that browser profile and is not an account-synced cloud gallery. Provider retention policies still apply to media processed by the selected model service.</p>
+            <p>Wan 3.0 references upload directly from the browser to private temporary storage rather than being kept on the VeilPix application server. If the browser closes during generation, the server-side job continues. The finished result remains in private, account-scoped delivery storage for up to 48 hours so each browser signed into that account can save and verify its own local video blob. VeilPix deletes the temporary delivery object at expiry.</p>
+            <p>Each Album remains specific to its browser profile; the 48-hour delivery window is not a permanent account-synced cloud gallery. A browser opened after the window will not receive older creations. Provider retention policies still apply to media processed by the selected model service.</p>
 
             <h2>Frequently asked questions</h2>
             <h3>Does Prime have more features than Standard?</h3>

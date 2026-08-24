@@ -29,7 +29,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: 'What makes VeilPix different from other AI photo editors?',
-    answer: 'VeilPix brings image editing, text-to-image generation, and AI video generation into one privacy-focused creative tool. Your creation history and prompts stay in your browser instead of an account-synced VeilPix gallery, and cloud AI requests are proxied so the model gateway does not receive your direct browser IP or VeilPix account identity.',
+    answer: 'VeilPix brings image editing, text-to-image generation, and AI video generation into one privacy-focused creative tool. Your durable creation history and prompts stay in each browser rather than a permanent account gallery. A completed output is temporarily available to your signed-in account for up to 48 hours so another browser can save its own local copy, and cloud AI requests are proxied so the model gateway does not receive your direct browser IP or VeilPix account identity.',
   },
   {
     question: 'What types of images and videos can I create?',
@@ -41,7 +41,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: 'How do you handle my photos, videos, and prompts?',
-    answer: 'Uploaded media and prompts are sent through VeilPix to the selected cloud AI provider for the requested generation or edit. Your creation history and prompts are saved locally in your browser rather than in a server-side VeilPix creative library. Provider retention still applies; see the VeilPix Privacy page for the current data flow and retention details.',
+    answer: 'Uploaded media and prompts are sent through VeilPix to the selected cloud AI provider for the requested generation or edit. Each browser saves its own Album locally. VeilPix keeps a private, account-scoped delivery copy of completed output for up to 48 hours so your other signed-in browsers can retrieve it, then deletes that copy. This is not permanent cloud history, and provider retention still applies; see the VeilPix Privacy page for details.',
   },
   {
     question: 'Is VeilPix really free?',

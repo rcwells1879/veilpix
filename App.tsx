@@ -57,7 +57,15 @@ import ResultStage from './components/studio/ResultStage';
 import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } from './components/studio/GalleryRail';
 import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './components/studio/types';
 import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES, WAN3_REFERENCE_LIMITS } from './components/studio/videoPricing';
-import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, hasGalleryArtifact, type GalleryVideoDetails } from './src/utils/workflowStorage';
+import {
+  debouncedSaveWorkflow,
+  hasGalleryArtifact,
+  hasLocalDeliveryReceipt,
+  markLocalDeliveryReceipt,
+  saveToGallery,
+  saveVideoToGallery,
+  type GalleryVideoDetails,
+} from './src/utils/workflowStorage';
 import { extractLastVideoFrame } from './src/utils/videoFrameExtraction';
 
 /* ------------------------------------------------------------------ */
@@ -780,6 +788,7 @@ const App: React.FC = () => {
       finalizingVideoJobsRef.current.delete(job.id);
       throw new Error('The video finished, but VeilPix could not verify it in this browser\'s Album.');
     }
+    markLocalDeliveryReceipt(job.id);
     try {
       await mediaDeliveryRecovery.acknowledgeGeneration(job.id);
     } catch {
@@ -795,6 +804,11 @@ const App: React.FC = () => {
     recoveryRequestInFlightRef.current = true;
 
     try {
+      if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'video')) {
+        markLocalDeliveryReceipt(job.id);
+        clearPendingVideoJob(job.id);
+        return;
+      }
       const status = await getVideoGenerationStatus(job.id);
       if (status.status === 'succeeded' && status.videoUrl) {
         await finalizeVideoGeneration({
@@ -809,6 +823,12 @@ const App: React.FC = () => {
       if (status.status === 'failed') {
         clearPendingVideoJob(job.id);
         setVideoError(`Failed to generate video. ${status.message || 'The provider could not complete it.'}`);
+        return;
+      }
+
+      if (status.delivered) {
+        clearPendingVideoJob(job.id);
+        setVideoError('This video was delivered to another browser before multi-browser delivery was enabled. It remains in that browser\'s Album.');
         return;
       }
 
@@ -927,6 +947,7 @@ const App: React.FC = () => {
       if (!savedLocally || !await hasGalleryArtifact(job.id, 'image')) {
         throw new Error('The image finished, but VeilPix could not verify it in this browser\'s Album.');
       }
+      markLocalDeliveryReceipt(job.id);
       try {
         await mediaDeliveryRecovery.acknowledgeGeneration(job.id);
       } catch {
@@ -948,6 +969,11 @@ const App: React.FC = () => {
     imageRecoveryRequestInFlightRef.current = true;
 
     try {
+      if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'image')) {
+        markLocalDeliveryReceipt(job.id);
+        clearPendingImageJob(job.id);
+        return;
+      }
       const status = await getImageGenerationStatus(job.id);
       if (status.status === 'succeeded' && status.image) {
         await finalizeImageGeneration({
@@ -962,6 +988,12 @@ const App: React.FC = () => {
       if (status.status === 'failed') {
         clearPendingImageJob(job.id);
         setError(`Failed to generate the image. ${status.message || 'The provider could not complete it.'}`);
+        return;
+      }
+
+      if (status.delivered) {
+        clearPendingImageJob(job.id);
+        setError('This image was delivered to another browser before multi-browser delivery was enabled. It remains in that browser\'s Album.');
         return;
       }
 
@@ -1027,6 +1059,16 @@ const App: React.FC = () => {
       for (const delivery of deliveries) {
         if (delivery.artifactType !== 'image' && delivery.artifactType !== 'video') continue;
 
+        if (hasLocalDeliveryReceipt(delivery.generationId)) {
+          if (pendingImageGeneration?.id === delivery.generationId) {
+            clearPendingImageJob(delivery.generationId);
+          }
+          if (pendingVideoGeneration?.id === delivery.generationId) {
+            clearPendingVideoJob(delivery.generationId);
+          }
+          continue;
+        }
+
         let storedLocally = await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
         if (!storedLocally) {
           const file = await downloadDeliveryFile(
@@ -1063,6 +1105,7 @@ const App: React.FC = () => {
           && await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
         if (!verified) continue;
 
+        markLocalDeliveryReceipt(delivery.generationId, delivery.expiresAt);
         await mediaDeliveryRecovery.acknowledge(delivery.id);
         if (pendingImageGeneration?.id === delivery.generationId) {
           clearPendingImageJob(delivery.generationId);

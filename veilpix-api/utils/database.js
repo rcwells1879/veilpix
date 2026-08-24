@@ -373,9 +373,9 @@ const db = {
         }
     },
 
-    async getVideoGenerationJob(clerkUserId, generationId) {
+    async getVideoGenerationJob(clerkUserId, generationId, client = null) {
         try {
-            const supabase = getSupabaseClient();
+            const supabase = client || getSupabaseClient();
             const { VIDEO_GENERATION_REQUEST_TYPES } = require('./videoGenerationJob');
             const { data, error } = await supabase
                 .from('usage_logs')
@@ -393,9 +393,9 @@ const db = {
         }
     },
 
-    async getImageGenerationJob(clerkUserId, generationId) {
+    async getImageGenerationJob(clerkUserId, generationId, client = null) {
         try {
-            const supabase = getSupabaseClient();
+            const supabase = client || getSupabaseClient();
             const { IMAGE_GENERATION_REQUEST_TYPES } = require('./imageGenerationJob');
             const { data, error } = await supabase
                 .from('usage_logs')

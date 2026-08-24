@@ -10,7 +10,7 @@ VeilPix is a free-to-try, privacy-focused AI image and video workspace for photo
 - Wan 3.0 output: 2-30 seconds, 480P/720P/1080P, adaptive or fixed aspect ratios, optional audio, and reproducible seeds
 - Other video models: Seedance 2.5 and earlier Wan workflows
 - Image models: Nano Banana 2, Seedream 5 Lite/Pro, and Z-Image Turbo
-- Privacy: browser-local creative history, no public creation feed, and a private delivery copy deleted after verified Album delivery or after 48 hours; provider retention applies
+- Privacy: browser-local Albums, no public creation feed, and a private account-scoped delivery copy available to signed-in browsers for up to 48 hours before deletion; provider retention applies
 
 ## Wan 3.0 Workflows
 1. Text-to-Video - Describe a scene without references

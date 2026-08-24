@@ -50,7 +50,7 @@ test('keeps staged private deliveries pending until the browser acknowledges the
     });
 });
 
-test('does not report an error when delivery acknowledgement races a recovery poll', () => {
+test('keeps the legacy delivered marker recoverable for upgraded browsers', () => {
     assert.deepEqual(videoGenerationJobResponse({
         success: true,
         error_message: JSON.stringify({ delivered: true })

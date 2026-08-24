@@ -49,7 +49,7 @@ test('keeps staged private image deliveries pending until browser storage is ver
     });
 });
 
-test('does not report an error when image delivery acknowledgement races a recovery poll', () => {
+test('keeps the legacy image delivered marker recoverable for upgraded browsers', () => {
     assert.deepEqual(imageGenerationJobResponse({
         success: true,
         error_message: JSON.stringify({ delivered: true })

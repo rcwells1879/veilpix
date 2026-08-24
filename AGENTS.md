@@ -96,9 +96,9 @@ There are three distinct media stores. Do not describe them as one generic datab
 ### Browser Album
 
 - `src/utils/workflowStorage.ts` stores image and video blobs, thumbnails, prompts, and reference metadata in IndexedDB.
-- This is the durable user-facing Album, local to that browser profile. It is not account-synced and can be lost if site data is cleared/evicted.
+- This is the durable user-facing Album, local to that browser profile. Temporary account delivery can seed another signed-in browser during the 48-hour window, but VeilPix does not retain a permanent account gallery; older items do not follow a user to a new browser after the window.
 - The Album keeps at most 20 items and removes the oldest when the limit is exceeded.
-- `localStorage` stores settings and small pending-generation records, not generated media blobs.
+- `localStorage` stores settings, small pending-generation records, and 48-hour per-browser delivery receipts, not generated media blobs.
 
 ### Provider Inputs
 
@@ -111,14 +111,15 @@ There are three distinct media stores. Do not describe them as one generic datab
 ### Generated Output Delivery
 
 - Successful provider output is streamed from the provider into the private `media-deliveries` bucket. The API does not retain it on VPS disk or load the entire blob into memory.
-- `media_deliveries` stores delivery metadata, ownership, and a 48-hour expiry. `usage_logs` stores a recovery receipt rather than a long-lived provider URL.
+- `media_deliveries` stores delivery metadata, Clerk-account ownership, and a hard 48-hour expiry. `usage_logs` stores a recovery receipt rather than a long-lived provider URL.
 - Closing the browser does not cancel backend provider polling. The browser keeps the generation ID in localStorage; `/api/image-jobs/:id` and `/api/video-jobs/:id` recover job state.
-- On sign-in, page show/visibility, and every 30 seconds while visible, the frontend lists pending deliveries, downloads each through a 10-minute signed URL, writes the blob to IndexedDB, and verifies the generation ID and artifact type.
-- Only after that local verification does the browser acknowledge delivery. ACK deletes the Supabase Storage object and its `media_deliveries` row, then records `{ "delivered": true }` in the usage receipt.
-- Unacknowledged output remains recoverable for at most 48 hours. API cleanup runs every five minutes, deletes expired objects/rows, and records `{ "expired": true }`.
+- On sign-in, page show/visibility, and every 30 seconds while visible, the frontend lists account-owned deliveries, downloads each through a 10-minute signed URL, writes the blob to that browser's IndexedDB, and verifies the generation ID and artifact type.
+- After local verification, that browser records a 48-hour local receipt and acknowledges delivery. ACK validates account ownership but deliberately does not consume the shared temporary object, allowing another signed-in browser to save its own local copy during the window.
+- Generated output remains in the private delivery bucket until its 48-hour expiry even after one browser retrieves it. API cleanup runs every five minutes, deletes expired objects/rows, and records `{ "expired": true }`.
+- A local receipt prevents a deleted or auto-evicted Album item from reappearing on the same browser during the remaining delivery window. Deleting an Album item affects only that browser.
 - Deletion guarantees cover VeilPix-controlled Supabase objects, not any retention performed independently by Kie or an underlying model provider.
 
-When changing this flow, preserve idempotence: generation IDs prevent duplicate Album items, an already-removed delivery ACK succeeds, and output must not be deleted until browser storage is verified.
+When changing this flow, preserve idempotence and isolation: generation IDs and local receipts prevent duplicates, delivery list/ACK/status routes remain Clerk-owner-scoped, and only expiry deletes the shared delivery object.
 
 ## Important Files
 

@@ -700,6 +700,7 @@ export function useGenerateTextToImageZImage() {
 export interface ImageGenerationJobStatus {
   status: 'pending' | 'succeeded' | 'failed'
   image?: ImageGenerationResponse['image']
+  delivered?: boolean
   message?: string
   creditsUsed?: number
   processingTime?: number
@@ -1124,6 +1125,7 @@ export function useGenerateTextToVideo() {
 export interface VideoGenerationJobStatus {
   status: 'pending' | 'succeeded' | 'failed'
   videoUrl?: string
+  delivered?: boolean
   message?: string
   creditsUsed?: number
   processingTime?: number

@@ -444,7 +444,7 @@
                 <p class="eyebrow">Privacy &amp; data practices</p>
                 <h1>VeilPix privacy, explained plainly.</h1>
                 <p class="hero-copy">
-                    Your creations are not a social feed or an account-synced gallery. VeilPix keeps your working history in your browser and sends only the content needed to create your result. To keep a completed job from being lost when you close the browser, VeilPix temporarily holds a private delivery copy until your browser verifies it in the Album, then deletes that copy. Cloud AI still requires cloud processing, so this page also explains where your content goes and how long it may remain there.
+                    Your creations are not a social feed or a permanent account gallery. VeilPix keeps durable working history in each browser and sends only the content needed to create your result. To keep a completed job from being lost when you close or switch browsers, VeilPix temporarily holds a private, account-scoped delivery copy for up to 48 hours so each signed-in browser can save its own local Album copy. Cloud AI still requires cloud processing, so this page also explains where your content goes and how long it may remain there.
                 </p>
                 <p class="updated">Effective and last updated: August 24, 2026</p>
             </div>
@@ -465,7 +465,7 @@
             </div>
             <div class="fact">
                 <strong>Verified result delivery</strong>
-                <p>A private recovery copy is deleted after your browser verifies it in the Album, or automatically after 48 hours.</p>
+                <p>A private account delivery copy remains available to your signed-in browsers for up to 48 hours, then is deleted.</p>
             </div>
         </div>
 
@@ -497,7 +497,7 @@
                                 <li>Keeps creation history and saved prompts in browser storage.</li>
                                 <li>Proxies AI calls through the VeilPix API.</li>
                                 <li>Uses private temporary reference storage only when a model requires a media URL.</li>
-                                <li>Keeps a completed result only until verified browser delivery, with a 48-hour maximum.</li>
+                                <li>Keeps a completed result in private account delivery storage for a maximum of 48 hours so each signed-in browser can save a local copy.</li>
                                 <li>Avoids a public feed and account-linked cloud gallery.</li>
                                 <li>Does not use creative content to train a VeilPix model.</li>
                             </ul>
@@ -544,7 +544,7 @@
                         <div class="flow-step">
                             <span class="step-number">5</span>
                             <strong>Your result</strong>
-                            <p>VeilPix streams the completed image or video into private temporary delivery storage. Your browser downloads the actual blob into its local Album and verifies it before acknowledging delivery. VeilPix then deletes the private delivery object and removes the media location from its usage record. Unacknowledged copies expire after 48 hours.</p>
+                            <p>VeilPix streams the completed image or video into private temporary delivery storage scoped to the authenticated account. Each signed-in browser can download the actual blob into its own local Album and records a local receipt after verification. One browser does not consume the copy for the others. VeilPix deletes the temporary object and delivery record at the 48-hour expiry.</p>
                         </div>
                     </div>
 
@@ -579,7 +579,7 @@
                                 <tr>
                                     <td>Completed result delivery copy</td>
                                     <td>Private Supabase Storage</td>
-                                    <td>Lets a completed job survive a closed browser. Deleted after the browser verifies the result in its local Album, or automatically after 48 hours if it is not acknowledged.</td>
+                                    <td>Lets a completed job survive a closed browser and reach other browsers signed into the same account. Deleted at the 48-hour expiry; each browser keeps only its own local Album copy afterward.</td>
                                 </tr>
                                 <tr>
                                     <td>Account information</td>
@@ -649,7 +649,7 @@
                                 <tr>
                                     <td>Consumer ChatGPT</td>
                                     <td>OpenAI says individual-service content may be used to improve models unless the user opts out; Temporary Chat follows different rules.</td>
-                                    <td>VeilPix does not use your content to train a VeilPix model and does not maintain an account-synced creative history. Provider processing still applies.</td>
+                                    <td>VeilPix does not use your content to train a VeilPix model and does not maintain permanent account-synced creative history. Temporary 48-hour account delivery and provider processing still apply.</td>
                                 </tr>
                                 <tr>
                                     <td>Google AI Studio / Gemini API</td>
