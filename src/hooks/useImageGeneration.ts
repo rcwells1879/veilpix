@@ -1159,12 +1159,14 @@ export function useMediaDeliveryRecovery() {
         method: 'POST',
         requiresAuth: true,
       })
+      await queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
     acknowledgeGeneration: async (generationId: string): Promise<void> => {
       await apiRequest(`/api/media-deliveries/generation/${encodeURIComponent(generationId)}/ack`, {
         method: 'POST',
         requiresAuth: true,
       })
+      await queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
   }), [apiRequest])
 }
