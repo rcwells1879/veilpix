@@ -281,7 +281,8 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
           items.map((item) => (
             <div
               key={item.id}
-              onDragStartCapture={(event) => handleItemDragStart(event, item)}
+              draggable={busyId !== item.id}
+              onDragStart={(event) => handleItemDragStart(event, item)}
               onContextMenu={(event) => {
                 event.preventDefault();
                 setContextMenu({ x: event.clientX, y: event.clientY, item });
@@ -292,7 +293,7 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
                 type="button"
                 onClick={() => handleOpen(item)}
                 disabled={busyId === item.id}
-                draggable={busyId !== item.id}
+                draggable={false}
                 title={item.type === 'image'
                   ? 'Open image (drag onto an image slot to reuse)'
                   : 'Open video (drag into the Video Editor to stitch)'}
