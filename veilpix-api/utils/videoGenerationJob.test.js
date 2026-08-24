@@ -36,3 +36,16 @@ test('distinguishes pending and failed video jobs', () => {
         message: 'Provider rejected the video'
     });
 });
+
+test('keeps staged private deliveries pending until the browser acknowledges them', () => {
+    assert.deepEqual(videoGenerationJobResponse({
+        success: true,
+        error_message: JSON.stringify({ deliveryId: 'delivery-1', creditsUsed: 4 }),
+        processing_time_ms: 42000
+    }), {
+        status: 'pending',
+        deliveryId: 'delivery-1',
+        creditsUsed: 4,
+        processingTime: 42000
+    });
+});

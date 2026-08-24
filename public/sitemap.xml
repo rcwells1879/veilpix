@@ -8,8 +8,8 @@
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://veilstudio.io/veilpix/og-image.webp</image:loc>
-      <image:title>VeilPix AI Image and Video Generator with Seedance 2.5</image:title>
-      <image:caption>Create Seedance 2.5 clips up to 30 seconds with multimodal references, MP4 or MOV output, and last-frame continuation</image:caption>
+      <image:title>VeilPix AI Image and Video Generator with Wan 3.0</image:title>
+      <image:caption>Create Wan 3.0 Standard or Prime videos with text, image, video, audio, file, and link inputs</image:caption>
     </image:image>
     <image:image>
       <image:loc>https://veilstudio.io/veilpix/showcase/civic-800w.webp</image:loc>

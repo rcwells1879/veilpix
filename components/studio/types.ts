@@ -7,10 +7,12 @@
 
 export type StudioMode = 'image' | 'video';
 
-export type VideoProvider = 'wan' | 'seedance';
+export type VideoProvider = 'wan' | 'wan3' | 'seedance';
 export type SeedanceVariant = 'v2_5' | 'regular' | 'fast' | 'mini';
 export type SeedanceInputMode = 'frames' | 'references';
 export type SeedanceOutputFormat = 'mp4' | 'mov';
+export type Wan3Variant = 'standard' | 'prime';
+export type Wan3InputMode = 'frames' | 'references' | 'file' | 'link';
 
 export type StageTool = 'none' | 'retouch' | 'crop';
 
@@ -22,6 +24,10 @@ export interface VideoGenerateOptions {
   ratio: string;
   wanAudio?: boolean;
   wanMultiShots?: boolean;
+  wan3Variant?: Wan3Variant;
+  wan3InputMode?: Wan3InputMode;
+  wan3Audio?: boolean;
+  wan3Seed?: number | null;
   seedanceVariant?: SeedanceVariant;
   seedanceInputMode?: SeedanceInputMode;
   seedanceGenerateAudio?: boolean;

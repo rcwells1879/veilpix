@@ -2,7 +2,8 @@ const VIDEO_GENERATION_REQUEST_TYPES = [
     'video',
     'reference-to-video',
     'text-to-video',
-    'seedance-video'
+    'seedance-video',
+    'wan3-video'
 ];
 
 const GENERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -41,6 +42,14 @@ function videoGenerationJobResponse(record) {
 
     try {
         const result = JSON.parse(record.error_message || '{}');
+        if (typeof result.deliveryId === 'string') {
+            return {
+                status: 'pending',
+                deliveryId: result.deliveryId,
+                creditsUsed: Number.isFinite(Number(result.creditsUsed)) ? Number(result.creditsUsed) : undefined,
+                processingTime: record.processing_time_ms || undefined
+            };
+        }
         if (typeof result.videoUrl !== 'string' || !/^https?:\/\//i.test(result.videoUrl)) {
             throw new Error('Missing video URL');
         }

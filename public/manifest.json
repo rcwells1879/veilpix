@@ -1,7 +1,7 @@
 {
   "name": "VeilPix - AI Image and Video Generator",
   "short_name": "VeilPix",
-  "description": "Private AI image editing and Seedance 2.5 video generation up to 30 seconds with multimodal references, MP4 or MOV output, and last-frame continuation.",
+  "description": "Private AI image editing and Wan 3.0 Standard or Prime video generation with complete multimodal reference workflows.",
   "start_url": "/veilpix/",
   "display": "standalone",
   "background_color": "#020106",

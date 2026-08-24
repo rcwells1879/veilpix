@@ -40,7 +40,7 @@ export interface GalleryImage {
   videoBlob?: Blob;          // Local copy for video entries when the provider URL is temporary
   videoDuration?: number;
   hasReferenceImage?: boolean;
-  provider?: 'wan' | 'seedance';
+  provider?: 'wan' | 'wan3' | 'seedance';
   generationId?: string;
   seedanceInputMode?: 'frames' | 'references';
   seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
@@ -58,7 +58,7 @@ export interface GalleryThumbnail {
   videoUrl?: string;
   videoDuration?: number;
   hasReferenceImage?: boolean;
-  provider?: 'wan' | 'seedance';
+  provider?: 'wan' | 'wan3' | 'seedance';
   prompt?: string;
 }
 
@@ -80,7 +80,7 @@ export interface GalleryVideoDetails {
   referenceImage: File | null;
   referenceImages: File[];
   videoDuration?: number;
-  provider?: 'wan' | 'seedance';
+  provider?: 'wan' | 'wan3' | 'seedance';
   seedanceInputMode?: 'frames' | 'references';
   seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
   videoOutputFormat?: 'mp4' | 'mov';
@@ -364,7 +364,7 @@ async function createThumbnail(file: File): Promise<Blob> {
  * Creates a thumbnail and stores both the full image and thumbnail
  * Enforces MAX_GALLERY_IMAGES limit by removing oldest
  */
-export async function saveToGallery(image: File, prompt = '', generationId?: string): Promise<void> {
+export async function saveToGallery(image: File, prompt = '', generationId?: string): Promise<boolean> {
   try {
     const db = await openDB();
     if (generationId) {
@@ -376,7 +376,7 @@ export async function saveToGallery(image: File, prompt = '', generationId?: str
           (request.result as GalleryImage[]).some(entry => entry.generationId === generationId)
         );
       });
-      if (alreadySaved) return;
+      if (alreadySaved) return true;
     }
     const thumbnail = await createThumbnail(image);
 
@@ -389,7 +389,7 @@ export async function saveToGallery(image: File, prompt = '', generationId?: str
       generationId,
     };
 
-    return new Promise((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
       const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
       const store = transaction.objectStore(GALLERY_STORE_NAME);
 
@@ -423,11 +423,12 @@ export async function saveToGallery(image: File, prompt = '', generationId?: str
             };
           }
         };
-        resolve();
+        resolve(true);
       };
     });
   } catch (error) {
     console.error('Failed to save to gallery:', error);
+    return false;
   }
 }
 
@@ -704,8 +705,9 @@ export function repairBlackVideoThumbnails(): Promise<number> {
 
 export interface SaveVideoToGalleryOptions {
   videoUrl: string;
+  videoFile?: File | null;
   generationId?: string;
-  provider?: 'wan' | 'seedance';
+  provider?: 'wan' | 'wan3' | 'seedance';
   referenceImage?: File | null;
   referenceImages?: File[];
   referenceVideoFile?: File | null;
@@ -721,10 +723,11 @@ export interface SaveVideoToGalleryOptions {
  * Save a video to the gallery
  * Stores the video URL and a thumbnail generated from a video frame when possible.
  */
-export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<void> {
+export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<boolean> {
   try {
     const {
       videoUrl,
+      videoFile = null,
       generationId,
       provider,
       referenceImage = null,
@@ -737,7 +740,9 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       videoOutputFormat = 'mp4',
       prompt = ''
     } = options;
-    const maxStoredReferenceImages = provider === 'seedance' ? seedanceVariant === 'v2_5' ? 30 : 9 : 5;
+    const maxStoredReferenceImages = provider === 'seedance'
+      ? seedanceVariant === 'v2_5' ? 30 : 9
+      : provider === 'wan3' ? 10 : 5;
     const db = await openDB();
     if (generationId) {
       const alreadySaved = await new Promise<boolean>((resolve, reject) => {
@@ -748,14 +753,17 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
           (request.result as GalleryImage[]).some(entry => entry.generationId === generationId)
         );
       });
-      if (alreadySaved) return;
+      if (alreadySaved) return true;
     }
     const storedReferenceImages = referenceImages.length > 0
       ? referenceImages.slice(0, maxStoredReferenceImages)
       : referenceImage
         ? [referenceImage]
         : [];
-    const videoBlob = await fetchVideoBlob(videoUrl);
+    const videoBlob = videoFile || await fetchVideoBlob(videoUrl);
+    if (!videoBlob) {
+      throw new Error('The generated video could not be stored in this browser.');
+    }
     const generatedVideoThumbnail = videoBlob
       ? await createVideoFrameThumbnail(new File([videoBlob], `video-${Date.now()}.${videoOutputFormat}`, { type: videoBlob.type || `video/${videoOutputFormat === 'mov' ? 'quicktime' : 'mp4'}` }))
       : await createVideoFrameThumbnail(videoUrl);
@@ -791,7 +799,7 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       prompt,
     };
 
-    return new Promise((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
       const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
       const store = transaction.objectStore(GALLERY_STORE_NAME);
 
@@ -823,11 +831,38 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
             };
           }
         };
-        resolve();
+        resolve(true);
       };
     });
   } catch (error) {
     console.error('Failed to save video to gallery:', error);
+    return false;
+  }
+}
+
+/** Verify that a generated artifact is durably readable from local IndexedDB. */
+export async function hasGalleryArtifact(
+  generationId: string,
+  artifactType: 'image' | 'video'
+): Promise<boolean> {
+  try {
+    const db = await openDB();
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const entry = (request.result as GalleryImage[]).find(item => item.generationId === generationId);
+        if (!entry) return resolve(false);
+        if (artifactType === 'video') {
+          return resolve(entry.type === 'video' && Boolean(entry.videoBlob?.size));
+        }
+        return resolve((entry.type || 'image') === 'image' && Boolean(entry.blob?.size));
+      };
+    });
+  } catch (error) {
+    console.warn('Could not verify local gallery delivery:', error);
+    return false;
   }
 }
 

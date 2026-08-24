@@ -317,6 +317,32 @@ const db = {
     }) {
         try {
             const supabase = getSupabaseClient();
+            let storedErrorMessage = errorMessage;
+
+            // Successful provider outputs are retained only in the private,
+            // short-lived delivery outbox. The usage log keeps the delivery
+            // receipt rather than a long-lived provider media URL.
+            if (success && typeof geminiRequestId === 'string') {
+                const {
+                    parseSerializedGenerationResult,
+                    stageMediaDelivery
+                } = require('./mediaDelivery');
+                const serializedResult = parseSerializedGenerationResult(errorMessage);
+                if (serializedResult) {
+                    const delivery = await stageMediaDelivery({
+                        clerkUserId,
+                        generationId: geminiRequestId,
+                        artifactType: serializedResult.artifactType,
+                        provider: requestType,
+                        sourceUrl: serializedResult.sourceUrl
+                    });
+                    storedErrorMessage = JSON.stringify({
+                        deliveryId: delivery.id,
+                        artifactType: delivery.artifact_type,
+                        creditsUsed: serializedResult.result.creditsUsed
+                    });
+                }
+            }
             
             const { data, error } = await supabase
                 .from('usage_logs')
@@ -331,7 +357,7 @@ const db = {
                     image_size: imageSize,
                     processing_time_ms: processingTimeMs,
                     success,
-                    error_message: errorMessage
+                    error_message: storedErrorMessage
                 })
                 .select()
                 .single();

@@ -32,7 +32,7 @@ import {
   ToggleRow,
   PlusIcon,
 } from './controls';
-import { ImageSlot, ImageGrid, VideoSlot, VideoGrid, AudioGrid } from './ReferenceInputs';
+import { ImageSlot, ImageGrid, VideoSlot, VideoGrid, AudioGrid, ReferenceFileSlot } from './ReferenceInputs';
 import {
   WAN_26_DURATIONS,
   WAN_27_DURATIONS,
@@ -47,13 +47,19 @@ import {
   getSeedanceReferenceLimits,
   clampSeedanceDuration,
   exceedsSeedanceMediaDurationLimit,
+  WAN3_RESOLUTIONS,
+  WAN3_RATIOS,
+  WAN3_DURATION_LIMITS,
+  WAN3_REFERENCE_LIMITS,
+  getWan3CreditCost,
+  clampWan3Duration,
 } from './videoPricing';
-import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, VideoGenerateOptions } from './types';
+import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './types';
 
 /* ------------------------------------------------------------------ */
 
 type ImageModelId = 'nanobanana2' | 'seedream-lite' | 'seedream-pro' | 'wanimage' | 'zimage';
-type VideoModelId = 'wan' | 'seedance-2-5' | 'seedance-regular' | 'seedance-fast' | 'seedance-mini';
+type VideoModelId = 'wan3-standard' | 'wan3-prime' | 'wan' | 'seedance-2-5' | 'seedance-regular' | 'seedance-fast' | 'seedance-mini';
 
 const IMAGE_MODELS: { id: ImageModelId; provider: ImageProvider; tier: SeedreamTier; label: string; sublabel: string }[] = [
   { id: 'nanobanana2', provider: 'nanobanana2', tier: 'lite', label: 'Nano Banana 2', sublabel: 'Gemini 3.1 Flash' },
@@ -63,12 +69,14 @@ const IMAGE_MODELS: { id: ImageModelId; provider: ImageProvider; tier: SeedreamT
   { id: 'zimage', provider: 'zimage', tier: 'lite', label: 'Z-Image Turbo', sublabel: 'Tongyi-MAI · text only' },
 ];
 
-const VIDEO_MODELS: { id: VideoModelId; provider: VideoProvider; variant: SeedanceVariant; label: string; sublabel: string }[] = [
-  { id: 'seedance-2-5', provider: 'seedance', variant: 'v2_5', label: 'Seedance 2.5', sublabel: 'ByteDance · new' },
-  { id: 'wan', provider: 'wan', variant: 'regular', label: 'Wan Video', sublabel: '2.6 / 2.7 · auto' },
-  { id: 'seedance-regular', provider: 'seedance', variant: 'regular', label: 'Seedance 2.0', sublabel: 'ByteDance' },
-  { id: 'seedance-fast', provider: 'seedance', variant: 'fast', label: 'Seedance 2.0 Fast', sublabel: 'ByteDance' },
-  { id: 'seedance-mini', provider: 'seedance', variant: 'mini', label: 'Seedance 2.0 Mini', sublabel: 'ByteDance' },
+const VIDEO_MODELS: { id: VideoModelId; provider: VideoProvider; seedanceVariant?: SeedanceVariant; wan3Variant?: Wan3Variant; label: string; sublabel: string }[] = [
+  { id: 'wan3-standard', provider: 'wan3', wan3Variant: 'standard', label: 'Wan 3.0 Standard', sublabel: 'Lower cost · full feature set' },
+  { id: 'wan3-prime', provider: 'wan3', wan3Variant: 'prime', label: 'Wan 3.0 Prime', sublabel: 'Faster generation' },
+  { id: 'seedance-2-5', provider: 'seedance', seedanceVariant: 'v2_5', label: 'Seedance 2.5', sublabel: 'ByteDance · new' },
+  { id: 'wan', provider: 'wan', label: 'Wan Video', sublabel: '2.6 / 2.7 · auto' },
+  { id: 'seedance-regular', provider: 'seedance', seedanceVariant: 'regular', label: 'Seedance 2.0', sublabel: 'ByteDance' },
+  { id: 'seedance-fast', provider: 'seedance', seedanceVariant: 'fast', label: 'Seedance 2.0 Fast', sublabel: 'ByteDance' },
+  { id: 'seedance-mini', provider: 'seedance', seedanceVariant: 'mini', label: 'Seedance 2.0 Mini', sublabel: 'ByteDance' },
 ];
 
 const STYLE_PRESETS = [
@@ -114,6 +122,25 @@ export interface ComposerProps {
   referenceVideoUrl: string | null;
   onReferenceVideoSelect: (file: File | null) => void;
 
+  wan3InputMode: Wan3InputMode;
+  onWan3InputModeChange: (mode: Wan3InputMode) => void;
+  wan3FirstFrame: File | null;
+  onWan3FirstFrameSelect: (file: File | null) => void;
+  wan3LastFrame: File | null;
+  onWan3LastFrameSelect: (file: File | null) => void;
+  wan3ReferenceImages: File[];
+  onWan3ReferenceImagesChange: (files: File[]) => void;
+  wan3ReferenceVideoFiles: File[];
+  onWan3ReferenceVideosChange: (files: File[]) => void;
+  wan3ReferenceVideoDuration: number | null;
+  wan3ReferenceAudioFiles: File[];
+  onWan3ReferenceAudiosChange: (files: File[]) => void;
+  wan3ReferenceAudioDuration: number | null;
+  wan3ReferenceFile: File | null;
+  onWan3ReferenceFileChange: (file: File | null) => void;
+  wan3ReferenceLink: string;
+  onWan3ReferenceLinkChange: (value: string) => void;
+
   seedanceInputMode: SeedanceInputMode;
   onSeedanceInputModeChange: (mode: SeedanceInputMode) => void;
   seedanceFirstFrame: File | null;
@@ -144,6 +171,12 @@ interface StoredVideoSettings {
   wanRatio: string;
   wanAudio: boolean;
   wanMultiShots: boolean;
+  wan3Variant: Wan3Variant;
+  wan3Duration: number;
+  wan3Resolution: string;
+  wan3Ratio: string;
+  wan3Audio: boolean;
+  wan3Seed: number | null;
   seedanceVariant: SeedanceVariant;
   seedanceDuration: number;
   seedanceResolution: string;
@@ -171,6 +204,10 @@ const Composer: React.FC<ComposerProps> = (props) => {
     onOpenWebcam, retouchActive, hasHotspot, imageCreditCost, onGenerateImage,
     videoProvider, onVideoProviderChange, onGenerateVideo, hasGeneratedVideo, onUseGeneratedVideoAsReference,
     wanReferenceImages, onWanReferenceImagesChange, referenceVideoFile, referenceVideoUrl, onReferenceVideoSelect,
+    wan3InputMode, onWan3InputModeChange, wan3FirstFrame, onWan3FirstFrameSelect, wan3LastFrame, onWan3LastFrameSelect,
+    wan3ReferenceImages, onWan3ReferenceImagesChange, wan3ReferenceVideoFiles, onWan3ReferenceVideosChange,
+    wan3ReferenceVideoDuration, wan3ReferenceAudioFiles, onWan3ReferenceAudiosChange, wan3ReferenceAudioDuration,
+    wan3ReferenceFile, onWan3ReferenceFileChange, wan3ReferenceLink, onWan3ReferenceLinkChange,
     seedanceInputMode, onSeedanceInputModeChange,
     seedanceFirstFrame, onSeedanceFirstFrameSelect, seedanceLastFrame, onSeedanceLastFrameSelect,
     seedanceReferenceImages, onSeedanceReferenceImagesChange,
@@ -186,6 +223,12 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const [wanRatio, setWanRatio] = useState<string>(storedVideoSettings.wanRatio ?? '16:9');
   const [wanAudio, setWanAudio] = useState(storedVideoSettings.wanAudio ?? true);
   const [wanMultiShots, setWanMultiShots] = useState(storedVideoSettings.wanMultiShots ?? false);
+  const [wan3Variant, setWan3Variant] = useState<Wan3Variant>(storedVideoSettings.wan3Variant === 'prime' ? 'prime' : 'standard');
+  const [wan3Duration, setWan3Duration] = useState(storedVideoSettings.wan3Duration ?? 5);
+  const [wan3Resolution, setWan3Resolution] = useState(storedVideoSettings.wan3Resolution ?? '480P');
+  const [wan3Ratio, setWan3Ratio] = useState(storedVideoSettings.wan3Ratio ?? 'adaptive');
+  const [wan3Audio, setWan3Audio] = useState(storedVideoSettings.wan3Audio ?? true);
+  const [wan3Seed, setWan3Seed] = useState<number | null>(Number.isInteger(storedVideoSettings.wan3Seed) ? storedVideoSettings.wan3Seed! : null);
   const [seedanceVariant, setSeedanceVariant] = useState<SeedanceVariant>(
     storedVideoSettings.seedanceVariant === 'v2_5' || storedVideoSettings.seedanceVariant === 'regular' || storedVideoSettings.seedanceVariant === 'fast' || storedVideoSettings.seedanceVariant === 'mini'
       ? storedVideoSettings.seedanceVariant
@@ -227,11 +270,24 @@ const Composer: React.FC<ComposerProps> = (props) => {
     exceedsSeedanceMediaDurationLimit(seedanceReferenceVideoDuration, seedanceVariant)
     || exceedsSeedanceMediaDurationLimit(seedanceReferenceAudioDuration, seedanceVariant)
   );
+  const wan3MediaDurationInvalid = wan3InputMode === 'references' && (
+    (wan3ReferenceVideoDuration ?? 0) > WAN3_REFERENCE_LIMITS.mediaSeconds + 0.25
+    || (wan3ReferenceAudioDuration ?? 0) > WAN3_REFERENCE_LIMITS.mediaSeconds + 0.25
+    || ((wan3ReferenceVideoDuration ?? 0) > 0 && (wan3ReferenceVideoDuration ?? 0) + (wan3Duration === -1 ? 30 : clampWan3Duration(wan3Duration)) > 30.25)
+  );
   const activeVideoModel = VIDEO_MODELS.find((model) =>
-    model.provider === videoProvider && (model.provider !== 'seedance' || model.variant === seedanceVariant)
+    model.provider === videoProvider
+    && (model.provider !== 'seedance' || model.seedanceVariant === seedanceVariant)
+    && (model.provider !== 'wan3' || model.wan3Variant === wan3Variant)
   ) ?? VIDEO_MODELS[0];
 
-  const videoReferenceCount = videoProvider === 'seedance'
+  const videoReferenceCount = videoProvider === 'wan3'
+    ? wan3InputMode === 'frames'
+      ? (wan3FirstFrame ? 1 : 0) + (wan3LastFrame ? 1 : 0)
+      : wan3InputMode === 'references'
+        ? wan3ReferenceImages.length + wan3ReferenceVideoFiles.length + wan3ReferenceAudioFiles.length
+        : wan3InputMode === 'file' ? Number(Boolean(wan3ReferenceFile)) : Number(Boolean(wan3ReferenceLink.trim()))
+    : videoProvider === 'seedance'
     ? seedanceInputMode === 'frames'
       ? (seedanceFirstFrame ? 1 : 0) + (seedanceLastFrame ? 1 : 0)
       : seedanceReferenceImages.length + seedanceReferenceVideoFiles.length + (seedanceReferenceVideoUrl ? 1 : 0) + seedanceReferenceAudioFiles.length
@@ -248,18 +304,24 @@ const Composer: React.FC<ComposerProps> = (props) => {
     : seedanceVariant === 'v2_5' ? 'adaptive' : '16:9';
   const effectiveSeedanceDuration = clampSeedanceDuration(seedanceVariant, seedanceDuration);
   const effectiveWanDuration = wanUsesReferenceToVideo && wanDuration > 10 ? 10 : wanDuration;
+  const effectiveWan3Duration = clampWan3Duration(wan3Duration);
 
   const wanCreditCost = useMemo(() => getWanCreditCost(effectiveWanDuration, wanResolution), [effectiveWanDuration, wanResolution]);
   const seedanceCreditCost = useMemo(
     () => getSeedanceCreditCost(seedanceVariant, effectiveSeedanceResolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration),
     [seedanceVariant, effectiveSeedanceResolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration]
   );
-  const videoCreditCost = videoProvider === 'seedance' ? seedanceCreditCost : wanCreditCost;
+  const wan3CreditCost = useMemo(
+    () => getWan3CreditCost(wan3Variant, wan3Resolution, effectiveWan3Duration),
+    [wan3Variant, wan3Resolution, effectiveWan3Duration]
+  );
+  const videoCreditCost = videoProvider === 'wan3' ? wan3CreditCost : videoProvider === 'seedance' ? seedanceCreditCost : wanCreditCost;
 
   /* Persist video settings whenever the user changes them */
   useEffect(() => {
     const snapshot: StoredVideoSettings = {
       wanDuration, wanResolution, wanRatio, wanAudio, wanMultiShots,
+      wan3Variant, wan3Duration, wan3Resolution, wan3Ratio, wan3Audio, wan3Seed,
       seedanceVariant, seedanceDuration, seedanceResolution, seedanceRatio,
       seedanceGenerateAudio, seedanceWebSearch, seedanceReturnLastFrame, seedanceOutputFormat,
     };
@@ -271,6 +333,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
     }
   }, [
     wanDuration, wanResolution, wanRatio, wanAudio, wanMultiShots,
+    wan3Variant, wan3Duration, wan3Resolution, wan3Ratio, wan3Audio, wan3Seed,
     seedanceVariant, seedanceDuration, seedanceResolution, seedanceRatio,
     seedanceGenerateAudio, seedanceWebSearch, seedanceReturnLastFrame, seedanceOutputFormat,
   ]);
@@ -316,7 +379,19 @@ const Composer: React.FC<ComposerProps> = (props) => {
       return;
     }
     if (!trimmed) return;
-    if (videoProvider === 'seedance') {
+    if (videoProvider === 'wan3') {
+      onGenerateVideo({
+        provider: 'wan3',
+        prompt: trimmed,
+        duration: effectiveWan3Duration,
+        resolution: wan3Resolution,
+        ratio: wan3Ratio,
+        wan3Variant,
+        wan3InputMode,
+        wan3Audio,
+        wan3Seed,
+      });
+    } else if (videoProvider === 'seedance') {
       onGenerateVideo({
         provider: 'seedance',
         prompt: trimmed,
@@ -346,6 +421,10 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const generateDisabled = isLoading
     || generationQueueCount >= generationQueueLimit
     || !prompt.trim()
+    || (mode === 'video' && videoProvider === 'wan3' && wan3InputMode === 'frames' && !wan3FirstFrame)
+    || (mode === 'video' && videoProvider === 'wan3' && wan3InputMode === 'file' && !wan3ReferenceFile)
+    || (mode === 'video' && videoProvider === 'wan3' && wan3InputMode === 'link' && !/^https?:\/\//i.test(wan3ReferenceLink.trim()))
+    || (mode === 'video' && videoProvider === 'wan3' && wan3MediaDurationInvalid)
     || (mode === 'video' && videoProvider === 'seedance' && seedanceInputMode === 'frames' && !seedanceFirstFrame)
     || (mode === 'video' && videoProvider === 'seedance' && seedanceMediaDurationInvalid)
     || (mode === 'image' && imageSupportsReferences && retouchActive && !hasHotspot);
@@ -413,6 +492,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
         rows={3}
         maxLength={mode === 'image' && normalizedImage.provider === 'zimage'
           ? 1000
+          : mode === 'video' && videoProvider === 'wan3'
+            ? 20000
           : mode === 'video' && videoProvider === 'seedance' && seedanceVariant === 'v2_5'
             ? 30000
             : 5000}
@@ -453,7 +534,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
                       sublabel={model.sublabel}
                       onSelect={() => {
                         onVideoProviderChange(model.provider);
-                        if (model.provider === 'seedance') setSeedanceVariant(model.variant);
+                        if (model.provider === 'seedance' && model.seedanceVariant) setSeedanceVariant(model.seedanceVariant);
+                        if (model.provider === 'wan3' && model.wan3Variant) setWan3Variant(model.wan3Variant);
                         close();
                       }}
                     />
@@ -463,10 +545,10 @@ const Composer: React.FC<ComposerProps> = (props) => {
         </Dropdown>
 
         {/* Aspect ratio */}
-        {(mode === 'image' || showWanRatio || videoProvider === 'seedance') && (
+        {(mode === 'image' || showWanRatio || videoProvider === 'seedance' || videoProvider === 'wan3') && (
           <Dropdown
-            label={mode === 'image' ? normalizedImage.aspectRatio === 'auto' ? 'Auto' : normalizedImage.aspectRatio : videoProvider === 'seedance' ? effectiveSeedanceRatio : wanRatio}
-            icon={<RatioGlyph ratio={mode === 'image' ? normalizedImage.aspectRatio : videoProvider === 'seedance' ? effectiveSeedanceRatio : wanRatio} />}
+            label={mode === 'image' ? normalizedImage.aspectRatio === 'auto' ? 'Auto' : normalizedImage.aspectRatio : videoProvider === 'wan3' ? wan3Ratio : videoProvider === 'seedance' ? effectiveSeedanceRatio : wanRatio}
+            icon={<RatioGlyph ratio={mode === 'image' ? normalizedImage.aspectRatio : videoProvider === 'wan3' ? wan3Ratio : videoProvider === 'seedance' ? effectiveSeedanceRatio : wanRatio} />}
             title="Aspect ratio"
             disabled={isLoading}
             panelWidthClassName="sm:w-56"
@@ -476,11 +558,11 @@ const Composer: React.FC<ComposerProps> = (props) => {
                 <PanelHeading>Aspect ratio</PanelHeading>
                 {(mode === 'image'
                   ? imageConfig.aspectRatios.map((ratio) => ({ value: ratio.value, label: ratio.label }))
-                  : (videoProvider === 'seedance' ? SEEDANCE_RATIOS[seedanceVariant] : [...WAN_RATIOS]).map((ratio) => ({ value: ratio, label: ratio }))
+                  : (videoProvider === 'wan3' ? [...WAN3_RATIOS] : videoProvider === 'seedance' ? SEEDANCE_RATIOS[seedanceVariant] : [...WAN_RATIOS]).map((ratio) => ({ value: ratio, label: ratio }))
                 ).map((ratio) => {
                   const selected = mode === 'image'
                     ? normalizedImage.aspectRatio === ratio.value
-                    : videoProvider === 'seedance' ? effectiveSeedanceRatio === ratio.value : wanRatio === ratio.value;
+                    : videoProvider === 'wan3' ? wan3Ratio === ratio.value : videoProvider === 'seedance' ? effectiveSeedanceRatio === ratio.value : wanRatio === ratio.value;
                   return (
                     <OptionRow
                       key={ratio.value}
@@ -489,6 +571,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
                       leading={<RatioGlyph ratio={ratio.value} />}
                       onSelect={() => {
                         if (mode === 'image') updateImageOptions({ aspectRatio: ratio.value });
+                        else if (videoProvider === 'wan3') setWan3Ratio(ratio.value);
                         else if (videoProvider === 'seedance') setSeedanceRatio(ratio.value);
                         else setWanRatio(ratio.value);
                         close();
@@ -504,7 +587,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
         {/* Resolution */}
         {(mode !== 'image' || normalizedImage.provider !== 'zimage') && (
           <Dropdown
-            label={mode === 'image' ? normalizedImage.resolution : videoProvider === 'seedance' ? effectiveSeedanceResolution : wanResolution}
+            label={mode === 'image' ? normalizedImage.resolution : videoProvider === 'wan3' ? wan3Resolution : videoProvider === 'seedance' ? effectiveSeedanceResolution : wanResolution}
             title="Resolution"
             disabled={isLoading}
             panelWidthClassName="sm:w-60"
@@ -522,16 +605,19 @@ const Composer: React.FC<ComposerProps> = (props) => {
                         onSelect={() => { updateImageOptions({ resolution: resolution.value }); close(); }}
                       />
                     ))
-                  : (videoProvider === 'seedance' ? SEEDANCE_RESOLUTIONS[seedanceVariant] : [...WAN_RESOLUTIONS]).map((resolution) => (
+                  : (videoProvider === 'wan3' ? [...WAN3_RESOLUTIONS] : videoProvider === 'seedance' ? SEEDANCE_RESOLUTIONS[seedanceVariant] : [...WAN_RESOLUTIONS]).map((resolution) => (
                       <OptionRow
                         key={resolution}
-                        selected={videoProvider === 'seedance' ? effectiveSeedanceResolution === resolution : wanResolution === resolution}
+                        selected={videoProvider === 'wan3' ? wan3Resolution === resolution : videoProvider === 'seedance' ? effectiveSeedanceResolution === resolution : wanResolution === resolution}
                         label={resolution}
-                        trailing={videoProvider === 'wan'
+                        trailing={videoProvider === 'wan3'
+                          ? `${getWan3CreditCost(wan3Variant, resolution, effectiveWan3Duration)} cr`
+                          : videoProvider === 'wan'
                           ? `${getWanCreditCost(effectiveWanDuration, resolution)} cr`
                           : `${getSeedanceCreditCost(seedanceVariant, resolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration)} cr`}
                         onSelect={() => {
-                          if (videoProvider === 'seedance') setSeedanceResolution(resolution);
+                          if (videoProvider === 'wan3') setWan3Resolution(resolution);
+                          else if (videoProvider === 'seedance') setSeedanceResolution(resolution);
                           else setWanResolution(resolution);
                           close();
                         }}
@@ -545,9 +631,9 @@ const Composer: React.FC<ComposerProps> = (props) => {
         {/* Duration (video only) */}
         {mode === 'video' && (
           <Dropdown
-            label={videoProvider === 'seedance' && effectiveSeedanceDuration === -1
+            label={(videoProvider === 'seedance' && effectiveSeedanceDuration === -1) || (videoProvider === 'wan3' && effectiveWan3Duration === -1)
               ? 'Auto'
-              : `${videoProvider === 'seedance' ? effectiveSeedanceDuration : effectiveWanDuration}s`}
+              : `${videoProvider === 'wan3' ? effectiveWan3Duration : videoProvider === 'seedance' ? effectiveSeedanceDuration : effectiveWanDuration}s`}
             title="Duration"
             disabled={isLoading}
             panelWidthClassName="sm:w-60"
@@ -555,7 +641,22 @@ const Composer: React.FC<ComposerProps> = (props) => {
             {(close) => (
               <div className="flex flex-col gap-0.5">
                 <PanelHeading>Duration</PanelHeading>
-                {videoProvider === 'seedance' ? (
+                {videoProvider === 'wan3' ? (
+                  <>
+                    <OptionRow selected={effectiveWan3Duration === -1} label="Automatic" sublabel="Model chooses the length, up to 30 seconds" onSelect={() => { setWan3Duration(-1); close(); }} />
+                    <StepperRow
+                      label="Exact length"
+                      value={effectiveWan3Duration === -1 ? WAN3_DURATION_LIMITS.defaultValue : effectiveWan3Duration}
+                      min={WAN3_DURATION_LIMITS.min}
+                      max={WAN3_DURATION_LIMITS.max}
+                      onChange={setWan3Duration}
+                      disabled={isLoading}
+                    />
+                    <p className="px-3 pb-1.5 text-[11px] text-gray-500">
+                      {effectiveWan3Duration === -1 ? 'Up to 30s' : `${effectiveWan3Duration}s`} at {wan3Resolution} · <span className="font-semibold text-gray-300">{effectiveWan3Duration === -1 ? 'up to ' : ''}{wan3CreditCost} cr</span>
+                    </p>
+                  </>
+                ) : videoProvider === 'seedance' ? (
                   <>
                     {seedanceVariant === 'v2_5' && (
                       <OptionRow
@@ -670,6 +771,71 @@ const Composer: React.FC<ComposerProps> = (props) => {
                   ) : undefined}
                 />
               </>
+            ) : videoProvider === 'wan3' ? (
+              <>
+                <SegmentedControl<Wan3InputMode>
+                  value={wan3InputMode}
+                  onChange={onWan3InputModeChange}
+                  disabled={isLoading}
+                  size="sm"
+                  ariaLabel="Wan 3.0 input mode"
+                  options={[
+                    { value: 'references', label: 'References' },
+                    { value: 'frames', label: 'Start / end' },
+                    { value: 'file', label: 'File' },
+                    { value: 'link', label: 'Link' },
+                  ]}
+                />
+                {wan3InputMode === 'frames' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <ImageSlot
+                      file={wan3FirstFrame}
+                      label="Start frame"
+                      helper="Exact first frame"
+                      disabled={isLoading}
+                      pastePriority={wan3FirstFrame ? 1 : 0}
+                      onChange={(file) => { onWan3FirstFrameSelect(file); if (!file && wan3LastFrame) onWan3LastFrameSelect(null); }}
+                    />
+                    <ImageSlot
+                      file={wan3LastFrame}
+                      label="End frame"
+                      helper={wan3FirstFrame ? 'Optional final frame' : 'Add a start frame first'}
+                      disabled={isLoading || !wan3FirstFrame}
+                      pastePriority={wan3FirstFrame ? 0 : 2}
+                      onChange={onWan3LastFrameSelect}
+                    />
+                  </div>
+                ) : wan3InputMode === 'references' ? (
+                  <>
+                    <ImageGrid files={wan3ReferenceImages} maxFiles={WAN3_REFERENCE_LIMITS.images} label="Reference images" helper="Use Image1, Image2, and so on in your prompt." disabled={isLoading} onChange={onWan3ReferenceImagesChange} />
+                    <VideoGrid files={wan3ReferenceVideoFiles} maxFiles={WAN3_REFERENCE_LIMITS.videos} label="Reference videos" helper="MP4 or MOV · 15s total" accept="video/mp4,video/quicktime,.mp4,.mov" disabled={isLoading} onChange={onWan3ReferenceVideosChange} action={hasGeneratedVideo ? (
+                      <button type="button" onClick={onUseGeneratedVideoAsReference} disabled={isLoading} className="text-[11px] font-semibold text-accent-300 transition hover:text-accent-200 disabled:opacity-50">Use generated</button>
+                    ) : undefined} />
+                    <AudioGrid files={wan3ReferenceAudioFiles} maxFiles={WAN3_REFERENCE_LIMITS.audios} helper="MP3 or WAV · 15s total" accept="audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" disabled={isLoading} onChange={onWan3ReferenceAudiosChange} />
+                    {wan3MediaDurationInvalid && (
+                      <p className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200">
+                        Reference video and audio are limited to 15 seconds each, and reference video plus output must fit within 30 seconds.
+                      </p>
+                    )}
+                    {videoReferenceCount === 0 && <p className="px-1 text-[11px] text-gray-600">No references creates a text-to-video clip.</p>}
+                  </>
+                ) : wan3InputMode === 'file' ? (
+                  <ReferenceFileSlot file={wan3ReferenceFile} disabled={isLoading} onChange={onWan3ReferenceFileChange} />
+                ) : (
+                  <label className="flex flex-col gap-1.5">
+                    <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500">Public webpage</span>
+                    <input
+                      type="url"
+                      value={wan3ReferenceLink}
+                      onChange={(event) => onWan3ReferenceLinkChange(event.target.value)}
+                      placeholder="https://example.com/article"
+                      disabled={isLoading}
+                      className="edge rounded-xl bg-white/[0.04] px-3 py-3 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:ring-2 focus:ring-accent-400/35"
+                    />
+                    <span className="px-1 text-[11px] text-gray-600">Must be public and available without signing in.</span>
+                  </label>
+                )}
+              </>
             ) : (
               <>
                 <SegmentedControl<SeedanceInputMode>
@@ -757,7 +923,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
         </Dropdown>
 
         {/* Options */}
-        {((mode === 'image' && showImageOptionsPill) || (mode === 'video' && (videoProvider === 'seedance' || showWanOptionsPill))) && (
+        {((mode === 'image' && showImageOptionsPill) || (mode === 'video' && (videoProvider === 'wan3' || videoProvider === 'seedance' || showWanOptionsPill))) && (
           <Dropdown
             label="Options"
             icon={<SlidersIcon />}
@@ -818,6 +984,25 @@ const Composer: React.FC<ComposerProps> = (props) => {
                         disabled={isLoading}
                       />
                     )}
+                  </>
+                ) : videoProvider === 'wan3' ? (
+                  <>
+                    <PanelHeading>Wan 3.0 options</PanelHeading>
+                    <ToggleRow label="Generate audio" description="Create synchronized audio" checked={wan3Audio} onChange={setWan3Audio} disabled={isLoading} />
+                    <div className="px-3 py-2">
+                      <label className="mb-1 block text-xs font-medium text-gray-300" htmlFor="wan3-seed">Seed (optional)</label>
+                      <input
+                        id="wan3-seed"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={wan3Seed ?? ''}
+                        onChange={(event) => setWan3Seed(event.target.value === '' ? null : Math.max(0, Math.round(Number(event.target.value))))}
+                        placeholder="Random"
+                        disabled={isLoading}
+                        className="edge w-full rounded-lg bg-white/[0.04] px-3 py-2 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:ring-2 focus:ring-accent-400/35"
+                      />
+                    </div>
                   </>
                 ) : (
                   <>

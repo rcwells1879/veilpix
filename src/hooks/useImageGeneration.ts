@@ -860,6 +860,137 @@ export interface GenerateSeedanceVideoRequest {
   nsfwFilterEnabled?: boolean
 }
 
+export interface GenerateWan3VideoRequest {
+  prompt: string
+  generationId: string
+  variant: 'standard' | 'prime'
+  inputMode: 'frames' | 'references' | 'file' | 'link'
+  duration: number
+  resolution: string
+  aspectRatio: string
+  firstFrame?: File | null
+  lastFrame?: File | null
+  referenceImages?: File[]
+  referenceVideos?: File[]
+  referenceVideoDuration?: number | null
+  referenceAudios?: File[]
+  referenceAudioDuration?: number | null
+  referenceFile?: File | null
+  referenceLink?: string
+  audio?: boolean
+  seed?: number | null
+  nsfwFilterEnabled?: boolean
+}
+
+type Wan3UploadCategory = 'image' | 'video' | 'audio' | 'file'
+
+interface SignedWan3Upload {
+  objectPath: string
+  signedUrl: string
+  mimeType: string
+  size: number
+  category: Wan3UploadCategory
+  fileName: string
+}
+
+async function uploadWan3Input(upload: SignedWan3Upload, file: File): Promise<void> {
+  const response = await fetch(upload.signedUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': upload.mimeType,
+      'x-upsert': 'false',
+    },
+    body: file,
+  })
+  if (!response.ok) {
+    const details = await response.text().catch(() => '')
+    throw new Error(`Direct reference upload failed (${response.status})${details ? `: ${details}` : ''}`)
+  }
+}
+
+export function useGenerateWan3Video() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    retry: false,
+    mutationFn: async (data: GenerateWan3VideoRequest): Promise<VideoGenerationResponse> => {
+      const taggedFiles: Array<{ key: string; category: Wan3UploadCategory; file: File }> = []
+      if (data.firstFrame) taggedFiles.push({ key: 'firstFrame', category: 'image', file: data.firstFrame })
+      if (data.lastFrame) taggedFiles.push({ key: 'lastFrame', category: 'image', file: data.lastFrame })
+      data.referenceImages?.slice(0, 10).forEach((file, index) => taggedFiles.push({ key: `referenceImages:${index}`, category: 'image', file }))
+      data.referenceVideos?.slice(0, 5).forEach((file, index) => taggedFiles.push({ key: `referenceVideos:${index}`, category: 'video', file }))
+      data.referenceAudios?.slice(0, 5).forEach((file, index) => taggedFiles.push({ key: `referenceAudios:${index}`, category: 'audio', file }))
+      if (data.referenceFile) taggedFiles.push({ key: 'referenceFile', category: 'file', file: data.referenceFile })
+
+      let signedUploads: SignedWan3Upload[] = []
+      if (taggedFiles.length > 0) {
+        const prepared = await apiRequest<{ success: boolean; uploads: SignedWan3Upload[] }>('/api/wan3/inputs/sign', {
+          method: 'POST',
+          body: JSON.stringify({
+            files: taggedFiles.map(({ category, file }) => ({
+              category,
+              fileName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              size: file.size,
+            })),
+          }),
+          headers: generationHeaders(data.generationId),
+          requiresAuth: true,
+        })
+        signedUploads = prepared.uploads
+        if (signedUploads.length !== taggedFiles.length) throw new Error('The upload service returned an incomplete reference list.')
+        await Promise.all(signedUploads.map((upload, index) => uploadWan3Input(upload, taggedFiles[index].file)))
+      }
+
+      const uploadDescriptor = (index: number) => {
+        const upload = signedUploads[index]
+        return upload ? {
+          objectPath: upload.objectPath,
+          fileName: upload.fileName,
+          mimeType: upload.mimeType,
+          size: upload.size,
+          category: upload.category,
+        } : null
+      }
+      const uploads: Record<string, unknown> = {
+        referenceImages: [],
+        referenceVideos: [],
+        referenceAudios: [],
+      }
+      taggedFiles.forEach((tagged, index) => {
+        const descriptor = uploadDescriptor(index)
+        const [group] = tagged.key.split(':')
+        if (tagged.key.includes(':')) (uploads[group] as unknown[]).push(descriptor)
+        else uploads[group] = descriptor
+      })
+
+      return apiRequest<VideoGenerationResponse>('/api/wan3/generate-video', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: data.prompt,
+          variant: data.variant,
+          inputMode: data.inputMode,
+          duration: data.duration,
+          resolution: data.resolution,
+          aspectRatio: data.aspectRatio,
+          uploads,
+          referenceVideoDuration: data.referenceVideoDuration,
+          referenceAudioDuration: data.referenceAudioDuration,
+          referenceLink: data.referenceLink,
+          audio: data.audio !== false,
+          seed: data.seed,
+          nsfwFilterEnabled: data.nsfwFilterEnabled !== false,
+        }),
+        headers: generationHeaders(data.generationId),
+        requiresAuth: true,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
+}
+
 export function useGenerateSeedanceVideo() {
   const { apiRequest } = useApiClient()
 
@@ -996,6 +1127,46 @@ export interface VideoGenerationJobStatus {
   message?: string
   creditsUsed?: number
   processingTime?: number
+}
+
+export interface PendingMediaDelivery {
+  id: string
+  generationId: string
+  artifactType: 'image' | 'video' | 'audio' | 'file'
+  provider: string
+  mimeType: string
+  fileName: string
+  sizeBytes?: number | null
+  createdAt: string
+  expiresAt: string
+  downloadUrl: string
+}
+
+export function useMediaDeliveryRecovery() {
+  const { apiRequest } = useApiClient()
+
+  return React.useMemo(() => ({
+    list: async (): Promise<PendingMediaDelivery[]> => {
+      const response = await apiRequest<{ deliveries: PendingMediaDelivery[] }>('/api/media-deliveries', {
+        method: 'GET',
+        cache: 'no-store',
+        requiresAuth: true,
+      })
+      return response.deliveries || []
+    },
+    acknowledge: async (deliveryId: string): Promise<void> => {
+      await apiRequest(`/api/media-deliveries/${encodeURIComponent(deliveryId)}/ack`, {
+        method: 'POST',
+        requiresAuth: true,
+      })
+    },
+    acknowledgeGeneration: async (generationId: string): Promise<void> => {
+      await apiRequest(`/api/media-deliveries/generation/${encodeURIComponent(generationId)}/ack`, {
+        method: 'POST',
+        requiresAuth: true,
+      })
+    },
+  }), [apiRequest])
 }
 
 export function useVideoGenerationRecovery() {

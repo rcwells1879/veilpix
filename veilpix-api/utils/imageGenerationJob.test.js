@@ -35,3 +35,16 @@ test('returns pending and failed image job states', () => {
         message: 'Provider rejected the image'
     });
 });
+
+test('keeps staged private image deliveries pending until browser storage is verified', () => {
+    assert.deepEqual(imageGenerationJobResponse({
+        success: true,
+        error_message: JSON.stringify({ deliveryId: 'delivery-2', creditsUsed: 2 }),
+        processing_time_ms: 1200
+    }), {
+        status: 'pending',
+        deliveryId: 'delivery-2',
+        creditsUsed: 2,
+        processingTime: 1200
+    });
+});

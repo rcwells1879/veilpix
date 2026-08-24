@@ -9,10 +9,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useImageImport } from '../../src/hooks/useImageImport';
-import { getGalleryImage, getGalleryImages, type GalleryThumbnail } from '../../src/utils/workflowStorage';
+import { getGalleryImage, getGalleryImages, getGalleryVideoDetails, type GalleryThumbnail } from '../../src/utils/workflowStorage';
 import {
   VEILPIX_GALLERY_IMAGE_PREFIX,
   VEILPIX_GALLERY_IMAGE_TYPE,
+  VEILPIX_GALLERY_VIDEO_PREFIX,
+  VEILPIX_GALLERY_VIDEO_TYPE,
+  getDroppedVideoFiles,
 } from '../../src/utils/imageTransfer';
 import { PhotoIcon, VideoIcon, CameraIcon } from '../icons';
 import { FilePreview, XIcon, PlusIcon } from './controls';
@@ -174,6 +177,135 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
                       <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                     </span>
                   )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+interface VideoSourceChooserProps {
+  open: boolean;
+  title: string;
+  multiple?: boolean;
+  remainingSlots: number;
+  accept: string;
+  onImport: (files: File[]) => void;
+  onClose: () => void;
+}
+
+const VideoSourceChooser: React.FC<VideoSourceChooserProps> = ({
+  open, title, multiple = false, remainingSlots, accept, onImport, onClose,
+}) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [items, setItems] = useState<GalleryThumbnail[]>([]);
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    setError(null);
+    void getGalleryImages()
+      .then((galleryItems) => setItems(galleryItems.filter((item) => item.type === 'video')))
+      .catch(() => setError('The Album could not be loaded.'))
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  useEffect(() => {
+    const urls: Record<number, string> = {};
+    items.forEach((item) => { urls[item.id] = URL.createObjectURL(item.thumbnail); });
+    setThumbnailUrls(urls);
+    return () => Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+  }, [items]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  const handleAlbumSelect = async (item: GalleryThumbnail) => {
+    setBusyId(item.id);
+    setError(null);
+    try {
+      const details = await getGalleryVideoDetails(item.id);
+      if (!details?.videoFile) throw new Error('This older Album video has no browser-local copy to use as a reference.');
+      onImport([details.videoFile]);
+      onClose();
+    } catch (selectError) {
+      setError(selectError instanceof Error ? selectError.message : 'That Album video could not be added.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true" aria-label={title} data-dropdown-keep-open="">
+      <div className="absolute inset-0 bg-black/65" onClick={onClose} aria-hidden="true" />
+      <div className="glass-sheet edge absolute inset-x-3 bottom-3 mx-auto flex max-h-[78dvh] max-w-md flex-col overflow-hidden rounded-2xl animate-fade-in-fast sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-gray-100">{title}</h3>
+            <p className="mt-0.5 text-[11px] text-gray-500">Choose a browser-local Album video or upload from this device.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close video chooser" className="edge flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/35 text-gray-300 transition hover:bg-black/60 hover:text-white">
+            <XIcon className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 overflow-y-auto p-3">
+          <button type="button" onClick={() => inputRef.current?.click()} className="edge flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white">
+            <VideoIcon className="h-5 w-5 text-gray-400" />
+            Upload from device
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept={accept}
+            multiple={multiple && remainingSlots > 1}
+            className="hidden"
+            onChange={(event) => {
+              const selected = Array.from(event.currentTarget.files ?? []).slice(0, remainingSlots);
+              event.currentTarget.value = '';
+              if (selected.length) { onImport(selected); onClose(); }
+            }}
+          />
+          <div className="mb-2 mt-4 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500">Album</div>
+          {loading ? (
+            <p className="rounded-xl border border-white/[0.05] py-6 text-center text-xs text-gray-500">Loading Album…</p>
+          ) : error ? (
+            <p className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-4 text-center text-xs text-red-300">{error}</p>
+          ) : items.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-white/10 px-3 py-6 text-center text-xs text-gray-500">Your generated videos will appear here.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  draggable={busyId !== item.id}
+                  disabled={busyId !== null}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'copy';
+                    event.dataTransfer.setData(VEILPIX_GALLERY_VIDEO_TYPE, String(item.id));
+                    event.dataTransfer.setData('text/plain', `${VEILPIX_GALLERY_VIDEO_PREFIX}${item.id}`);
+                  }}
+                  onClick={() => void handleAlbumSelect(item)}
+                  title={`Add ${item.name} from Album`}
+                  className="edge group relative aspect-video overflow-hidden rounded-xl bg-black/35 transition hover:ring-2 hover:ring-accent-400/45 disabled:opacity-60"
+                >
+                  {thumbnailUrls[item.id] && <img src={thumbnailUrls[item.id]} alt={item.name} draggable={false} className="h-full w-full object-cover" />}
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/10"><VideoIcon className="h-6 w-6 text-white/80" /></span>
+                  {busyId === item.id && <span className="absolute inset-0 flex items-center justify-center bg-black/55"><span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" /></span>}
                 </button>
               ))}
             </div>
@@ -372,6 +504,8 @@ interface VideoSlotProps {
 
 export const VideoSlot: React.FC<VideoSlotProps> = ({ file, url, label, helper, disabled = false, onSelect, onRemoveUrl, action }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [sourceChooserOpen, setSourceChooserOpen] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   useEffect(() => {
     if (!file) {
@@ -384,6 +518,13 @@ export const VideoSlot: React.FC<VideoSlotProps> = ({ file, url, label, helper, 
   }, [file]);
 
   const displayedUrl = previewUrl || url;
+  const handleDrop = async (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setIsDraggingOver(false);
+    if (disabled) return;
+    const dropped = await getDroppedVideoFiles(event.dataTransfer);
+    if (dropped[0]) onSelect(dropped[0]);
+  };
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -392,7 +533,12 @@ export const VideoSlot: React.FC<VideoSlotProps> = ({ file, url, label, helper, 
         {action}
       </div>
       {displayedUrl ? (
-        <div className="edge relative overflow-hidden rounded-xl bg-black/50">
+        <div
+          onDragOver={(event) => { event.preventDefault(); if (!disabled) { event.dataTransfer.dropEffect = 'copy'; setIsDraggingOver(true); } }}
+          onDragLeave={() => setIsDraggingOver(false)}
+          onDrop={(event) => void handleDrop(event)}
+          className={`edge relative overflow-hidden rounded-xl bg-black/50 ${isDraggingOver ? 'ring-2 ring-accent-400/45' : ''}`}
+        >
           <video src={displayedUrl} controls playsInline className="max-h-36 w-full bg-black object-contain" />
           <button
             type="button"
@@ -405,26 +551,23 @@ export const VideoSlot: React.FC<VideoSlotProps> = ({ file, url, label, helper, 
           </button>
         </div>
       ) : (
-        <label
+        <button
+          type="button"
+          onClick={() => setSourceChooserOpen(true)}
+          onDragOver={(event) => { event.preventDefault(); if (!disabled) { event.dataTransfer.dropEffect = 'copy'; setIsDraggingOver(true); } }}
+          onDragLeave={() => setIsDraggingOver(false)}
+          onDrop={(event) => void handleDrop(event)}
+          disabled={disabled}
           className={`edge flex flex-col items-center justify-center gap-1.5 rounded-xl px-3 py-5 text-center transition ${
-            disabled ? 'cursor-not-allowed bg-white/[0.02] opacity-50' : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
+            disabled ? 'cursor-not-allowed bg-white/[0.02] opacity-50' : isDraggingOver ? 'cursor-copy bg-accent-400/10 ring-2 ring-accent-400/40' : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
           }`}
         >
           <VideoIcon className="h-6 w-6 text-gray-500" />
           <span className="text-xs font-medium text-gray-300">Add {label.toLowerCase()}</span>
           {helper && <span className="text-[11px] text-gray-600">{helper}</span>}
-          <input
-            type="file"
-            accept="video/*"
-            className="hidden"
-            disabled={disabled}
-            onChange={(event) => {
-              onSelect(event.target.files?.[0] || null);
-              event.currentTarget.value = '';
-            }}
-          />
-        </label>
+        </button>
       )}
+      <VideoSourceChooser open={sourceChooserOpen} title={`Add ${label.toLowerCase()}`} remainingSlots={1} accept="video/*" onImport={(files) => onSelect(files[0] ?? null)} onClose={() => setSourceChooserOpen(false)} />
     </div>
   );
 };
@@ -470,9 +613,28 @@ export const VideoGrid: React.FC<VideoGridProps> = ({
 }) => {
   const referenceCount = files.length + (url ? 1 : 0);
   const remainingSlots = Math.max(0, maxFiles - referenceCount);
+  const [sourceChooserOpen, setSourceChooserOpen] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+  const importVideos = (incoming: File[]) => {
+    onChange([...files, ...incoming].slice(0, maxFiles - (url ? 1 : 0)));
+  };
+
+  const handleDrop = async (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setIsDraggingOver(false);
+    if (disabled || remainingSlots === 0) return;
+    const dropped = await getDroppedVideoFiles(event.dataTransfer);
+    importVideos(dropped.slice(0, remainingSlots));
+  };
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div
+      className={`flex flex-col gap-1.5 rounded-xl transition ${isDraggingOver ? 'ring-2 ring-accent-400/45 ring-offset-2 ring-offset-transparent' : ''}`}
+      onDragOver={(event) => { event.preventDefault(); if (!disabled && remainingSlots > 0) { event.dataTransfer.dropEffect = 'copy'; setIsDraggingOver(true); } }}
+      onDragLeave={() => setIsDraggingOver(false)}
+      onDrop={(event) => void handleDrop(event)}
+    >
       <div className="flex items-center justify-between gap-2 px-1">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500">{label}</span>
         <div className="flex items-center gap-2">
@@ -513,28 +675,20 @@ export const VideoGrid: React.FC<VideoGridProps> = ({
         </div>
       )}
       {remainingSlots > 0 && (
-        <label
+        <button
+          type="button"
+          onClick={() => setSourceChooserOpen(true)}
+          disabled={disabled}
           className={`edge flex items-center justify-center gap-2 rounded-xl px-3 py-3.5 text-center transition ${
-            disabled ? 'cursor-not-allowed bg-white/[0.02] opacity-50' : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
+            disabled ? 'cursor-not-allowed bg-white/[0.02] opacity-50' : isDraggingOver ? 'cursor-copy bg-accent-400/10 ring-2 ring-accent-400/40' : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
           }`}
         >
           <VideoIcon className="h-5 w-5 text-gray-500" />
           <span className="text-xs font-medium text-gray-300">Add video{remainingSlots > 1 ? 's' : ''}</span>
           {helper && <span className="text-[11px] text-gray-600">{helper}</span>}
-          <input
-            type="file"
-            accept={accept}
-            multiple={remainingSlots > 1}
-            className="hidden"
-            disabled={disabled}
-            onChange={(event) => {
-              const incoming = Array.from(event.currentTarget.files ?? []);
-              onChange([...files, ...incoming].slice(0, maxFiles - (url ? 1 : 0)));
-              event.currentTarget.value = '';
-            }}
-          />
-        </label>
+        </button>
       )}
+      <VideoSourceChooser open={sourceChooserOpen} title={`Add ${label.toLowerCase()}`} multiple remainingSlots={remainingSlots} accept={accept} onImport={importVideos} onClose={() => setSourceChooserOpen(false)} />
     </div>
   );
 };
@@ -636,6 +790,38 @@ export const AudioGrid: React.FC<AudioGridProps> = ({ files, maxFiles, helper, a
             onChange([...files, ...incoming].slice(0, maxFiles));
             event.currentTarget.value = '';
           }}
+        />
+      </label>
+    )}
+  </div>
+);
+
+interface ReferenceFileSlotProps {
+  file: File | null;
+  disabled?: boolean;
+  onChange: (file: File | null) => void;
+}
+
+export const ReferenceFileSlot: React.FC<ReferenceFileSlotProps> = ({ file, disabled = false, onChange }) => (
+  <div className="flex flex-col gap-1.5">
+    <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500">Reference file</span>
+    {file ? (
+      <div className="edge flex items-center justify-between gap-3 rounded-xl bg-white/[0.04] px-3 py-3">
+        <span className="min-w-0 truncate text-sm text-gray-300">{file.name}</span>
+        <button type="button" onClick={() => onChange(null)} disabled={disabled} aria-label="Remove reference file" className="edge flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/50 text-gray-200 transition hover:bg-black/80 hover:text-white disabled:opacity-50">
+          <XIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    ) : (
+      <label className={`edge flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl px-3 py-4 text-center transition ${disabled ? 'cursor-not-allowed bg-white/[0.02] opacity-50' : 'bg-white/[0.03] hover:bg-white/[0.07]'}`}>
+        <span className="text-xs font-medium text-gray-300">Add document</span>
+        <span className="text-[11px] text-gray-600">DOC, PDF, TXT, presentation, or spreadsheet · 100MB max</span>
+        <input
+          type="file"
+          accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.txt,.key,.pages,.numbers,.md"
+          className="hidden"
+          disabled={disabled}
+          onChange={(event) => { onChange(event.currentTarget.files?.[0] ?? null); event.currentTarget.value = ''; }}
         />
       </label>
     )}

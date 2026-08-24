@@ -1,4 +1,4 @@
-import { getGalleryImage } from './workflowStorage';
+import { getGalleryImage, getGalleryVideoDetails } from './workflowStorage';
 
 export const VEILPIX_GALLERY_IMAGE_TYPE = 'application/x-veilpix-gallery-image';
 export const VEILPIX_GALLERY_IMAGE_PREFIX = 'veilpix-gallery-image:';
@@ -17,9 +17,55 @@ export function getGalleryVideoDragId(dataTransfer: DataTransfer): number | null
 }
 
 const IMAGE_FILE_EXTENSION = /\.(avif|gif|heic|heif|jpe?g|png|webp)$/i;
+const VIDEO_FILE_EXTENSION = /\.(m4v|mkv|mov|mp4|webm)$/i;
 
 export function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || IMAGE_FILE_EXTENSION.test(file.name);
+}
+
+export function isVideoFile(file: File): boolean {
+  return file.type.startsWith('video/') || VIDEO_FILE_EXTENSION.test(file.name);
+}
+
+async function getVideoFileFromUrl(sourceUrl: string): Promise<File> {
+  const response = await fetch(sourceUrl);
+  if (!response.ok) throw new Error(`Video request failed with status ${response.status}`);
+  const blob = await response.blob();
+  if (!blob.type.startsWith('video/') && !blob.size) throw new Error('The dropped link does not point to a video');
+  let fileName = 'reference-video.mp4';
+  try {
+    const candidate = decodeURIComponent(new URL(sourceUrl).pathname.split('/').pop() || '');
+    if (VIDEO_FILE_EXTENSION.test(candidate)) fileName = candidate;
+  } catch {
+    // Keep the safe default name.
+  }
+  return new File([blob], fileName, { type: blob.type || 'video/mp4' });
+}
+
+export async function getDroppedVideoFiles(dataTransfer: DataTransfer): Promise<File[]> {
+  const galleryVideoId = getGalleryVideoDragId(dataTransfer);
+  if (galleryVideoId) {
+    const details = await getGalleryVideoDetails(galleryVideoId);
+    if (!details) throw new Error('The original Album video could not be loaded');
+    if (details.videoFile) return [details.videoFile];
+    if (details.videoUrl) return [await getVideoFileFromUrl(details.videoUrl)];
+    return [];
+  }
+
+  const droppedFiles = Array.from(dataTransfer.files).filter(isVideoFile);
+  if (droppedFiles.length > 0) return droppedFiles;
+  const itemFiles = Array.from(dataTransfer.items)
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file) && isVideoFile(file));
+  if (itemFiles.length > 0) return itemFiles;
+
+  const sourceUrl = dataTransfer.getData('text/uri-list')
+    .split('\n')
+    .find((line) => line && !line.startsWith('#'))
+    || dataTransfer.getData('text/plain').trim();
+  if (!sourceUrl || !/^https?:/i.test(sourceUrl)) return [];
+  return [await getVideoFileFromUrl(sourceUrl)];
 }
 
 function getFileNameFromUrl(url: string, mimeType: string): string {

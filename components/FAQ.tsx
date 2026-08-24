@@ -13,7 +13,7 @@ interface FAQItem {
 const faqData: FAQItem[] = [
   {
     question: 'What is VeilPix and how does it work?',
-    answer: 'VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, image-to-video, video-to-video, and reference-to-video clips with models including Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, Wan 2.6, Wan 2.6 Flash, Wan 2.7, and Seedance 2.5.',
+    answer: 'VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, frame-to-video, reference-to-video, file-to-video, and link-to-video clips with models including Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, Wan 3.0 Standard/Prime, earlier Wan video models, and Seedance 2.5.',
   },
   {
     question: 'What is VeilPix After Dark?',
@@ -21,7 +21,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: 'Can VeilPix generate videos?',
-    answer: 'Yes. VeilPix supports Seedance 2.5 clips up to 30 seconds with text, image, video, and audio inputs plus MP4 or MOV output. It also supports Wan 2.6 text-to-video, Wan 2.6 Flash image-to-video, and Wan 2.7 reference-to-video.',
+    answer: 'Yes. Wan 3.0 supports clips up to 30 seconds with text, first/last frames, up to 10 reference images, 5 reference videos, 5 reference audio files, a document, or a public webpage. Choose Standard for lower cost or Prime for faster generation. Seedance 2.5 also supports multimodal clips up to 30 seconds.',
   },
   {
     question: 'How do I make a longer Seedance 2.5 video in VeilPix?',
@@ -49,7 +49,7 @@ const faqData: FAQItem[] = [
   },
   {
     question: 'What AI models does VeilPix use?',
-    answer: 'VeilPix uses Nano Banana 2, Seedream 5 Lite/Pro, and Wan 2.7 Image for image generation and editing, plus Wan 2.6, Wan 2.7, and Seedance 2.5 for video workflows.',
+    answer: 'VeilPix uses Nano Banana 2, Seedream 5 Lite/Pro, and Wan 2.7 Image for image generation and editing, plus Wan 3.0 Standard/Prime, earlier Wan video models, and Seedance 2.5 for video workflows.',
   },
   {
     question: 'What file formats does VeilPix support?',

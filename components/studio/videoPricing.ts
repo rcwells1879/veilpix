@@ -6,12 +6,16 @@
  * Extracted from VideoControlsPanel so the studio composer can share them.
  */
 
-import type { SeedanceVariant } from './types';
+import type { SeedanceVariant, Wan3Variant } from './types';
 
 export const WAN_26_DURATIONS = [5, 10, 15] as const;
 export const WAN_27_DURATIONS = [5, 10] as const;
 export const WAN_RESOLUTIONS = ['720p', '1080p'] as const;
 export const WAN_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4'] as const;
+export const WAN3_RESOLUTIONS = ['480P', '720P', '1080P'] as const;
+export const WAN3_RATIOS = ['adaptive', '16:9', '4:3', '1:1', '3:4', '9:16'] as const;
+export const WAN3_DURATION_LIMITS = { min: 2, max: 30, defaultValue: 5 } as const;
+export const WAN3_REFERENCE_LIMITS = { images: 10, videos: 5, audios: 5, mediaSeconds: 15 } as const;
 
 export const SEEDANCE_VARIANTS: SeedanceVariant[] = ['v2_5', 'regular', 'fast', 'mini'];
 export const SEEDANCE_MAX_REFERENCE_IMAGES = 30;
@@ -75,6 +79,10 @@ const SEEDANCE_PRICING: Record<SeedanceVariant, Record<string, { noVideo: number
 
 const KIE_CREDIT_USD = 0.005;
 const BILLABLE_USD_PER_VEILPIX_CREDIT = 0.0699 * 0.88;
+const WAN3_PRICING: Record<Wan3Variant, Record<string, number>> = {
+  standard: { '480P': 8, '720P': 16, '1080P': 32 },
+  prime: { '480P': 12.2, '720P': 25.2, '1080P': 50.4 },
+};
 
 export function getWanCreditCost(duration: number, resolution: string): number {
   return WAN_VIDEO_CREDIT_TABLE[duration]?.[resolution] ?? Math.ceil(duration * (resolution === '1080p' ? 2.0 : 1.4));
@@ -85,6 +93,18 @@ export function clampSeedanceDuration(variant: SeedanceVariant, duration: number
   if (!Number.isFinite(duration)) return limits.defaultValue;
   if (variant === 'v2_5' && duration === -1) return -1;
   return Math.max(limits.min, Math.min(limits.max, Math.round(duration)));
+}
+
+export function clampWan3Duration(duration: number): number {
+  if (duration === -1) return -1;
+  if (!Number.isFinite(duration)) return WAN3_DURATION_LIMITS.defaultValue;
+  return Math.max(WAN3_DURATION_LIMITS.min, Math.min(WAN3_DURATION_LIMITS.max, Math.round(duration)));
+}
+
+export function getWan3CreditCost(variant: Wan3Variant, resolution: string, duration: number): number {
+  const rate = WAN3_PRICING[variant][resolution] ?? WAN3_PRICING[variant]['1080P'];
+  const outputSeconds = duration === -1 ? WAN3_DURATION_LIMITS.max : clampWan3Duration(duration);
+  return Math.max(1, Math.ceil((rate * outputSeconds * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
 }
 
 export function getSeedanceCreditCost(

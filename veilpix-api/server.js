@@ -37,7 +37,7 @@ app.use(helmet({
 // CORS configuration with environment-based origins
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? ['https://veilstudio.io', 'https://veilpix.vercel.app', 'http://localhost:5173', 'http://127.0.0.1:5173']
-    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'https://veilstudio.io'];
+    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'https://veilstudio.io'];
 
 app.use(cors({
     origin: function(origin, callback) {
@@ -85,8 +85,10 @@ app.use('/api/seedream', createRateLimiter(15 * 60 * 1000, 50, 'Too many image g
 app.use('/api/nanobananapro', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/wan', createRateLimiter(15 * 60 * 1000, 20, 'Too many video generation requests'));
 app.use('/api/seedance', createRateLimiter(15 * 60 * 1000, 20, 'Too many video generation requests'));
+app.use('/api/wan3', createRateLimiter(15 * 60 * 1000, 20, 'Too many video generation requests'));
 app.use('/api/wanimage', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/zimage', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
+app.use('/api/media-deliveries', createRateLimiter(15 * 60 * 1000, 120, 'Too many media delivery requests'));
 app.use('/api/', createRateLimiter(15 * 60 * 1000, 100, 'Too many requests from this IP'));
 
 // Body parsing middleware with enhanced security (exclude image generation routes for file uploads)
@@ -139,13 +141,16 @@ const seedreamRoutes = require('./routes/seedream');
 const nanoBananaProRoutes = require('./routes/nanobananapro');
 const wanRoutes = require('./routes/wan');
 const seedanceRoutes = require('./routes/seedance');
+const wan3Routes = require('./routes/wan3');
 const wanImageRoutes = require('./routes/wanimage');
 const zImageRoutes = require('./routes/zimage');
 const videoJobRoutes = require('./routes/videoJobs');
 const imageJobRoutes = require('./routes/imageJobs');
+const mediaDeliveryRoutes = require('./routes/mediaDeliveries');
 const usageRoutes = require('./routes/usage');
 const stripeRoutes = require('./routes/stripe');
 const checkoutRoutes = require('./routes/checkout');
+const { cleanupExpiredDeliveries } = require('./utils/mediaDelivery');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -154,10 +159,12 @@ app.use('/api/seedream', seedreamRoutes);
 app.use('/api/nanobananapro', nanoBananaProRoutes);
 app.use('/api/wan', wanRoutes);
 app.use('/api/seedance', seedanceRoutes);
+app.use('/api/wan3', wan3Routes);
 app.use('/api/wanimage', wanImageRoutes);
 app.use('/api/zimage', zImageRoutes);
 app.use('/api/video-jobs', videoJobRoutes);
 app.use('/api/image-jobs', imageJobRoutes);
+app.use('/api/media-deliveries', mediaDeliveryRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/checkout', checkoutRoutes);
@@ -267,6 +274,18 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📊 Environment: ${process.env.NODE_ENV}`);
     console.log(`🔒 CORS enabled for: ${process.env.NODE_ENV === 'development' ? 'localhost:5173' : 'veilstudio.io'}`);
     console.log(`🌐 Server listening on all interfaces (0.0.0.0:${PORT})`);
+
+    const cleanExpiredDeliveryBatch = async () => {
+        try {
+            const removed = await cleanupExpiredDeliveries();
+            if (removed > 0) console.log(`Removed ${removed} expired media delivery object(s)`);
+        } catch (error) {
+            console.error('Scheduled media delivery cleanup failed:', error);
+        }
+    };
+    void cleanExpiredDeliveryBatch();
+    const deliveryCleanupTimer = setInterval(cleanExpiredDeliveryBatch, 5 * 60 * 1000);
+    deliveryCleanupTimer.unref();
 });
 
 module.exports = app;

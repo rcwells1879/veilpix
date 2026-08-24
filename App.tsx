@@ -33,7 +33,9 @@ import {
   useGenerateReferenceToVideo,
   useGenerateTextToVideo,
   useGenerateSeedanceVideo,
+  useGenerateWan3Video,
   useVideoGenerationRecovery,
+  useMediaDeliveryRecovery,
   type ImageGenerationResponse,
   type VideoGenerationResponse,
   useUsageStats
@@ -53,9 +55,9 @@ import {
 import Composer from './components/studio/Composer';
 import ResultStage from './components/studio/ResultStage';
 import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } from './components/studio/GalleryRail';
-import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, VideoGenerateOptions } from './components/studio/types';
-import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES } from './components/studio/videoPricing';
-import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
+import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './components/studio/types';
+import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES, WAN3_REFERENCE_LIMITS } from './components/studio/videoPricing';
+import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, hasGalleryArtifact, type GalleryVideoDetails } from './src/utils/workflowStorage';
 import { extractLastVideoFrame } from './src/utils/videoFrameExtraction';
 
 /* ------------------------------------------------------------------ */
@@ -144,6 +146,14 @@ const generatedImageToFile = async (
   );
 };
 
+const downloadDeliveryFile = async (downloadUrl: string, fileName: string, mimeType: string): Promise<File> => {
+  const response = await fetch(downloadUrl, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Delivery download returned ${response.status}`);
+  const blob = await response.blob();
+  if (!blob.size) throw new Error('The delivered media file was empty.');
+  return new File([blob], fileName, { type: blob.type || mimeType || 'application/octet-stream' });
+};
+
 const CONTENT_POLICY_ERROR_CODE = 'CONTENT_POLICY_VIOLATION';
 const CONTENT_POLICY_ERROR_MESSAGE = 'Content policy violation: this request was flagged by the content moderation provider.';
 
@@ -198,7 +208,7 @@ const getGenerationErrorMessage = (error: unknown, fallbackPrefix: string): stri
 const SETTINGS_STORAGE_KEY = 'veilpix-settings';
 const PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generation';
 const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
-const GENERATION_RECOVERY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const GENERATION_RECOVERY_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 const MAX_GENERATION_QUEUE_SIZE = 3;
 
 type RecoverableImageWorkflow = 'text-to-image' | 'retouch' | 'composite' | 'adjust';
@@ -221,6 +231,8 @@ interface PendingVideoGeneration {
   seedanceVariant?: SeedanceVariant;
   seedanceInputMode?: SeedanceInputMode;
   seedanceOutputFormat?: SeedanceOutputFormat;
+  wan3Variant?: Wan3Variant;
+  wan3InputMode?: Wan3InputMode;
   createdAt: number;
 }
 
@@ -256,6 +268,15 @@ interface QueuedVideoGeneration {
   seedanceReferenceVideoDuration: number | null;
   seedanceReferenceAudioFiles: File[];
   seedanceReferenceAudioDuration: number | null;
+  wan3FirstFrame: File | null;
+  wan3LastFrame: File | null;
+  wan3ReferenceImages: File[];
+  wan3ReferenceVideoFiles: File[];
+  wan3ReferenceVideoDuration: number | null;
+  wan3ReferenceAudioFiles: File[];
+  wan3ReferenceAudioDuration: number | null;
+  wan3ReferenceFile: File | null;
+  wan3ReferenceLink: string;
   nsfwFilterEnabled: boolean;
 }
 
@@ -298,7 +319,7 @@ function readPendingVideoGeneration(): PendingVideoGeneration | null {
     const parsed = JSON.parse(raw) as Partial<PendingVideoGeneration>;
     if (
       typeof parsed.id !== 'string' ||
-      (parsed.provider !== 'wan' && parsed.provider !== 'seedance') ||
+      (parsed.provider !== 'wan' && parsed.provider !== 'wan3' && parsed.provider !== 'seedance') ||
       typeof parsed.prompt !== 'string' ||
       typeof parsed.duration !== 'number' ||
       typeof parsed.resolution !== 'string' ||
@@ -542,13 +563,15 @@ const App: React.FC = () => {
   const referenceVideoMutation = useGenerateReferenceToVideo();
   const textToVideoMutation = useGenerateTextToVideo();
   const seedanceVideoMutation = useGenerateSeedanceVideo();
+  const wan3VideoMutation = useGenerateWan3Video();
   const getVideoGenerationStatus = useVideoGenerationRecovery();
+  const mediaDeliveryRecovery = useMediaDeliveryRecovery();
 
   /* ---------------- video state ---------------- */
   const [videoProvider, setVideoProvider] = useState<VideoProvider>(() => {
     try {
       const stored = localStorage.getItem('veilpix-video-provider');
-      if (stored === 'wan' || stored === 'seedance') return stored;
+      if (stored === 'wan' || stored === 'wan3' || stored === 'seedance') return stored;
     } catch { /* storage unavailable */ }
     return 'seedance';
   });
@@ -579,6 +602,7 @@ const App: React.FC = () => {
   const pendingVideoFilesRef = useRef<PendingVideoFiles | null>(null);
   const finalizingVideoJobsRef = useRef(new Set<string>());
   const recoveryRequestInFlightRef = useRef(false);
+  const deliveryRecoveryInFlightRef = useRef(false);
   const [isExtractingLastFrame, setIsExtractingLastFrame] = useState(false);
   const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
@@ -593,6 +617,16 @@ const App: React.FC = () => {
   const [seedanceReferenceVideoDuration, setSeedanceReferenceVideoDuration] = useState<number | null>(null);
   const [seedanceReferenceAudioFiles, setSeedanceReferenceAudioFiles] = useState<File[]>([]);
   const [seedanceReferenceAudioDuration, setSeedanceReferenceAudioDuration] = useState<number | null>(null);
+  const [wan3InputMode, setWan3InputMode] = useState<Wan3InputMode>('references');
+  const [wan3FirstFrame, setWan3FirstFrame] = useState<File | null>(null);
+  const [wan3LastFrame, setWan3LastFrame] = useState<File | null>(null);
+  const [wan3ReferenceImages, setWan3ReferenceImages] = useState<File[]>([]);
+  const [wan3ReferenceVideoFiles, setWan3ReferenceVideoFiles] = useState<File[]>([]);
+  const [wan3ReferenceVideoDuration, setWan3ReferenceVideoDuration] = useState<number | null>(null);
+  const [wan3ReferenceAudioFiles, setWan3ReferenceAudioFiles] = useState<File[]>([]);
+  const [wan3ReferenceAudioDuration, setWan3ReferenceAudioDuration] = useState<number | null>(null);
+  const [wan3ReferenceFile, setWan3ReferenceFile] = useState<File | null>(null);
+  const [wan3ReferenceLink, setWan3ReferenceLink] = useState('');
 
   const activeGenerationCount = Number(Boolean(pendingImageGeneration))
     + Number(Boolean(pendingVideoGeneration));
@@ -728,7 +762,7 @@ const App: React.FC = () => {
       ? await getVideoDurationSeconds(response.videoUrl) ?? 30
       : job.duration;
 
-    await saveVideoToGallery({
+    const savedLocally = await saveVideoToGallery({
       videoUrl: response.videoUrl,
       generationId: job.id,
       provider: job.provider,
@@ -742,9 +776,19 @@ const App: React.FC = () => {
       videoOutputFormat: job.provider === 'seedance' ? job.seedanceOutputFormat : 'mp4',
       prompt: job.prompt,
     });
+    if (!savedLocally || !await hasGalleryArtifact(job.id, 'video')) {
+      finalizingVideoJobsRef.current.delete(job.id);
+      throw new Error('The video finished, but VeilPix could not verify it in this browser\'s Album.');
+    }
+    try {
+      await mediaDeliveryRecovery.acknowledgeGeneration(job.id);
+    } catch {
+      // The private delivery copy remains available and will be acknowledged
+      // during the next startup recovery pass.
+    }
     setGalleryRefreshTrigger(count => count + 1);
     clearPendingVideoJob(job.id);
-  }, [clearPendingVideoJob]);
+  }, [clearPendingVideoJob, mediaDeliveryRecovery]);
 
   const recoverPendingVideo = useCallback(async (job: PendingVideoGeneration) => {
     if (recoveryRequestInFlightRef.current || finalizingVideoJobsRef.current.has(job.id)) return;
@@ -770,7 +814,7 @@ const App: React.FC = () => {
 
       if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
         clearPendingVideoJob(job.id);
-        setVideoError('We could not recover that video within 24 hours. Please contact support so the generation and credit charge can be reviewed.');
+        setVideoError('We could not recover that video within 48 hours. Please contact support so the generation and credit charge can be reviewed.');
       }
     } catch {
       // A status check can also be suspended on mobile. Keep the durable job
@@ -879,7 +923,16 @@ const App: React.FC = () => {
 
     try {
       const newImageFile = await generatedImageToFile(response.image, job.workflow);
-      await saveToGallery(newImageFile, job.prompt, job.id);
+      const savedLocally = await saveToGallery(newImageFile, job.prompt, job.id);
+      if (!savedLocally || !await hasGalleryArtifact(job.id, 'image')) {
+        throw new Error('The image finished, but VeilPix could not verify it in this browser\'s Album.');
+      }
+      try {
+        await mediaDeliveryRecovery.acknowledgeGeneration(job.id);
+      } catch {
+        // Startup recovery will retry the acknowledgement without duplicating
+        // the already-saved local Album item.
+      }
       setGalleryRefreshTrigger(count => count + 1);
 
       setError(null);
@@ -888,7 +941,7 @@ const App: React.FC = () => {
       finalizingImageJobsRef.current.delete(job.id);
       setError(getGenerationErrorMessage(finalizeError, 'The image finished, but VeilPix could not save it.'));
     }
-  }, [clearPendingImageJob]);
+  }, [clearPendingImageJob, mediaDeliveryRecovery]);
 
   const recoverPendingImage = useCallback(async (job: PendingImageGeneration) => {
     if (imageRecoveryRequestInFlightRef.current || finalizingImageJobsRef.current.has(job.id)) return;
@@ -914,7 +967,7 @@ const App: React.FC = () => {
 
       if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
         clearPendingImageJob(job.id);
-        setError('We could not recover that image within 24 hours. Please contact support so the generation and credit charge can be reviewed.');
+        setError('We could not recover that image within 48 hours. Please contact support so the generation and credit charge can be reviewed.');
       }
     } catch {
       // Mobile browsers can suspend this status request too. Keep the job and
@@ -963,6 +1016,108 @@ const App: React.FC = () => {
       window.removeEventListener('pageshow', checkNow);
     };
   }, [isLoaded, isSignedIn, pendingImageGeneration, recoverPendingImage]);
+
+  const restorePendingMediaDeliveries = useCallback(async () => {
+    if (deliveryRecoveryInFlightRef.current || !isLoaded || !isSignedIn) return;
+    deliveryRecoveryInFlightRef.current = true;
+    let restoredCount = 0;
+
+    try {
+      const deliveries = await mediaDeliveryRecovery.list();
+      for (const delivery of deliveries) {
+        if (delivery.artifactType !== 'image' && delivery.artifactType !== 'video') continue;
+
+        let storedLocally = await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
+        if (!storedLocally) {
+          const file = await downloadDeliveryFile(
+            delivery.downloadUrl,
+            delivery.fileName,
+            delivery.mimeType,
+          );
+
+          if (delivery.artifactType === 'image') {
+            const prompt = pendingImageGeneration?.id === delivery.generationId
+              ? pendingImageGeneration.prompt
+              : '';
+            storedLocally = await saveToGallery(file, prompt, delivery.generationId);
+          } else {
+            const provider = delivery.provider.includes('seedance')
+              ? 'seedance'
+              : delivery.provider.includes('wan3') || delivery.provider.includes('wan-3')
+                ? 'wan3'
+                : 'wan';
+            const prompt = pendingVideoGeneration?.id === delivery.generationId
+              ? pendingVideoGeneration.prompt
+              : '';
+            storedLocally = await saveVideoToGallery({
+              videoUrl: delivery.downloadUrl,
+              videoFile: file,
+              generationId: delivery.generationId,
+              provider,
+              prompt,
+            });
+          }
+        }
+
+        const verified = storedLocally
+          && await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
+        if (!verified) continue;
+
+        await mediaDeliveryRecovery.acknowledge(delivery.id);
+        if (pendingImageGeneration?.id === delivery.generationId) {
+          clearPendingImageJob(delivery.generationId);
+        }
+        if (pendingVideoGeneration?.id === delivery.generationId) {
+          clearPendingVideoJob(delivery.generationId);
+        }
+        restoredCount += 1;
+      }
+
+      if (restoredCount > 0) setGalleryRefreshTrigger(count => count + 1);
+    } catch (deliveryError) {
+      console.warn('Pending media delivery recovery will retry later:', deliveryError);
+    } finally {
+      deliveryRecoveryInFlightRef.current = false;
+    }
+  }, [
+    clearPendingImageJob,
+    clearPendingVideoJob,
+    isLoaded,
+    isSignedIn,
+    mediaDeliveryRecovery,
+    pendingImageGeneration,
+    pendingVideoGeneration,
+  ]);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    let timer: number | null = null;
+    let disposed = false;
+
+    const check = () => {
+      if (!disposed && document.visibilityState === 'visible') {
+        void restorePendingMediaDeliveries();
+      }
+    };
+    const schedule = () => {
+      if (disposed) return;
+      timer = window.setTimeout(() => {
+        check();
+        schedule();
+      }, 30_000);
+    };
+
+    check();
+    schedule();
+    window.addEventListener('pageshow', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      window.removeEventListener('pageshow', check);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [isLoaded, isSignedIn, restorePendingMediaDeliveries]);
 
   /* ---------------- image reference handlers ---------------- */
   const handleBaseImageSelect = useCallback((file: File | null) => {
@@ -1112,6 +1267,10 @@ const App: React.FC = () => {
       ratio,
       wanAudio = true,
       wanMultiShots = false,
+      wan3Variant = 'standard',
+      wan3InputMode: selectedWan3InputMode = 'references',
+      wan3Audio = true,
+      wan3Seed = null,
       seedanceVariant = 'regular',
       seedanceInputMode: selectedSeedanceInputMode = 'references',
       seedanceGenerateAudio = false,
@@ -1128,18 +1287,29 @@ const App: React.FC = () => {
     const maxUploadedSeedanceVideos = Math.max(0, seedanceReferenceLimits.videos - (queued.seedanceReferenceVideoUrl ? 1 : 0));
     const selectedSeedanceReferenceVideos = queued.seedanceReferenceVideoFiles.slice(0, maxUploadedSeedanceVideos);
     const selectedSeedanceReferenceAudios = queued.seedanceReferenceAudioFiles.slice(0, seedanceReferenceLimits.audios);
+    const selectedWan3ReferenceImages = queued.wan3ReferenceImages.slice(0, WAN3_REFERENCE_LIMITS.images);
+    const selectedWan3ReferenceVideos = queued.wan3ReferenceVideoFiles.slice(0, WAN3_REFERENCE_LIMITS.videos);
+    const selectedWan3ReferenceAudios = queued.wan3ReferenceAudioFiles.slice(0, WAN3_REFERENCE_LIMITS.audios);
     const pendingFiles: PendingVideoFiles = {
       generationId: activeJob.id,
       referenceImages: provider === 'seedance'
         ? usesSeedanceFrameMode
           ? [queued.seedanceFirstFrame, queued.seedanceLastFrame].filter((file): file is File => Boolean(file))
           : selectedSeedanceReferenceImages
+        : provider === 'wan3'
+          ? selectedWan3InputMode === 'frames'
+            ? [queued.wan3FirstFrame, queued.wan3LastFrame].filter((file): file is File => Boolean(file))
+            : selectedWan3ReferenceImages
         : wanReferenceImagesForRequest,
       referenceVideoFiles: provider === 'seedance'
         ? usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos
+        : provider === 'wan3'
+          ? selectedWan3InputMode === 'references' ? selectedWan3ReferenceVideos : []
         : queued.referenceVideoFile ? [queued.referenceVideoFile] : [],
       referenceVideoUrl: provider === 'seedance'
         ? usesSeedanceFrameMode ? null : queued.seedanceReferenceVideoUrl
+        : provider === 'wan3'
+          ? null
         : queued.referenceVideoUrl,
     };
 
@@ -1152,7 +1322,29 @@ const App: React.FC = () => {
     try {
       let response: VideoGenerationResponse;
 
-      if (provider === 'seedance') {
+      if (provider === 'wan3') {
+        response = await wan3VideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          prompt,
+          variant: wan3Variant,
+          inputMode: selectedWan3InputMode,
+          duration,
+          resolution,
+          aspectRatio: ratio,
+          firstFrame: selectedWan3InputMode === 'frames' ? queued.wan3FirstFrame : null,
+          lastFrame: selectedWan3InputMode === 'frames' ? queued.wan3LastFrame : null,
+          referenceImages: selectedWan3InputMode === 'references' ? selectedWan3ReferenceImages : [],
+          referenceVideos: selectedWan3InputMode === 'references' ? selectedWan3ReferenceVideos : [],
+          referenceVideoDuration: selectedWan3InputMode === 'references' ? queued.wan3ReferenceVideoDuration : null,
+          referenceAudios: selectedWan3InputMode === 'references' ? selectedWan3ReferenceAudios : [],
+          referenceAudioDuration: selectedWan3InputMode === 'references' ? queued.wan3ReferenceAudioDuration : null,
+          referenceFile: selectedWan3InputMode === 'file' ? queued.wan3ReferenceFile : null,
+          referenceLink: selectedWan3InputMode === 'link' ? queued.wan3ReferenceLink : '',
+          audio: wan3Audio,
+          seed: wan3Seed,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else if (provider === 'seedance') {
         response = await seedanceVideoMutation.mutateAsync({
           generationId: activeJob.id,
           firstFrame: usesSeedanceFrameMode ? queued.seedanceFirstFrame : null,
@@ -1240,6 +1432,7 @@ const App: React.FC = () => {
     referenceVideoMutation,
     textToVideoMutation,
     seedanceVideoMutation,
+    wan3VideoMutation,
   ]);
 
   /* ---------------- image generation ---------------- */
@@ -1320,6 +1513,8 @@ const App: React.FC = () => {
         seedanceVariant: options.provider === 'seedance' ? options.seedanceVariant ?? 'regular' : undefined,
         seedanceInputMode: options.provider === 'seedance' ? selectedSeedanceInputMode : undefined,
         seedanceOutputFormat: options.provider === 'seedance' ? options.seedanceOutputFormat ?? 'mp4' : undefined,
+        wan3Variant: options.provider === 'wan3' ? options.wan3Variant ?? 'standard' : undefined,
+        wan3InputMode: options.provider === 'wan3' ? options.wan3InputMode ?? 'references' : undefined,
         createdAt: Date.now(),
       },
       options: { ...options },
@@ -1334,6 +1529,15 @@ const App: React.FC = () => {
       seedanceReferenceVideoDuration,
       seedanceReferenceAudioFiles: [...seedanceReferenceAudioFiles],
       seedanceReferenceAudioDuration,
+      wan3FirstFrame,
+      wan3LastFrame,
+      wan3ReferenceImages: [...wan3ReferenceImages],
+      wan3ReferenceVideoFiles: [...wan3ReferenceVideoFiles],
+      wan3ReferenceVideoDuration,
+      wan3ReferenceAudioFiles: [...wan3ReferenceAudioFiles],
+      wan3ReferenceAudioDuration,
+      wan3ReferenceFile,
+      wan3ReferenceLink,
       nsfwFilterEnabled: settings.nsfwFilterEnabled,
     });
   }, [
@@ -1350,6 +1554,15 @@ const App: React.FC = () => {
     seedanceReferenceVideoDuration,
     seedanceReferenceAudioFiles,
     seedanceReferenceAudioDuration,
+    wan3FirstFrame,
+    wan3LastFrame,
+    wan3ReferenceImages,
+    wan3ReferenceVideoFiles,
+    wan3ReferenceVideoDuration,
+    wan3ReferenceAudioFiles,
+    wan3ReferenceAudioDuration,
+    wan3ReferenceFile,
+    wan3ReferenceLink,
     settings.nsfwFilterEnabled,
   ]);
 
@@ -1470,9 +1683,60 @@ const App: React.FC = () => {
     setVideoError(null);
   }, []);
 
+  const handleWan3InputModeChange = useCallback((mode: Wan3InputMode) => {
+    setWan3InputMode(mode);
+    if (mode !== 'frames') { setWan3FirstFrame(null); setWan3LastFrame(null); }
+    if (mode !== 'references') {
+      setWan3ReferenceImages([]);
+      setWan3ReferenceVideoFiles([]);
+      setWan3ReferenceVideoDuration(null);
+      setWan3ReferenceAudioFiles([]);
+      setWan3ReferenceAudioDuration(null);
+    }
+    if (mode !== 'file') setWan3ReferenceFile(null);
+    if (mode !== 'link') setWan3ReferenceLink('');
+    setVideoError(null);
+  }, []);
+
+  const handleWan3FirstFrameSelect = useCallback((file: File | null) => {
+    setWan3FirstFrame(file);
+    if (!file) setWan3LastFrame(null);
+    setVideoError(null);
+  }, []);
+
+  const handleWan3ReferenceVideosChange = useCallback(async (files: File[]) => {
+    const selectedFiles = files.slice(0, WAN3_REFERENCE_LIMITS.videos);
+    setWan3ReferenceVideoFiles(selectedFiles);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    if (durations.some((value) => value !== null && (value < 1 || value > 15.25))) {
+      setVideoError('Each Wan 3.0 reference video must be between 1 and 15 seconds.');
+    }
+    setWan3ReferenceVideoDuration(durations.length > 0 && durations.every((value): value is number => value !== null)
+      ? durations.reduce((total, value) => total + value, 0)
+      : null);
+    if (!durations.some((value) => value !== null && (value < 1 || value > 15.25))) setVideoError(null);
+  }, []);
+
+  const handleWan3ReferenceAudiosChange = useCallback(async (files: File[]) => {
+    const selectedFiles = files.slice(0, WAN3_REFERENCE_LIMITS.audios);
+    setWan3ReferenceAudioFiles(selectedFiles);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    if (durations.some((value) => value !== null && (value < 1 || value > 15.25))) {
+      setVideoError('Each Wan 3.0 reference audio file must be between 1 and 15 seconds.');
+    }
+    setWan3ReferenceAudioDuration(durations.length > 0 && durations.every((value): value is number => value !== null)
+      ? durations.reduce((total, value) => total + value, 0)
+      : null);
+    if (!durations.some((value) => value !== null && (value < 1 || value > 15.25))) setVideoError(null);
+  }, []);
+
   const handleUseGeneratedVideoAsReference = useCallback(() => {
     if (!videoUrl) return;
-    if (videoProvider === 'seedance') {
+    if (videoProvider === 'wan3') {
+      setWan3InputMode('references');
+      setWan3ReferenceVideoFiles(galleryVideoFile ? [galleryVideoFile] : []);
+      setWan3ReferenceVideoDuration(null);
+    } else if (videoProvider === 'seedance') {
       setSeedanceInputMode('references');
       setSeedanceReferenceVideoFiles(galleryVideoFile ? [galleryVideoFile] : []);
       setSeedanceReferenceVideoUrl(galleryVideoFile ? null : videoUrl);
@@ -1548,7 +1812,17 @@ const App: React.FC = () => {
 
     // Flow the current image into the video workflow as the start-image reference
     if (mode === 'video' && currentImage) {
-      if (videoProvider === 'seedance') {
+      if (videoProvider === 'wan3') {
+        const wan3HasInputs = Boolean(wan3FirstFrame)
+          || wan3ReferenceImages.length > 0
+          || wan3ReferenceVideoFiles.length > 0
+          || Boolean(wan3ReferenceFile)
+          || Boolean(wan3ReferenceLink);
+        if (!wan3HasInputs) {
+          setWan3InputMode('frames');
+          setWan3FirstFrame(currentImage);
+        }
+      } else if (videoProvider === 'seedance') {
         const seedanceHasInputs = Boolean(seedanceFirstFrame)
           || seedanceReferenceImages.length > 0
           || Boolean(seedanceReferenceVideoFiles.length > 0 || seedanceReferenceVideoUrl);
@@ -1563,6 +1837,7 @@ const App: React.FC = () => {
   }, [
     videoProvider, currentImage, wanReferenceImages.length, referenceVideoFile, referenceVideoUrl,
     seedanceFirstFrame, seedanceReferenceImages.length, seedanceReferenceVideoFiles.length, seedanceReferenceVideoUrl,
+    wan3FirstFrame, wan3ReferenceImages.length, wan3ReferenceVideoFiles.length, wan3ReferenceFile, wan3ReferenceLink,
   ]);
 
   const handleNewSession = useCallback(() => {
@@ -1589,6 +1864,16 @@ const App: React.FC = () => {
     setSeedanceReferenceVideoDuration(null);
     setSeedanceReferenceAudioFiles([]);
     setSeedanceReferenceAudioDuration(null);
+    setWan3InputMode('references');
+    setWan3FirstFrame(null);
+    setWan3LastFrame(null);
+    setWan3ReferenceImages([]);
+    setWan3ReferenceVideoFiles([]);
+    setWan3ReferenceVideoDuration(null);
+    setWan3ReferenceAudioFiles([]);
+    setWan3ReferenceAudioDuration(null);
+    setWan3ReferenceFile(null);
+    setWan3ReferenceLink('');
   }, [clearVideoResult, resetImageTools]);
 
   /* ---------------- stage tools ---------------- */
@@ -1757,7 +2042,14 @@ const App: React.FC = () => {
     setSeedanceReferenceVideoDuration(null);
     setSeedanceReferenceAudioFiles([]);
     setSeedanceReferenceAudioDuration(null);
-    if (selectedProvider === 'seedance') {
+    if (selectedProvider === 'wan3') {
+      setWan3InputMode('references');
+      setWan3ReferenceImages(referenceImages.slice(0, WAN3_REFERENCE_LIMITS.images));
+      setWan3FirstFrame(null);
+      setWan3LastFrame(null);
+      setWanReferenceImages([]);
+      setSeedanceReferenceImages([]);
+    } else if (selectedProvider === 'seedance') {
       const restoredInputMode = details.seedanceInputMode ?? 'references';
       setSeedanceInputMode(restoredInputMode);
       setSeedanceFirstFrame(restoredInputMode === 'frames' ? referenceImages[0] ?? null : null);
@@ -1807,6 +2099,9 @@ const App: React.FC = () => {
         return;
       }
       setStyleImage(file);
+    } else if (videoProvider === 'wan3') {
+      setWan3InputMode('references');
+      setWan3ReferenceImages(prev => [...prev, file].slice(0, WAN3_REFERENCE_LIMITS.images));
     } else if (videoProvider === 'seedance') {
       setSeedanceInputMode('references');
       setSeedanceReferenceImages(prev => [...prev, file].slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
@@ -1819,7 +2114,11 @@ const App: React.FC = () => {
   const handleGalleryUseVideoAsReference = useCallback((details: GalleryVideoDetails) => {
     setStudioMode('video');
     setVideoPrompt(details.prompt);
-    if (videoProvider === 'seedance') {
+    if (videoProvider === 'wan3') {
+      setWan3InputMode('references');
+      setWan3ReferenceVideoFiles(details.videoFile ? [details.videoFile] : []);
+      setWan3ReferenceVideoDuration(details.videoDuration ?? null);
+    } else if (videoProvider === 'seedance') {
       setSeedanceInputMode('references');
       setSeedanceReferenceVideoFiles(details.videoFile ? [details.videoFile] : []);
       setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
@@ -1842,6 +2141,12 @@ const App: React.FC = () => {
         { id: 'image-base', label: 'Use as base image' },
         ...(currentImage ? [{ id: 'image-style', label: 'Use as style reference' }] : []),
       ]
+    : videoProvider === 'wan3'
+      ? [
+          { id: 'wan3-first', label: 'Use as first frame' },
+          ...(wan3FirstFrame ? [{ id: 'wan3-last', label: 'Use as last frame' }] : []),
+          { id: 'wan3-ref', label: 'Add as reference image' },
+        ]
     : videoProvider === 'seedance'
       ? [
           { id: 'seedance-first', label: 'Use as first frame' },
@@ -1870,6 +2175,21 @@ const App: React.FC = () => {
         setVideoError(null);
         break;
       }
+      case 'wan3-first':
+        setWan3InputMode('frames');
+        setWan3FirstFrame(file);
+        setVideoError(null);
+        break;
+      case 'wan3-last':
+        setWan3InputMode('frames');
+        setWan3LastFrame(file);
+        setVideoError(null);
+        break;
+      case 'wan3-ref':
+        setWan3InputMode('references');
+        setWan3ReferenceImages(prev => [...prev, file].slice(0, WAN3_REFERENCE_LIMITS.images));
+        setVideoError(null);
+        break;
       case 'seedance-first':
         setSeedanceInputMode('frames');
         setSeedanceFirstFrame(file);
@@ -2082,6 +2402,24 @@ const App: React.FC = () => {
               referenceVideoFile={referenceVideoFile}
               referenceVideoUrl={referenceVideoUrl}
               onReferenceVideoSelect={handleReferenceVideoSelect}
+              wan3InputMode={wan3InputMode}
+              onWan3InputModeChange={handleWan3InputModeChange}
+              wan3FirstFrame={wan3FirstFrame}
+              onWan3FirstFrameSelect={handleWan3FirstFrameSelect}
+              wan3LastFrame={wan3LastFrame}
+              onWan3LastFrameSelect={setWan3LastFrame}
+              wan3ReferenceImages={wan3ReferenceImages}
+              onWan3ReferenceImagesChange={(files) => setWan3ReferenceImages(files.slice(0, WAN3_REFERENCE_LIMITS.images))}
+              wan3ReferenceVideoFiles={wan3ReferenceVideoFiles}
+              onWan3ReferenceVideosChange={handleWan3ReferenceVideosChange}
+              wan3ReferenceVideoDuration={wan3ReferenceVideoDuration}
+              wan3ReferenceAudioFiles={wan3ReferenceAudioFiles}
+              onWan3ReferenceAudiosChange={handleWan3ReferenceAudiosChange}
+              wan3ReferenceAudioDuration={wan3ReferenceAudioDuration}
+              wan3ReferenceFile={wan3ReferenceFile}
+              onWan3ReferenceFileChange={setWan3ReferenceFile}
+              wan3ReferenceLink={wan3ReferenceLink}
+              onWan3ReferenceLinkChange={setWan3ReferenceLink}
               seedanceInputMode={seedanceInputMode}
               onSeedanceInputModeChange={handleSeedanceInputModeChange}
               seedanceFirstFrame={seedanceFirstFrame}

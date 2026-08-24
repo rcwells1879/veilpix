@@ -73,6 +73,14 @@ function imageGenerationJobResponse(record) {
 
     try {
         const result = JSON.parse(record.error_message || '{}');
+        if (typeof result.deliveryId === 'string') {
+            return {
+                status: 'pending',
+                deliveryId: result.deliveryId,
+                creditsUsed: Number.isFinite(Number(result.creditsUsed)) ? Number(result.creditsUsed) : undefined,
+                processingTime: record.processing_time_ms || undefined
+            };
+        }
         if (typeof result.imageUrl !== 'string' || !/^https?:\/\//i.test(result.imageUrl)) {
             throw new Error('Missing image URL');
         }
