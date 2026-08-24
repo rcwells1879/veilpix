@@ -93,7 +93,7 @@ app.use('/api/', createRateLimiter(15 * 60 * 1000, 100, 'Too many requests from 
 
 // Body parsing middleware with enhanced security (exclude image generation routes for file uploads)
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path.startsWith('/api/wan') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage') || req.path.startsWith('/api/zimage')) {
+    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path === '/api/wan' || req.path.startsWith('/api/wan/') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage') || req.path.startsWith('/api/zimage')) {
         return next(); // Skip JSON parsing for image generation routes (they handle multipart data)
     }
     express.json({
@@ -104,7 +104,7 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path.startsWith('/api/wan') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage') || req.path.startsWith('/api/zimage')) {
+    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path === '/api/wan' || req.path.startsWith('/api/wan/') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage') || req.path.startsWith('/api/zimage')) {
         return next(); // Skip URL encoding for image generation routes
     }
     express.urlencoded({
