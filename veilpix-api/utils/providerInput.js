@@ -1,9 +1,11 @@
 const crypto = require('crypto');
 const { getSupabaseClient } = require('./database');
+const { createProviderMediaUrl } = require('./providerMediaUrl');
 
 const PROVIDER_INPUT_BUCKET = 'provider-inputs';
-const KIE_FILE_UPLOAD_URL = 'https://kieai.redpandaai.co/api/file-url-upload';
 const MAX_PROVIDER_INPUT_BYTES = 100 * 1024 * 1024;
+const PROVIDER_INPUT_RELAY_BASE_URL = 'https://api.veilstudio.io/api/provider-input';
+const PROVIDER_INPUT_RELAY_TTL_SECONDS = 45 * 60;
 
 function userInputPrefix(clerkUserId) {
     return crypto.createHash('sha256').update(String(clerkUserId)).digest('hex').slice(0, 24);
@@ -96,35 +98,15 @@ async function createProviderInputUploads(clerkUserId, generationId, descriptors
     }));
 }
 
-async function copyProviderInputToKie(clerkUserId, input) {
+function createProviderInputRelayUrl(clerkUserId, input, options = {}) {
     const objectPath = assertOwnedInputPath(clerkUserId, input?.objectPath);
-    const fileName = safeFileName(input?.fileName || objectPath.split('/').pop());
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase.storage
-        .from(PROVIDER_INPUT_BUCKET)
-        .createSignedUrl(objectPath, 10 * 60);
-    if (error || !data?.signedUrl) {
-        throw new Error(`Could not read the uploaded reference: ${error?.message || 'missing signed URL'}`);
-    }
-
-    const response = await fetch(KIE_FILE_UPLOAD_URL, {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${process.env.SEEDREAM_API_KEY}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            fileUrl: data.signedUrl,
-            uploadPath: `veilpix/wan3/${userInputPrefix(clerkUserId)}`,
-            fileName
-        }),
-        signal: AbortSignal.timeout(45_000)
+    const token = Buffer.from(objectPath, 'utf8').toString('base64url');
+    return createProviderMediaUrl(token, {
+        baseUrl: options.baseUrl || process.env.PROVIDER_INPUT_RELAY_BASE_URL || PROVIDER_INPUT_RELAY_BASE_URL,
+        ttlSeconds: options.ttlSeconds || PROVIDER_INPUT_RELAY_TTL_SECONDS,
+        signingSecret: options.signingSecret,
+        nowMs: options.nowMs
     });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || !result?.success || !result?.data?.downloadUrl) {
-        throw new Error(`Kie could not retrieve the reference (${response.status}): ${result?.msg || 'upload failed'}`);
-    }
-    return result.data.downloadUrl;
 }
 
 async function deleteProviderInputs(clerkUserId, objectPaths) {
@@ -135,11 +117,10 @@ async function deleteProviderInputs(clerkUserId, objectPaths) {
 }
 
 module.exports = {
-    KIE_FILE_UPLOAD_URL,
     MAX_PROVIDER_INPUT_BYTES,
     PROVIDER_INPUT_BUCKET,
     assertOwnedInputPath,
-    copyProviderInputToKie,
+    createProviderInputRelayUrl,
     createProviderInputUploads,
     deleteProviderInputs,
     safeFileName,

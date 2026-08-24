@@ -69,6 +69,7 @@ app.use(clerkMiddleware());
 // Import webhook routes (before other middleware)
 const webhookRoutes = require('./routes/webhooks');
 const providerMediaRoutes = require('./routes/providerMedia');
+const providerInputRoutes = require('./routes/providerInput');
 
 // Webhook routes need raw body parsing - must come before JSON parsing
 app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookRoutes);
@@ -77,6 +78,7 @@ app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookRoutes)
 // streaming relay before shared rate limits so multiple users are not grouped
 // under a provider downloader IP.
 app.use('/api/provider-media', providerMediaRoutes);
+app.use('/api/provider-input', providerInputRoutes);
 
 // Apply different rate limits (exclude webhooks from rate limiting)
 app.use('/api/auth', createRateLimiter(15 * 60 * 1000, 20, 'Too many authentication requests'));

@@ -534,7 +534,7 @@
                         <div class="flow-step">
                             <span class="step-number">3</span>
                             <strong>Temporary media</strong>
-                            <p>When a model needs a URL, VeilPix uses a private Supabase Storage object and a short-lived signed URL. Wan 3.0 references are deleted after Kie.ai accepts the job; other workflows attempt deletion when the job completes or fails. A failed cleanup can delay deletion.</p>
+                            <p>When a model needs a URL, VeilPix uses a private Supabase Storage object and a short-lived signed URL. Wan 3.0 references remain private while the task runs and are deleted when it completes or fails; other workflows also attempt deletion when the job reaches a terminal state. A failed cleanup can delay deletion.</p>
                         </div>
                         <div class="flow-step">
                             <span class="step-number">4</span>

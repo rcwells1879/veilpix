@@ -2,7 +2,7 @@ const express = require('express');
 const { db } = require('../utils/database');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const {
-    copyProviderInputToKie,
+    createProviderInputRelayUrl,
     createProviderInputUploads,
     deleteProviderInputs
 } = require('../utils/providerInput');
@@ -155,7 +155,7 @@ router.post('/generate-video', async (req, res) => {
             });
         }
 
-        const kieUrls = await Promise.all(allUploads.map(upload => copyProviderInputToKie(req.user.userId, upload)));
+        const kieUrls = allUploads.map(upload => createProviderInputRelayUrl(req.user.userId, upload));
         const copiedUrl = upload => upload ? kieUrls[allUploads.indexOf(upload)] : null;
         const copiedUrls = values => (values || []).map(copiedUrl);
         const referenceLink = inputMode === 'link' ? validatePublicLink(req.body?.referenceLink) : null;
@@ -185,12 +185,12 @@ router.post('/generate-video', async (req, res) => {
             uploadedInputCount: allUploads.length
         });
         const taskId = await createWan3Task(payload);
-        // Kie has taken ownership of temporary copies; the browser-uploaded
-        // private source objects are no longer needed.
+        const taskData = await pollWan3Task(taskId);
+        // The signed relay streams from private Storage while Kie works. Once
+        // the task reaches a terminal state, the browser-uploaded inputs are
+        // no longer needed.
         await deleteProviderInputs(req.user.userId, objectPaths);
         objectPaths.length = 0;
-
-        const taskData = await pollWan3Task(taskId);
         const normalized = normalizeWan3Response(taskData.resultJson);
         const providerKieCredits = Number(taskData.creditsConsumed);
         const providerCredits = Number.isFinite(providerKieCredits) && providerKieCredits > 0
