@@ -50,6 +50,13 @@ function videoGenerationJobResponse(record) {
                 processingTime: record.processing_time_ms || undefined
             };
         }
+        // The delivery acknowledgement deliberately scrubs the temporary
+        // provider URL and delivery ID from the usage log. A recovery poll can
+        // race that acknowledgement by a few milliseconds; keep it neutral
+        // while the browser clears its already-verified local pending job.
+        if (result.delivered === true) {
+            return { status: 'pending', delivered: true };
+        }
         if (typeof result.videoUrl !== 'string' || !/^https?:\/\//i.test(result.videoUrl)) {
             throw new Error('Missing video URL');
         }

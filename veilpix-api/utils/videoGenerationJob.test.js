@@ -49,3 +49,13 @@ test('keeps staged private deliveries pending until the browser acknowledges the
         processingTime: 42000
     });
 });
+
+test('does not report an error when delivery acknowledgement races a recovery poll', () => {
+    assert.deepEqual(videoGenerationJobResponse({
+        success: true,
+        error_message: JSON.stringify({ delivered: true })
+    }), {
+        status: 'pending',
+        delivered: true
+    });
+});

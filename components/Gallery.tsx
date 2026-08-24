@@ -232,7 +232,7 @@ const Gallery: React.FC<GalleryProps> = ({
                 <img
                   src={thumbnailUrls[image.id]}
                   alt={image.name}
-                  draggable={image.type === 'image'}
+                  draggable={false}
                   className="w-full h-full object-cover"
                 />
               )}

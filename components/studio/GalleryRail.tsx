@@ -302,7 +302,7 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
                   <img
                     src={thumbnailUrls[item.id]}
                     alt={item.name}
-                    draggable={busyId !== item.id}
+                    draggable={false}
                     className="h-full w-full object-cover"
                   />
                 )}

@@ -81,6 +81,12 @@ function imageGenerationJobResponse(record) {
                 processingTime: record.processing_time_ms || undefined
             };
         }
+        // A delivery acknowledgement replaces the short-lived receipt with a
+        // privacy-safe marker. Treat an overlapping status poll as neutral;
+        // the browser has already verified and stored the local Album blob.
+        if (result.delivered === true) {
+            return { status: 'pending', delivered: true };
+        }
         if (typeof result.imageUrl !== 'string' || !/^https?:\/\//i.test(result.imageUrl)) {
             throw new Error('Missing image URL');
         }

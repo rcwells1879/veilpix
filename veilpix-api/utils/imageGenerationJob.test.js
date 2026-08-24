@@ -48,3 +48,13 @@ test('keeps staged private image deliveries pending until browser storage is ver
         processingTime: 1200
     });
 });
+
+test('does not report an error when image delivery acknowledgement races a recovery poll', () => {
+    assert.deepEqual(imageGenerationJobResponse({
+        success: true,
+        error_message: JSON.stringify({ delivered: true })
+    }), {
+        status: 'pending',
+        delivered: true
+    });
+});
