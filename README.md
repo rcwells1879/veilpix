@@ -1,97 +1,92 @@
+# VeilPix
 
-# VeilPix - AI-Powered Image Editor
+VeilPix is a privacy-focused browser workspace for AI image editing, image generation, and multimodal video creation. It combines a React studio with an authenticated Express API that brokers Kie.ai models, credits, temporary media transfer, and Stripe purchases.
 
-VeilPix is a modern, web-based image editing application that leverages the power of Google's Gemini AI to provide a seamless and intuitive photo editing experience. Users can perform complex generative edits with simple text prompts, apply global filters, make fine-tuned adjustments, and combine multiple images into creative composites.
+## What It Supports
 
-## Features
+- Prompted image generation, localized edits, adjustments, filters, and multi-image composition.
+- Text-to-video, first/last-frame animation, multimodal reference video, and clip continuation/stitching.
+- Drag-and-drop image and video references from the device or the browser-local Album.
+- Model-specific ratios, resolutions, durations, reference limits, and pricing.
+- After Dark through the provider's existing NSFW filter; no separate VeilPix safety classifier.
+- Recoverable generation when the tab or browser closes.
 
--   **AI-Powered Localized Edits**: Click on any part of an image and use a text prompt to describe your desired change (e.g., "change shirt color to red").
--   **Generative Adjustments**: Use natural language to apply global changes to lighting and color (e.g., "make the image warmer").
--   **Creative Filters**: Apply a variety of artistic filters to transform the look and feel of your photos.
--   **Multi-Image Composition**: Combine two images with a text prompt to create unique composites.
--   **Standard Editing Tools**: Includes essential tools like cropping with aspect ratio control.
--   **Unlimited History**: Undo and redo edits with a complete version history.
--   **Webcam Support**: Capture photos directly from your webcam to start editing immediately.
+Current image models are Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, and text-only Z-Image Turbo. Current video choices are Wan 3.0 Standard/Prime, Seedance 2.5 and 2.0 variants, and legacy Wan Video 2.6/2.7.
 
-## Technologies Used
+## Media Privacy
 
-| Category          | Technology                                                                   |
-| ----------------- | ---------------------------------------------------------------------------- |
-| **Frontend**      | React 19, TypeScript, Vite, Tailwind CSS                                     |
-| **Backend**       | Node.js, Express                                                             |
-| **AI Service**    | Google Gemini (`gemini-2.5-flash-image-preview`)                               |
-| **Authentication**| Clerk                                                                        |
-| **Database**      | Supabase (PostgreSQL)                                                        |
-| **Payments**      | Stripe                                                                       |
-| **State Management**| React Hooks                                                                  |
+The user-facing Album lives in that browser's IndexedDB and stores real image and video blobs. It is not a cloud-synced account gallery and is subject to browser site-data cleanup and the 20-item Album limit.
 
-## Getting Started
+VeilPix uses Supabase only as temporary transport storage:
 
-This project is a monorepo containing the frontend React application and the backend Node.js API (`veilpix-api`).
+1. Reference inputs are retained only while the provider job needs them. Wan 3.0 uploads large references directly from the browser to private Storage, avoiding persistent files and large upload bodies on the VPS.
+2. A successful provider output is streamed into a private delivery outbox for up to 48 hours. Closing the browser does not interrupt the server-side task.
+3. When the user returns, VeilPix downloads pending output into IndexedDB and verifies it is present in the Album.
+4. The browser then acknowledges delivery, which deletes the remote output object and its delivery row. Unretrieved items expire and are deleted after 48 hours.
 
-### Prerequisites
+The provider may have its own retention policy; this lifecycle describes storage controlled by VeilPix.
 
--   Node.js (v18 or later recommended)
--   `npm`
+See [AGENTS.md](./AGENTS.md#media-privacy-and-lifecycle) for the implementation contract and [veilpix-api/README.md](./veilpix-api/README.md#media-transfer-and-deletion) for API details.
 
-### 1. Frontend Setup
+## Architecture
 
-1.  **Navigate to the root directory and install dependencies:**
-    ```bash
-    npm install
-    ```
+| Area | Technology |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS v4, TanStack Query |
+| Authentication | Clerk |
+| API | Node.js, Express |
+| Models | Kie.ai provider routes |
+| Database and temporary storage | Supabase PostgreSQL and Storage |
+| Browser persistence | IndexedDB and localStorage |
+| Payments | Stripe |
 
-2.  **Create an environment file:**
-    Create a file named `.env.local` in the project root.
+The frontend calls only the VeilPix API. Provider keys, the Supabase service role, credit accounting, and Stripe secrets remain server-side.
 
-3.  **Add environment variables:**
-    You need to add your Clerk publishable key and the URL for the backend API.
-    ```env
-    # Clerk Publishable Key (Required)
-    VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+## Local Development
 
-    # API Base URL (Required)
-    # Use http://127.0.0.1:3001 for local development
-    VITE_API_BASE_URL=http://127.0.0.1:3001
-    ```
+Requirements: Node.js 18+ and npm.
 
-4.  **Run the development server:**
-    ```bash
-    npm run dev
-    ```
-    The frontend will be available at `http://127.0.0.1:5173`.
+Frontend, from the repository root:
 
-### 2. Backend Setup (`veilpix-api`)
+```bash
+npm install
+npm run dev
+```
 
-1.  **Navigate to the API directory and install dependencies:**
-    ```bash
-    cd veilpix-api
-    npm install
-    ```
+Create `.env.local`:
 
-2.  **Create an environment file:**
-    Create a file named `.env` in the `veilpix-api` directory.
+```env
+VITE_CLERK_PUBLISHABLE_KEY=...
+VITE_API_BASE_URL=http://127.0.0.1:3001
+VITE_NODE_ENV=development
+```
 
-3.  **Add environment variables:**
-    The backend requires keys for Gemini, Clerk, Supabase, and Stripe.
-    ```env
-    NODE_ENV=development
-    PORT=3001
-    GEMINI_API_KEY=your_gemini_api_key
-    CLERK_SECRET_KEY=your_clerk_secret_key
-    SUPABASE_URL=your_supabase_project_url
-    SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-    STRIPE_SECRET_KEY=your_stripe_secret_key
-    STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
-    ```
+API, in another terminal:
 
-4.  **Run the development server:**
-    ```bash
-    # Uses nodemon for auto-reloading
-    npm run dev
-    ```
-    The backend API will be running on `http://127.0.0.1:3001`.
+```bash
+cd veilpix-api
+npm install
+npm run dev
+```
 
-**Note for WSL Users:** It is critical to use `127.0.0.1` instead of `localhost` for both the frontend and backend URLs to ensure proper communication between the two services.
+Copy `veilpix-api/.env.example` to `veilpix-api/.env` and supply the real Kie, Clerk, Supabase, and Stripe values. Use `127.0.0.1` rather than `localhost` in mixed Windows/WSL environments.
 
+The Vite app is served at `http://127.0.0.1:5173/veilpix/`; the API listens at `http://127.0.0.1:3001`.
 
+## Validation
+
+```bash
+# Frontend
+npm run build
+
+# API
+cd veilpix-api
+npm test
+node --check server.js
+```
+
+## Documentation
+
+- [AGENTS.md](./AGENTS.md): complete repository, privacy, operations, and deployment guidance.
+- [veilpix-api/README.md](./veilpix-api/README.md): backend routes and media delivery contract.
+- `CLAUDE.md` and `GEMINI.md`: short compatibility pointers to the canonical docs above.

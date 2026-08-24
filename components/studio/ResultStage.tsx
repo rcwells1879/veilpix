@@ -10,7 +10,7 @@
 import React, { Suspense, lazy } from 'react';
 import type { Crop, PixelCrop } from 'react-image-crop';
 import Spinner from '../Spinner';
-import SeedanceAnnouncement from '../SeedanceAnnouncement';
+import Wan3Announcement from '../Wan3Announcement';
 import {
   UndoIcon,
   RedoIcon,
@@ -125,7 +125,7 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
       isEmpty ? 'min-h-[38vh] flex-1' : 'min-h-0 shrink-0'
     }`}>
       {/* Empty state - the serene hero over the wallpaper */}
-      <SeedanceAnnouncement />
+      <Wan3Announcement />
       {isEmpty && !isLoading && (
         <div className="flex flex-col items-center gap-3 px-4 text-center animate-fade-in">
           <h1 className="text-3xl font-semibold tracking-tight text-[#E04F67] sm:text-5xl">

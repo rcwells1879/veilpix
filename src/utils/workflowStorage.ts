@@ -2,8 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Workflow persistence using IndexedDB (100% client-side storage).
- * Images never leave the user's device - this is purely local browser storage.
+ * Browser-local workflow and Album persistence using IndexedDB.
+ * Generation inputs/outputs may use the API's temporary provider and delivery
+ * storage, but this module keeps the user's durable Album in the browser.
  */
 
 import {
@@ -720,8 +721,8 @@ export interface SaveVideoToGalleryOptions {
 }
 
 /**
- * Save a video to the gallery
- * Stores the video URL and a thumbnail generated from a video frame when possible.
+ * Save a video blob to the browser-local Album, retaining the URL only as
+ * compatibility metadata and generating a thumbnail when possible.
  */
 export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<boolean> {
   try {
