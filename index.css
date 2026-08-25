@@ -239,6 +239,7 @@ body {
 .creation-deck {
   --creation-deck-media-limit: min(48dvh, 32rem);
   margin-bottom: 15px;
+  touch-action: pan-y;
 }
 
 .creation-deck-scene {

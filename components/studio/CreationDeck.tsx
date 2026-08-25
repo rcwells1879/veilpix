@@ -180,6 +180,18 @@ const CreationDeck: React.FC<CreationDeckProps> = ({
   const wheelAccumulatorRef = useRef(0);
   const wheelResetTimerRef = useRef<number | null>(null);
   const wheelIndexRef = useRef(-1);
+  const touchDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    accumulatedX: number;
+    horizontal: boolean;
+    moved: boolean;
+  } | null>(null);
+  const suppressTouchClickRef = useRef(false);
+  const suppressTouchClickTimerRef = useRef<number | null>(null);
+  const [isTouchDragging, setIsTouchDragging] = useState(false);
   const browseOrder = useMemo(
     () => [...cards].sort((left, right) => right.createdAt - left.createdAt),
     [cards],
@@ -194,6 +206,9 @@ const CreationDeck: React.FC<CreationDeckProps> = ({
 
   useEffect(() => () => {
     if (wheelResetTimerRef.current !== null) window.clearTimeout(wheelResetTimerRef.current);
+    if (suppressTouchClickTimerRef.current !== null) {
+      window.clearTimeout(suppressTouchClickTimerRef.current);
+    }
   }, []);
 
   useEffect(() => {
@@ -201,7 +216,7 @@ const CreationDeck: React.FC<CreationDeckProps> = ({
   }, [focusedBrowseIndex]);
 
   useEffect(() => {
-    if (isAutoRolling) return;
+    if (isAutoRolling || isTouchDragging) return;
 
     const focusedCard = browseOrder.find(card => card.id === focusedCardId);
     if (!focusedCard || focusedCard.status !== 'completed' || openCardId === focusedCard.id) return;
@@ -216,7 +231,7 @@ const CreationDeck: React.FC<CreationDeckProps> = ({
     }, openDelay);
 
     return () => window.clearTimeout(dwellTimer);
-  }, [browseOrder, focusedCardId, isAutoRolling, onOpenCard, openCardId]);
+  }, [browseOrder, focusedCardId, isAutoRolling, isTouchDragging, onOpenCard, openCardId]);
 
   const handleWheel = (event: WheelEvent) => {
     if (browseOrder.length < 2) return;
@@ -271,15 +286,116 @@ const CreationDeck: React.FC<CreationDeckProps> = ({
     return () => deck.removeEventListener('wheel', handleWheel);
   }, [browseOrder, focusedCardId, onFocusCard]);
 
+  const handlePointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (
+      !event.isPrimary
+      || (event.pointerType !== 'touch' && event.pointerType !== 'pen')
+      || browseOrder.length < 2
+      || isAutoRolling
+    ) return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest('button, a, input, textarea, select, video, [role="slider"], .ReactCrop')) return;
+
+    touchDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      accumulatedX: 0,
+      horizontal: false,
+      moved: false,
+    };
+    setIsTouchDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = touchDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    const totalX = event.clientX - drag.startX;
+    const totalY = event.clientY - drag.startY;
+    if (!drag.horizontal) {
+      if (Math.max(Math.abs(totalX), Math.abs(totalY)) < 10) return;
+      if (Math.abs(totalY) > Math.abs(totalX)) {
+        touchDragRef.current = null;
+        setIsTouchDragging(false);
+        return;
+      }
+      drag.horizontal = true;
+    }
+
+    event.preventDefault();
+    drag.moved = true;
+    drag.accumulatedX += event.clientX - drag.lastX;
+    drag.lastX = event.clientX;
+
+    const cardStep = 42;
+    while (Math.abs(drag.accumulatedX) >= cardStep) {
+      // Cards peeking on the side move toward the finger: dragging right
+      // brings the next card from the left into focus, and vice versa.
+      const direction: 1 | -1 = drag.accumulatedX > 0 ? 1 : -1;
+      const currentIndex = wheelIndexRef.current >= 0
+        ? wheelIndexRef.current
+        : browseOrder.findIndex(card => card.id === focusedCardId);
+      const normalizedCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = Math.min(
+        browseOrder.length - 1,
+        Math.max(0, normalizedCurrentIndex + direction),
+      );
+
+      if (nextIndex === normalizedCurrentIndex) {
+        drag.accumulatedX = 0;
+        break;
+      }
+
+      wheelIndexRef.current = nextIndex;
+      onFocusCard(browseOrder[nextIndex]);
+      drag.accumulatedX -= direction * cardStep;
+    }
+  };
+
+  const finishPointerDrag = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = touchDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    touchDragRef.current = null;
+    setIsTouchDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (!drag.moved) return;
+    suppressTouchClickRef.current = true;
+    if (suppressTouchClickTimerRef.current !== null) {
+      window.clearTimeout(suppressTouchClickTimerRef.current);
+    }
+    suppressTouchClickTimerRef.current = window.setTimeout(() => {
+      suppressTouchClickRef.current = false;
+      suppressTouchClickTimerRef.current = null;
+    }, 300);
+  };
+
   return (
     <section
       ref={deckRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishPointerDrag}
+      onPointerCancel={finishPointerDrag}
+      onClickCapture={(event) => {
+        if (!suppressTouchClickRef.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        suppressTouchClickRef.current = false;
+      }}
       className={`creation-deck mx-auto flex min-h-0 w-full max-w-[62rem] flex-col ${fillAvailable ? 'flex-1' : 'shrink-0'}`}
       aria-label="Current creations"
       aria-description={browseOrder.length > 1
         ? focusedBrowseIndex >= 0
-          ? `Creation ${focusedBrowseIndex + 1} of ${browseOrder.length}. Scroll while hovering to browse.`
-          : `${browseOrder.length} creations. Scroll while hovering to browse.`
+          ? `Creation ${focusedBrowseIndex + 1} of ${browseOrder.length}. Scroll while hovering or swipe left and right to browse.`
+          : `${browseOrder.length} creations. Scroll while hovering or swipe left and right to browse.`
         : undefined}
     >
       <div className={`creation-deck-scene relative grid w-full ${fillAvailable ? 'flex-1' : ''} ${
