@@ -54,17 +54,11 @@ import {
 } from './components/ImageModelControlsPanel';
 import Composer from './components/studio/Composer';
 import ResultStage from './components/studio/ResultStage';
-import CreationDeck, { type CreationCard } from './components/studio/CreationDeck';
 import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } from './components/studio/GalleryRail';
 import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './components/studio/types';
 import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES, WAN3_REFERENCE_LIMITS } from './components/studio/videoPricing';
 import {
   debouncedSaveWorkflow,
-  ensureGalleryCarouselPreview,
-  getGalleryArtifactByGenerationId,
-  getGalleryImage,
-  getGalleryImages,
-  getGalleryVideoDetails,
   hasGalleryArtifact,
   hasLocalDeliveryReceipt,
   markLocalDeliveryReceipt,
@@ -160,25 +154,6 @@ const generatedImageToFile = async (
   );
 };
 
-function getBlobAspectRatio(blob: Blob, fallback: string): Promise<string> {
-  return new Promise((resolve) => {
-    const image = new Image();
-    const objectUrl = URL.createObjectURL(blob);
-    const finish = (value: string) => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(value);
-    };
-
-    image.onload = () => finish(
-      image.naturalWidth > 0 && image.naturalHeight > 0
-        ? `${image.naturalWidth}:${image.naturalHeight}`
-        : fallback
-    );
-    image.onerror = () => finish(fallback);
-    image.src = objectUrl;
-  });
-}
-
 const downloadDeliveryFile = async (downloadUrl: string, fileName: string, mimeType: string): Promise<File> => {
   const response = await fetch(downloadUrl, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Delivery download returned ${response.status}`);
@@ -243,7 +218,6 @@ const PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generation';
 const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
 const GENERATION_RECOVERY_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 const MAX_GENERATION_QUEUE_SIZE = 3;
-const MAX_SESSION_CREATION_CARDS = 20;
 
 type RecoverableImageWorkflow = 'text-to-image' | 'retouch' | 'composite' | 'adjust';
 
@@ -629,35 +603,6 @@ const App: React.FC = () => {
   const [pendingVideoGeneration, setPendingVideoGeneration] = useState<PendingVideoGeneration | null>(
     () => readPendingVideoGeneration()
   );
-  const [creationCards, setCreationCards] = useState<CreationCard[]>(() => [
-    ...(pendingImageGeneration
-      ? [{
-          id: pendingImageGeneration.id,
-          type: 'image' as const,
-          status: 'generating' as const,
-          prompt: pendingImageGeneration.prompt,
-          createdAt: pendingImageGeneration.createdAt,
-        }]
-      : []),
-    ...(pendingVideoGeneration
-      ? [{
-          id: pendingVideoGeneration.id,
-          type: 'video' as const,
-          status: 'generating' as const,
-          prompt: pendingVideoGeneration.prompt,
-          createdAt: pendingVideoGeneration.createdAt,
-          aspectRatio: pendingVideoGeneration.ratio,
-        }]
-      : []),
-  ]);
-  const [focusedCreationId, setFocusedCreationId] = useState<string | null>(
-    () => pendingVideoGeneration?.id ?? pendingImageGeneration?.id ?? null
-  );
-  const [openCreationId, setOpenCreationId] = useState<string | null>(null);
-  const [isCreationDeckAutoRolling, setIsCreationDeckAutoRolling] = useState(false);
-  const focusedCreationIdRef = useRef<string | null>(focusedCreationId);
-  const creationDeckRollSequenceRef = useRef(0);
-  const creationDeckHydratedRef = useRef(false);
   const [queuedGenerations, setQueuedGenerations] = useState<QueuedGeneration[]>([]);
   const generationQueueRef = useRef<QueuedGeneration[]>([]);
   const activeQueueItemRef = useRef<QueuedGeneration | null>(null);
@@ -690,161 +635,6 @@ const App: React.FC = () => {
   const [wan3ReferenceAudioDuration, setWan3ReferenceAudioDuration] = useState<number | null>(null);
   const [wan3ReferenceFile, setWan3ReferenceFile] = useState<File | null>(null);
   const [wan3ReferenceLink, setWan3ReferenceLink] = useState('');
-
-  useLayoutEffect(() => {
-    focusedCreationIdRef.current = focusedCreationId;
-  }, [focusedCreationId]);
-
-  const upsertCreationCard = useCallback((card: CreationCard) => {
-    setCreationCards(current => [
-      ...current.filter(item => item.id !== card.id),
-      card,
-    ].slice(-MAX_SESSION_CREATION_CARDS));
-  }, []);
-
-  const updateCreationCard = useCallback((
-    generationId: string,
-    updates: Partial<Omit<CreationCard, 'id'>>,
-  ) => {
-    setCreationCards(current => current.map(card => (
-      card.id === generationId ? { ...card, ...updates } : card
-    )));
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const hydrateCreationDeckFromAlbum = async () => {
-      const albumItems = (await getGalleryImages()).slice(0, MAX_SESSION_CREATION_CARDS);
-      const albumCards = await Promise.all(albumItems.map(async (item): Promise<CreationCard> => {
-        const fallbackRatio = item.type === 'video' ? '16:9' : '1:1';
-        const previewBlob = item.carouselPreview ?? item.thumbnail;
-        const aspectRatio = await getBlobAspectRatio(previewBlob, fallbackRatio);
-        const previewType = previewBlob.type || 'image/jpeg';
-        const previewExtension = previewType.includes('webp')
-          ? 'webp'
-          : previewType.includes('png')
-            ? 'png'
-            : 'jpg';
-        const previewFile = new File(
-          [previewBlob],
-          `creation-preview-${item.id}.${previewExtension}`,
-          { type: previewType },
-        );
-
-        return {
-          id: item.generationId || `album:${item.id}`,
-          galleryId: item.id,
-          type: item.type,
-          status: 'completed',
-          prompt: item.prompt || '',
-          createdAt: item.createdAt,
-          aspectRatio,
-          previewFile,
-        };
-      }));
-
-      if (cancelled) return;
-
-      const albumIds = new Set(albumCards.map(card => card.id));
-      setCreationCards(current => {
-        const nextById = new Map<string, CreationCard>();
-
-        current.forEach((card) => {
-          if (card.galleryId === undefined || albumIds.has(card.id)) {
-            nextById.set(card.id, card);
-          }
-        });
-
-        albumCards.forEach((albumCard) => {
-          const existing = nextById.get(albumCard.id);
-          nextById.set(albumCard.id, existing
-            ? {
-                ...existing,
-                ...albumCard,
-                prompt: existing.prompt || albumCard.prompt,
-                imageFile: existing.imageFile,
-                videoDetails: existing.videoDetails,
-              }
-            : albumCard);
-        });
-
-        return [...nextById.values()]
-          .sort((left, right) => left.createdAt - right.createdAt)
-          .slice(-MAX_SESSION_CREATION_CARDS);
-      });
-
-      if (!creationDeckHydratedRef.current) {
-        creationDeckHydratedRef.current = true;
-        setFocusedCreationId(current => current ?? albumCards[0]?.id ?? null);
-      }
-
-      const olderImages = albumItems.filter(item => (
-        item.type === 'image' && !item.carouselPreview
-      ));
-      for (const item of olderImages) {
-        await new Promise<void>(resolve => window.setTimeout(resolve, 150));
-        if (cancelled) return;
-
-        const carouselPreview = await ensureGalleryCarouselPreview(item.id);
-        if (!carouselPreview || cancelled) continue;
-
-        const previewType = carouselPreview.type || 'image/webp';
-        const previewExtension = previewType.includes('webp')
-          ? 'webp'
-          : previewType.includes('png')
-            ? 'png'
-            : 'jpg';
-        const previewFile = new File(
-          [carouselPreview],
-          `creation-preview-${item.id}.${previewExtension}`,
-          { type: previewType },
-        );
-
-        updateCreationCard(item.generationId || `album:${item.id}`, {
-          previewFile,
-          aspectRatio: await getBlobAspectRatio(carouselPreview, '1:1'),
-        });
-      }
-    };
-
-    void hydrateCreationDeckFromAlbum();
-    return () => {
-      cancelled = true;
-    };
-  }, [galleryRefreshTrigger, updateCreationCard]);
-
-  const focusWorkspace = useCallback(() => {
-    focusedCreationIdRef.current = null;
-    setFocusedCreationId(null);
-    setOpenCreationId(null);
-  }, []);
-
-  const restoreCreationCardFromGallery = useCallback(async (
-    generationId: string,
-  ) => {
-    const artifact = await getGalleryArtifactByGenerationId(generationId);
-    if (!artifact) return null;
-
-    if (artifact.type === 'image') {
-      updateCreationCard(generationId, {
-        type: 'image',
-        status: 'completed',
-        imageFile: artifact.file,
-        prompt: artifact.prompt,
-        errorMessage: undefined,
-      });
-    } else {
-      updateCreationCard(generationId, {
-        type: 'video',
-        status: 'completed',
-        videoDetails: artifact.details,
-        prompt: artifact.details.prompt,
-        errorMessage: undefined,
-      });
-    }
-    return artifact;
-  }, [updateCreationCard]);
 
   const activeGenerationCount = Number(Boolean(pendingImageGeneration))
     + Number(Boolean(pendingVideoGeneration));
@@ -998,16 +788,6 @@ const App: React.FC = () => {
       finalizingVideoJobsRef.current.delete(job.id);
       throw new Error('The video finished, but VeilPix could not verify it in this browser\'s Album.');
     }
-    const artifact = await restoreCreationCardFromGallery(job.id);
-    if (artifact?.type === 'video' && focusedCreationIdRef.current === job.id) {
-      setStudioMode('video');
-      setVideoProvider(job.provider);
-      setVideoPrompt(job.prompt);
-      setVideoOutputFormat(job.provider === 'seedance' ? job.seedanceOutputFormat ?? 'mp4' : 'mp4');
-      if (artifact.details.videoFile) showGalleryVideoResult(artifact.details.videoFile);
-      else showRemoteVideoResult(artifact.details.videoUrl);
-      setOpenCreationId(job.id);
-    }
     markLocalDeliveryReceipt(job.id);
     try {
       await mediaDeliveryRecovery.acknowledgeGeneration(job.id);
@@ -1017,13 +797,7 @@ const App: React.FC = () => {
     }
     setGalleryRefreshTrigger(count => count + 1);
     clearPendingVideoJob(job.id);
-  }, [
-    clearPendingVideoJob,
-    mediaDeliveryRecovery,
-    restoreCreationCardFromGallery,
-    showGalleryVideoResult,
-    showRemoteVideoResult,
-  ]);
+  }, [clearPendingVideoJob, mediaDeliveryRecovery]);
 
   const recoverPendingVideo = useCallback(async (job: PendingVideoGeneration) => {
     if (recoveryRequestInFlightRef.current || finalizingVideoJobsRef.current.has(job.id)) return;
@@ -1031,7 +805,6 @@ const App: React.FC = () => {
 
     try {
       if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'video')) {
-        await restoreCreationCardFromGallery(job.id);
         markLocalDeliveryReceipt(job.id);
         clearPendingVideoJob(job.id);
         return;
@@ -1048,30 +821,18 @@ const App: React.FC = () => {
       }
 
       if (status.status === 'failed') {
-        updateCreationCard(job.id, {
-          status: 'failed',
-          errorMessage: status.message || 'The provider could not complete it.',
-        });
         clearPendingVideoJob(job.id);
         setVideoError(`Failed to generate video. ${status.message || 'The provider could not complete it.'}`);
         return;
       }
 
       if (status.delivered) {
-        updateCreationCard(job.id, {
-          status: 'failed',
-          errorMessage: 'This result was delivered before multi-browser delivery was enabled.',
-        });
         clearPendingVideoJob(job.id);
         setVideoError('This video was delivered to another browser before multi-browser delivery was enabled. It remains in that browser\'s Album.');
         return;
       }
 
       if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
-        updateCreationCard(job.id, {
-          status: 'failed',
-          errorMessage: 'VeilPix could not recover this result within 48 hours.',
-        });
         clearPendingVideoJob(job.id);
         setVideoError('We could not recover that video within 48 hours. Please contact support so the generation and credit charge can be reviewed.');
       }
@@ -1081,13 +842,7 @@ const App: React.FC = () => {
     } finally {
       recoveryRequestInFlightRef.current = false;
     }
-  }, [
-    clearPendingVideoJob,
-    finalizeVideoGeneration,
-    getVideoGenerationStatus,
-    restoreCreationCardFromGallery,
-    updateCreationCard,
-  ]);
+  }, [clearPendingVideoJob, finalizeVideoGeneration, getVideoGenerationStatus]);
 
   useEffect(() => {
     if (!pendingVideoGeneration || !isLoaded || !isSignedIn) return;
@@ -1160,7 +915,6 @@ const App: React.FC = () => {
     newImageFile: File,
     prompt = historyPrompts[historyIndex] ?? '',
     generationId?: string,
-    persistToAlbum = true,
   ) => {
     const newHistory = history.slice(0, historyIndex + 1);
     const newHistoryPrompts = historyPrompts.slice(0, historyIndex + 1);
@@ -1171,9 +925,7 @@ const App: React.FC = () => {
     setHistoryIndex(newHistory.length - 1);
     setCrop(undefined);
     setCompletedCrop(undefined);
-    if (persistToAlbum) {
-      saveToGallery(newImageFile, prompt, generationId).then(() => setGalleryRefreshTrigger(n => n + 1));
-    }
+    saveToGallery(newImageFile, prompt, generationId).then(() => setGalleryRefreshTrigger(n => n + 1));
   }, [history, historyIndex, historyPrompts]);
 
   const clearPendingImageJob = useCallback((generationId: string) => {
@@ -1204,34 +956,13 @@ const App: React.FC = () => {
       }
       setGalleryRefreshTrigger(count => count + 1);
 
-      updateCreationCard(job.id, {
-        type: 'image',
-        status: 'completed',
-        imageFile: newImageFile,
-        prompt: job.prompt,
-        errorMessage: undefined,
-      });
-      if (focusedCreationIdRef.current === job.id) {
-        setStudioMode('image');
-        setImagePrompt(job.prompt);
-        addImageToHistory(newImageFile, job.prompt, undefined, false);
-        resetImageTools();
-        setOpenCreationId(job.id);
-      }
-
       setError(null);
       clearPendingImageJob(job.id);
     } catch (finalizeError) {
       finalizingImageJobsRef.current.delete(job.id);
       setError(getGenerationErrorMessage(finalizeError, 'The image finished, but VeilPix could not save it.'));
     }
-  }, [
-    addImageToHistory,
-    clearPendingImageJob,
-    mediaDeliveryRecovery,
-    resetImageTools,
-    updateCreationCard,
-  ]);
+  }, [clearPendingImageJob, mediaDeliveryRecovery]);
 
   const recoverPendingImage = useCallback(async (job: PendingImageGeneration) => {
     if (imageRecoveryRequestInFlightRef.current || finalizingImageJobsRef.current.has(job.id)) return;
@@ -1239,7 +970,6 @@ const App: React.FC = () => {
 
     try {
       if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'image')) {
-        await restoreCreationCardFromGallery(job.id);
         markLocalDeliveryReceipt(job.id);
         clearPendingImageJob(job.id);
         return;
@@ -1256,30 +986,18 @@ const App: React.FC = () => {
       }
 
       if (status.status === 'failed') {
-        updateCreationCard(job.id, {
-          status: 'failed',
-          errorMessage: status.message || 'The provider could not complete it.',
-        });
         clearPendingImageJob(job.id);
         setError(`Failed to generate the image. ${status.message || 'The provider could not complete it.'}`);
         return;
       }
 
       if (status.delivered) {
-        updateCreationCard(job.id, {
-          status: 'failed',
-          errorMessage: 'This result was delivered before multi-browser delivery was enabled.',
-        });
         clearPendingImageJob(job.id);
         setError('This image was delivered to another browser before multi-browser delivery was enabled. It remains in that browser\'s Album.');
         return;
       }
 
       if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
-        updateCreationCard(job.id, {
-          status: 'failed',
-          errorMessage: 'VeilPix could not recover this result within 48 hours.',
-        });
         clearPendingImageJob(job.id);
         setError('We could not recover that image within 48 hours. Please contact support so the generation and credit charge can be reviewed.');
       }
@@ -1289,13 +1007,7 @@ const App: React.FC = () => {
     } finally {
       imageRecoveryRequestInFlightRef.current = false;
     }
-  }, [
-    clearPendingImageJob,
-    finalizeImageGeneration,
-    getImageGenerationStatus,
-    restoreCreationCardFromGallery,
-    updateCreationCard,
-  ]);
+  }, [clearPendingImageJob, finalizeImageGeneration, getImageGenerationStatus]);
 
   useEffect(() => {
     if (!pendingImageGeneration || !isLoaded || !isSignedIn) return;
@@ -1348,7 +1060,6 @@ const App: React.FC = () => {
         if (delivery.artifactType !== 'image' && delivery.artifactType !== 'video') continue;
 
         if (hasLocalDeliveryReceipt(delivery.generationId)) {
-          await restoreCreationCardFromGallery(delivery.generationId);
           if (pendingImageGeneration?.id === delivery.generationId) {
             clearPendingImageJob(delivery.generationId);
           }
@@ -1394,7 +1105,6 @@ const App: React.FC = () => {
           && await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
         if (!verified) continue;
 
-        await restoreCreationCardFromGallery(delivery.generationId);
         markLocalDeliveryReceipt(delivery.generationId, delivery.expiresAt);
         await mediaDeliveryRecovery.acknowledge(delivery.id);
         if (pendingImageGeneration?.id === delivery.generationId) {
@@ -1420,7 +1130,6 @@ const App: React.FC = () => {
     mediaDeliveryRecovery,
     pendingImageGeneration,
     pendingVideoGeneration,
-    restoreCreationCardFromGallery,
   ]);
 
   useEffect(() => {
@@ -1456,7 +1165,6 @@ const App: React.FC = () => {
   /* ---------------- image reference handlers ---------------- */
   const handleBaseImageSelect = useCallback((file: File | null) => {
     if (file && !requireAuth()) return;
-    focusWorkspace();
 
     if (file) {
       setHistory([file]);
@@ -1472,13 +1180,12 @@ const App: React.FC = () => {
     }
     resetImageTools();
     setError(null);
-  }, [focusWorkspace, requireAuth, resetImageTools]);
+  }, [requireAuth, resetImageTools]);
 
   const handleStyleImageSelect = useCallback((file: File | null) => {
     if (file && !requireAuth()) return;
-    focusWorkspace();
     setStyleImage(file);
-  }, [focusWorkspace, requireAuth]);
+  }, [requireAuth]);
 
   const handleOpenWebcam = useCallback((target: 'base' | 'style') => {
     if (!requireAuth()) return;
@@ -1511,22 +1218,10 @@ const App: React.FC = () => {
 
     generationQueueRef.current = [...generationQueueRef.current, generation];
     setQueuedGenerations(generationQueueRef.current);
-    upsertCreationCard({
-      id: generation.job.id,
-      type: generation.kind,
-      status: 'queued',
-      prompt: generation.job.prompt,
-      createdAt: generation.job.createdAt,
-      aspectRatio: generation.kind === 'image'
-        ? generation.options.aspectRatio
-        : generation.options.ratio,
-    });
-    setFocusedCreationId(generation.job.id);
-    setOpenCreationId(null);
     if (generation.kind === 'video') setVideoError(null);
     else setError(null);
     return true;
-  }, [pendingImageGeneration, pendingVideoGeneration, upsertCreationCard]);
+  }, [pendingImageGeneration, pendingVideoGeneration]);
 
   const executeImageGeneration = useCallback(async (queued: QueuedImageGeneration) => {
     const activeJob: PendingImageGeneration = { ...queued.job, createdAt: Date.now() };
@@ -1545,7 +1240,6 @@ const App: React.FC = () => {
       : editableImageMutationsByProvider[options.provider];
 
     setError(null);
-    updateCreationCard(activeJob.id, { status: 'generating' });
     setPendingImageGeneration(activeJob);
     storePendingImageGeneration(activeJob);
 
@@ -1596,10 +1290,6 @@ const App: React.FC = () => {
       }
 
       clearPendingImageJob(activeJob.id);
-      updateCreationCard(activeJob.id, {
-        status: 'failed',
-        errorMessage: getGenerationErrorMessage(err, 'Failed to generate the image.'),
-      });
       setError(getGenerationErrorMessage(err, 'Failed to generate the image.'));
       console.error(err);
     }
@@ -1609,7 +1299,6 @@ const App: React.FC = () => {
     clearPendingImageJob,
     finalizeImageGeneration,
     recoverPendingImage,
-    updateCreationCard,
   ]);
 
   const executeVideoGeneration = useCallback(async (queued: QueuedVideoGeneration) => {
@@ -1669,7 +1358,6 @@ const App: React.FC = () => {
 
     setVideoError(null);
     setError(null);
-    updateCreationCard(activeJob.id, { status: 'generating' });
     pendingVideoFilesRef.current = pendingFiles;
     setPendingVideoGeneration(activeJob);
     storePendingVideoGeneration(activeJob);
@@ -1772,10 +1460,6 @@ const App: React.FC = () => {
 
       clearPendingVideoJob(activeJob.id);
       const errorMessage = getApiErrorMessage(err);
-      updateCreationCard(activeJob.id, {
-        status: 'failed',
-        errorMessage,
-      });
       if (isSafetyFilterError(err)) {
         setError(CONTENT_POLICY_ERROR_MESSAGE);
       } else {
@@ -1792,7 +1476,6 @@ const App: React.FC = () => {
     textToVideoMutation,
     seedanceVideoMutation,
     wan3VideoMutation,
-    updateCreationCard,
   ]);
 
   /* ---------------- image generation ---------------- */
@@ -2167,7 +1850,6 @@ const App: React.FC = () => {
 
   /* ---------------- mode + session ---------------- */
   const handleModeChange = useCallback((mode: StudioMode) => {
-    focusWorkspace();
     setStudioMode(mode);
     setError(null);
 
@@ -2196,13 +1878,12 @@ const App: React.FC = () => {
       }
     }
   }, [
-    focusWorkspace, videoProvider, currentImage, wanReferenceImages.length, referenceVideoFile, referenceVideoUrl,
+    videoProvider, currentImage, wanReferenceImages.length, referenceVideoFile, referenceVideoUrl,
     seedanceFirstFrame, seedanceReferenceImages.length, seedanceReferenceVideoFiles.length, seedanceReferenceVideoUrl,
     wan3FirstFrame, wan3ReferenceImages.length, wan3ReferenceVideoFiles.length, wan3ReferenceFile, wan3ReferenceLink,
   ]);
 
   const handleNewSession = useCallback(() => {
-    focusWorkspace();
     setHistory([]);
     setHistoryPrompts([]);
     setHistoryIndex(-1);
@@ -2236,7 +1917,7 @@ const App: React.FC = () => {
     setWan3ReferenceAudioDuration(null);
     setWan3ReferenceFile(null);
     setWan3ReferenceLink('');
-  }, [clearVideoResult, focusWorkspace, resetImageTools]);
+  }, [clearVideoResult, resetImageTools]);
 
   /* ---------------- stage tools ---------------- */
   const handleToolChange = useCallback((tool: StageTool) => {
@@ -2371,7 +2052,6 @@ const App: React.FC = () => {
   /* ---------------- gallery handlers ---------------- */
   const handleGallerySelectImage = useCallback((file: File, savedPrompt: string) => {
     if (isVideoEditorRendering) return;
-    focusWorkspace();
     setIsVideoEditorOpen(false);
     setIncomingEditorVideo(null);
     setStudioMode('image');
@@ -2382,10 +2062,9 @@ const App: React.FC = () => {
     setStyleImage(null);
     resetImageTools();
     setError(null);
-  }, [focusWorkspace, isVideoEditorRendering, resetImageTools]);
+  }, [isVideoEditorRendering, resetImageTools]);
 
   const handleGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
-    focusWorkspace();
     const selectedProvider = details.provider ?? videoProvider;
     const referenceImages = details.referenceImages.length > 0
       ? details.referenceImages
@@ -2436,120 +2115,7 @@ const App: React.FC = () => {
       showRemoteVideoResult(details.videoUrl);
     }
     setVideoError(null);
-  }, [focusWorkspace, showGalleryVideoResult, showRemoteVideoResult, videoProvider]);
-
-  const handleFocusCreationCard = useCallback((card: CreationCard) => {
-    setStudioMode(card.type);
-    if (card.type === 'video') setVideoPrompt(card.prompt);
-    else setImagePrompt(card.prompt);
-    focusedCreationIdRef.current = card.id;
-    setFocusedCreationId(card.id);
-    setOpenCreationId(null);
-  }, []);
-
-  const handleOpenCreationCard = useCallback(async (card: CreationCard) => {
-    if (card.status !== 'completed') return;
-    if (focusedCreationIdRef.current !== card.id) return;
-
-    if (card.type === 'image') {
-      let imageFile = card.imageFile;
-      let prompt = card.prompt;
-      if (!imageFile && card.galleryId !== undefined) {
-        const details = await getGalleryImage(card.galleryId);
-        if (focusedCreationIdRef.current !== card.id) return;
-        imageFile = details?.file;
-        prompt = details?.prompt || prompt;
-        if (imageFile) {
-          updateCreationCard(card.id, { imageFile, prompt });
-        }
-      }
-      if (!imageFile) return;
-
-      handleGallerySelectImage(imageFile, prompt);
-      focusedCreationIdRef.current = card.id;
-      setFocusedCreationId(card.id);
-      setOpenCreationId(card.id);
-      return;
-    }
-
-    let videoDetails = card.videoDetails;
-    if (!videoDetails && card.galleryId !== undefined) {
-      videoDetails = await getGalleryVideoDetails(card.galleryId) ?? undefined;
-      if (focusedCreationIdRef.current !== card.id) return;
-      if (videoDetails) {
-        updateCreationCard(card.id, {
-          videoDetails,
-          prompt: videoDetails.prompt || card.prompt,
-        });
-      }
-    }
-    if (!videoDetails) return;
-
-    handleGallerySelectVideo(videoDetails);
-    focusedCreationIdRef.current = card.id;
-    setFocusedCreationId(card.id);
-    setOpenCreationId(card.id);
-  }, [handleGallerySelectImage, handleGallerySelectVideo, updateCreationCard]);
-
-  const handleActivateGalleryItem = useCallback(async (galleryId: number): Promise<boolean> => {
-    if (isVideoEditorOpen) return false;
-
-    const browseOrder = [...creationCards].sort((left, right) => right.createdAt - left.createdAt);
-    const targetIndex = browseOrder.findIndex(card => card.galleryId === galleryId);
-    if (targetIndex < 0) return false;
-
-    const targetCard = browseOrder[targetIndex];
-    const rollSequence = creationDeckRollSequenceRef.current + 1;
-    creationDeckRollSequenceRef.current = rollSequence;
-    setIsCreationDeckAutoRolling(true);
-    setOpenCreationId(null);
-
-    const wait = (milliseconds: number) => new Promise<void>(resolve => {
-      window.setTimeout(resolve, milliseconds);
-    });
-
-    try {
-      let currentIndex = focusedCreationIdRef.current
-        ? browseOrder.findIndex(card => card.id === focusedCreationIdRef.current)
-        : -1;
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-      if (reduceMotion || currentIndex === targetIndex) {
-        handleFocusCreationCard(targetCard);
-      } else {
-        if (currentIndex < 0) {
-          currentIndex = 0;
-          handleFocusCreationCard(browseOrder[currentIndex]);
-          await wait(140);
-        }
-
-        const direction = targetIndex > currentIndex ? 1 : -1;
-        while (currentIndex !== targetIndex) {
-          if (creationDeckRollSequenceRef.current !== rollSequence) return true;
-          currentIndex += direction;
-          handleFocusCreationCard(browseOrder[currentIndex]);
-          await wait(115);
-        }
-
-        // Let the final transform settle before replacing the card face with
-        // the full editing workspace.
-        await wait(500);
-      }
-
-      if (creationDeckRollSequenceRef.current !== rollSequence) return true;
-      await handleOpenCreationCard(targetCard);
-      return true;
-    } finally {
-      if (creationDeckRollSequenceRef.current === rollSequence) {
-        setIsCreationDeckAutoRolling(false);
-      }
-    }
-  }, [creationCards, handleFocusCreationCard, handleOpenCreationCard, isVideoEditorOpen]);
-
-  const handleFocusPendingCreation = useCallback((generationId: string) => {
-    const card = creationCards.find(item => item.id === generationId);
-    if (card) handleFocusCreationCard(card);
-  }, [creationCards, handleFocusCreationCard]);
+  }, [showGalleryVideoResult, showRemoteVideoResult, videoProvider]);
 
   const handleEditorGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
     if (isVideoEditorRendering) return;
@@ -2807,54 +2373,44 @@ const App: React.FC = () => {
             </Suspense>
           ) : (
             <>
-          <CreationDeck
-            cards={creationCards}
-            focusedCardId={focusedCreationId}
-            openCardId={openCreationId}
-            isAutoRolling={isCreationDeckAutoRolling}
-            fillAvailable={creationCards.length === 0 && !currentImageUrl && !videoUrl}
-            onFocusCard={handleFocusCreationCard}
-            onOpenCard={handleOpenCreationCard}
-          >
-            <ResultStage
-              mode={studioMode}
-              isLoading={isProcessingFile}
-              loadingLabel="Processing image…"
-              currentImageUrl={currentImageUrl}
-              originalImageUrl={originalImageUrl}
-              previousImageUrl={previousImageUrl}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              isComparing={isComparing}
-              onComparingChange={setIsComparing}
-              showSlider={showSlider}
-              onToggleSlider={() => setShowSlider(prev => !prev)}
-              sliderCompareMode={sliderCompareMode}
-              onSliderCompareModeChange={setSliderCompareMode}
-              activeTool={activeTool}
-              supportsImageEditing={imageProviderSupportsReferences(imageGenerationOptions.provider)}
-              onToolChange={handleToolChange}
-              displayHotspot={displayHotspot}
-              onImageClick={handleImageClick}
-              imgRef={imgRef}
-              crop={crop}
-              onCropChange={(c) => setCrop(c)}
-              onCropComplete={setCompletedCrop}
-              aspect={aspect}
-              onAspectChange={setAspect}
-              onApplyCrop={handleApplyCrop}
-              cropReady={!!completedCrop?.width && completedCrop.width > 0}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              onReset={handleReset}
-              onDownload={handleDownload}
-              videoUrl={videoUrl}
-              onVideoDownload={handleVideoDownload}
-              onContinueFromLastFrame={handleContinueFromLastFrame}
-              onOpenVideoEditor={handleOpenVideoEditor}
-              isExtractingLastFrame={isExtractingLastFrame}
-            />
-          </CreationDeck>
+          <ResultStage
+            mode={studioMode}
+            isLoading={isProcessingFile}
+            loadingLabel="Processing image…"
+            currentImageUrl={currentImageUrl}
+            originalImageUrl={originalImageUrl}
+            previousImageUrl={previousImageUrl}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            isComparing={isComparing}
+            onComparingChange={setIsComparing}
+            showSlider={showSlider}
+            onToggleSlider={() => setShowSlider(prev => !prev)}
+            sliderCompareMode={sliderCompareMode}
+            onSliderCompareModeChange={setSliderCompareMode}
+            activeTool={activeTool}
+            supportsImageEditing={imageProviderSupportsReferences(imageGenerationOptions.provider)}
+            onToolChange={handleToolChange}
+            displayHotspot={displayHotspot}
+            onImageClick={handleImageClick}
+            imgRef={imgRef}
+            crop={crop}
+            onCropChange={(c) => setCrop(c)}
+            onCropComplete={setCompletedCrop}
+            aspect={aspect}
+            onAspectChange={setAspect}
+            onApplyCrop={handleApplyCrop}
+            cropReady={!!completedCrop?.width && completedCrop.width > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onReset={handleReset}
+            onDownload={handleDownload}
+            videoUrl={videoUrl}
+            onVideoDownload={handleVideoDownload}
+            onContinueFromLastFrame={handleContinueFromLastFrame}
+            onOpenVideoEditor={handleOpenVideoEditor}
+            isExtractingLastFrame={isExtractingLastFrame}
+          />
 
           {errorBanner}
 
@@ -2932,10 +2488,7 @@ const App: React.FC = () => {
         {/* Creations rail (desktop) */}
         <GalleryRail
           refreshTrigger={galleryRefreshTrigger}
-          onGalleryChanged={() => setGalleryRefreshTrigger(count => count + 1)}
           pendingItems={pendingGalleryItems}
-          onSelectPendingItem={handleFocusPendingCreation}
-          onActivateGalleryItem={handleActivateGalleryItem}
           onSelectImage={handleGallerySelectImage}
           onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
           onUseImageAsReference={handleGalleryUseImageAsReference}

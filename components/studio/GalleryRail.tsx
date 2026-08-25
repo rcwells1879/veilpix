@@ -57,10 +57,7 @@ export interface PendingGalleryItem {
 
 export interface GalleryRailProps {
   refreshTrigger?: number;
-  onGalleryChanged?: () => void;
   pendingItems?: PendingGalleryItem[];
-  onSelectPendingItem?: (generationId: string) => void;
-  onActivateGalleryItem?: (galleryId: number) => boolean | Promise<boolean>;
   onSelectImage: (file: File, prompt: string) => void;
   onSelectVideo: (details: GalleryVideoDetails) => void;
   onUseImageAsReference: (file: File, prompt: string) => void;
@@ -80,10 +77,7 @@ interface ContextMenuState {
 
 const GalleryRail: React.FC<GalleryRailProps> = ({
   refreshTrigger,
-  onGalleryChanged,
   pendingItems = [],
-  onSelectPendingItem,
-  onActivateGalleryItem,
   onSelectImage,
   onSelectVideo,
   onUseImageAsReference,
@@ -144,8 +138,6 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
   const handleOpen = async (item: GalleryThumbnail) => {
     setBusyId(item.id);
     try {
-      if (await onActivateGalleryItem?.(item.id)) return;
-
       if (item.type === 'video') {
         const details = await getGalleryVideoDetails(item.id);
         if (details) onSelectVideo(details);
@@ -181,15 +173,13 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
   const handleDelete = async (id: number) => {
     if (thumbnailUrls[id]) URL.revokeObjectURL(thumbnailUrls[id]);
     await deleteGalleryImage(id);
-    if (onGalleryChanged) onGalleryChanged();
-    else loadItems();
+    loadItems();
   };
 
   const handleClearAll = async () => {
     await clearGallery();
     setClearConfirm(false);
-    if (onGalleryChanged) onGalleryChanged();
-    else loadItems();
+    loadItems();
   };
 
   const handleReferenceTarget = async (targetId: string, item: GalleryThumbnail) => {
@@ -262,13 +252,11 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
             : `Generating ${item.type}`;
 
           return (
-            <button
+            <div
               key={`pending-${item.id}`}
-              type="button"
-              onClick={() => onSelectPendingItem?.(item.id)}
               className="edge relative aspect-square w-full shrink-0 overflow-hidden rounded-2xl bg-gray-800/70 grayscale"
+              role="status"
               aria-label={label}
-              title={`${label} — show in workspace`}
             >
               <span className="absolute inset-0 flex items-center justify-center text-white/10" aria-hidden="true">
                 {item.type === 'video'
@@ -279,7 +267,7 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
                 <span className="h-7 w-7 animate-spin rounded-full border-[3px] border-white/20 border-t-white/80" aria-hidden="true" />
                 <span className="text-[11px] font-semibold text-gray-200">{label}</span>
               </span>
-            </button>
+            </div>
           );
         })}
 

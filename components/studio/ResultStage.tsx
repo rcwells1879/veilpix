@@ -141,12 +141,12 @@ const ResultStage: React.FC<ResultStageProps> = (props) => {
       {/* Video result */}
       {showVideo && (
         <div className="flex w-full flex-col items-center gap-3 animate-fade-in">
-          <div className="edge relative inline-flex max-w-full overflow-hidden rounded-2xl shadow-2xl">
+          <div className="edge relative w-full overflow-hidden rounded-2xl bg-black/50 shadow-2xl">
             <video
               src={videoUrl || undefined}
               controls
               playsInline
-              className="studio-result-media block h-auto w-auto max-w-full object-contain"
+              className="studio-result-media max-h-[52dvh] w-full bg-black object-contain"
             />
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">

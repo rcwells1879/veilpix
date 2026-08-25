@@ -18,8 +18,6 @@ const STORE_NAME = 'workflow';
 const GALLERY_STORE_NAME = 'gallery';
 const WORKFLOW_KEY = 'current';
 const MAX_GALLERY_IMAGES = 20;
-const GALLERY_THUMBNAIL_MAX_SIZE = 200;
-const CAROUSEL_PREVIEW_MAX_SIZE = 1024;
 const DELIVERY_RECEIPT_STORAGE_KEY = 'veilpix-media-delivery-receipts';
 const DELIVERY_RECEIPT_TTL_MS = 48 * 60 * 60 * 1000;
 
@@ -82,7 +80,6 @@ export interface GalleryImage {
   id?: number;
   blob: Blob;
   thumbnail: Blob;
-  carouselPreview?: Blob;
   createdAt: number;
   name: string;
   type?: 'image' | 'video'; // undefined treated as 'image' for backward compat
@@ -102,11 +99,9 @@ export interface GalleryImage {
 export interface GalleryThumbnail {
   id: number;
   thumbnail: Blob;
-  carouselPreview?: Blob;
   createdAt: number;
   name: string;
   type: 'image' | 'video';
-  generationId?: string;
   videoUrl?: string;
   videoDuration?: number;
   hasReferenceImage?: boolean;
@@ -138,19 +133,6 @@ export interface GalleryVideoDetails {
   videoOutputFormat?: 'mp4' | 'mov';
   prompt: string;
 }
-
-export type GalleryArtifactDetails =
-  | {
-      id: number;
-      type: 'image';
-      file: File;
-      prompt: string;
-    }
-  | {
-      id: number;
-      type: 'video';
-      details: GalleryVideoDetails;
-    };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -363,66 +345,70 @@ export function debouncedSaveWorkflow(history: File[], historyIndex: number, pro
 // Gallery Functions
 // ============================================================================
 
-function encodeCanvas(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
+/**
+ * Create a thumbnail from an image file (200px max dimension)
+ */
+async function createThumbnail(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      blob => blob ? resolve(blob) : reject(new Error('Failed to encode image preview')),
-      type,
-      quality,
-    );
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+
+      const maxSize = 200;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxSize) {
+          height = (height * maxSize) / width;
+          width = maxSize;
+        }
+      } else {
+        if (height > maxSize) {
+          width = (width * maxSize) / height;
+          height = maxSize;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to create thumbnail blob'));
+          }
+        },
+        'image/jpeg',
+        0.8
+      );
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image for thumbnail'));
+    };
+
+    img.src = url;
   });
 }
 
-async function createImagePreview(
-  source: Blob,
-  maxSize: number,
-  type: 'image/jpeg' | 'image/webp',
-  quality: number,
-): Promise<Blob> {
-  const url = URL.createObjectURL(source);
-
-  try {
-    const img = new Image();
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('Failed to load image for preview'));
-      img.src = url;
-    });
-
-    const scale = Math.min(1, maxSize / Math.max(img.naturalWidth, img.naturalHeight));
-    const width = Math.max(1, Math.round(img.naturalWidth * scale));
-    const height = Math.max(1, Math.round(img.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Could not get canvas context');
-    context.drawImage(img, 0, 0, width, height);
-
-    const preview = await encodeCanvas(canvas, type, quality);
-    if (type === 'image/webp' && preview.type !== 'image/webp') {
-      return encodeCanvas(canvas, 'image/jpeg', 0.88);
-    }
-    return preview;
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-/** Create the compact Album-rail thumbnail. */
-async function createThumbnail(file: Blob): Promise<Blob> {
-  return createImagePreview(file, GALLERY_THUMBNAIL_MAX_SIZE, 'image/jpeg', 0.8);
-}
-
-/** Create the sharper preview used by the large creation carousel. */
-async function createCarouselPreview(file: Blob): Promise<Blob> {
-  return createImagePreview(file, CAROUSEL_PREVIEW_MAX_SIZE, 'image/webp', 0.82);
-}
-
 /**
- * Save an image to the gallery.
- * Stores the untouched original, a compact Album thumbnail, and a carousel preview.
+ * Save an image to the gallery
+ * Creates a thumbnail and stores both the full image and thumbnail
  * Enforces MAX_GALLERY_IMAGES limit by removing oldest
  */
 export async function saveToGallery(image: File, prompt = '', generationId?: string): Promise<boolean> {
@@ -439,15 +425,11 @@ export async function saveToGallery(image: File, prompt = '', generationId?: str
       });
       if (alreadySaved) return true;
     }
-    const [thumbnail, carouselPreview] = await Promise.all([
-      createThumbnail(image),
-      createCarouselPreview(image),
-    ]);
+    const thumbnail = await createThumbnail(image);
 
     const galleryImage: GalleryImage = {
       blob: image,
       thumbnail,
-      carouselPreview,
       createdAt: Date.now(),
       name: image.name,
       prompt,
@@ -498,7 +480,7 @@ export async function saveToGallery(image: File, prompt = '', generationId?: str
 }
 
 /**
- * Get lightweight gallery metadata and display previews without loading originals.
+ * Get all gallery images (thumbnails only, for fast loading)
  * Returns most recent first
  */
 export async function getGalleryImages(): Promise<GalleryThumbnail[]> {
@@ -521,8 +503,8 @@ export async function getGalleryImages(): Promise<GalleryThumbnail[]> {
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
         if (cursor) {
-          const { id, thumbnail, carouselPreview, createdAt, name, type, generationId, videoUrl, videoDuration, hasReferenceImage, provider, prompt } = cursor.value as GalleryImage;
-          thumbnails.push({ id: id!, thumbnail, carouselPreview, createdAt, name, type: type || 'image', generationId, videoUrl, videoDuration, hasReferenceImage, provider, prompt });
+          const { id, thumbnail, createdAt, name, type, videoUrl, videoDuration, hasReferenceImage, provider, prompt } = cursor.value as GalleryImage;
+          thumbnails.push({ id: id!, thumbnail, createdAt, name, type: type || 'image', videoUrl, videoDuration, hasReferenceImage, provider, prompt });
           cursor.continue();
         } else {
           resolve(thumbnails);
@@ -902,73 +884,6 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
   } catch (error) {
     console.error('Failed to save video to gallery:', error);
     return false;
-  }
-}
-
-/**
- * Lazily backfill a high-resolution carousel preview for an older image entry.
- * The original Blob and compact Album thumbnail remain unchanged.
- */
-export async function ensureGalleryCarouselPreview(id: number): Promise<Blob | null> {
-  try {
-    const db = await openDB();
-    const entry = await new Promise<GalleryImage | undefined>((resolve, reject) => {
-      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
-      const request = transaction.objectStore(GALLERY_STORE_NAME).get(id);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result as GalleryImage | undefined);
-    });
-
-    if (!entry || (entry.type && entry.type !== 'image')) return null;
-    if (entry.carouselPreview) return entry.carouselPreview;
-
-    const carouselPreview = await createCarouselPreview(entry.blob);
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
-      const request = transaction.objectStore(GALLERY_STORE_NAME).put({
-        ...entry,
-        carouselPreview,
-      });
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
-    });
-    return carouselPreview;
-  } catch (error) {
-    console.warn('Could not prepare a high-resolution carousel preview:', error);
-    return null;
-  }
-}
-
-/** Load a completed local Album artifact by its provider generation ID. */
-export async function getGalleryArtifactByGenerationId(
-  generationId: string,
-): Promise<GalleryArtifactDetails | null> {
-  if (!generationId) return null;
-
-  try {
-    const db = await openDB();
-    const entry = await new Promise<GalleryImage | null>((resolve, reject) => {
-      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
-      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(
-        (request.result as GalleryImage[]).find(item => item.generationId === generationId) ?? null
-      );
-    });
-
-    if (entry?.id === undefined) return null;
-    if (entry.type === 'video') {
-      const details = await getGalleryVideoDetails(entry.id);
-      return details ? { id: entry.id, type: 'video', details } : null;
-    }
-
-    const image = await getGalleryImage(entry.id);
-    return image
-      ? { id: entry.id, type: 'image', file: image.file, prompt: image.prompt }
-      : null;
-  } catch (error) {
-    console.warn('Could not load completed gallery artifact:', error);
-    return null;
   }
 }
 
