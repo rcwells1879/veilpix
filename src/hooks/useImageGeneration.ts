@@ -770,6 +770,7 @@ export interface VideoGenerationResponse {
   lastFrameUrl?: string
   outputFormat?: 'mp4' | 'mov'
   success: boolean
+  pending?: boolean
   message?: string
   creditsRemaining?: number
   creditsUsed?: number

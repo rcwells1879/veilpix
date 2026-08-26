@@ -6,6 +6,8 @@ const VIDEO_GENERATION_REQUEST_TYPES = [
     'wan3-video'
 ];
 
+const PENDING_PROVIDER_STATUS = 'provider_pending';
+
 const GENERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizeVideoGenerationId(value) {
@@ -28,8 +30,33 @@ function serializeVideoGenerationResult(videoUrl, creditsUsed) {
     });
 }
 
+function serializePendingVideoGeneration(providerState) {
+    if (!providerState || typeof providerState !== 'object') {
+        throw new Error('Provider recovery state is required');
+    }
+    return JSON.stringify({
+        ...providerState,
+        status: PENDING_PROVIDER_STATUS
+    });
+}
+
+function parsePendingVideoGeneration(value) {
+    if (typeof value !== 'string' || !value.trim().startsWith('{')) return null;
+    try {
+        const parsed = JSON.parse(value);
+        return parsed?.status === PENDING_PROVIDER_STATUS ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
 function videoGenerationJobResponse(record) {
     if (!record) return { status: 'pending' };
+
+    const pendingProviderJob = parsePendingVideoGeneration(record.error_message);
+    if (!record.success && pendingProviderJob) {
+        return { status: 'pending' };
+    }
 
     if (!record.success) {
         return {
@@ -80,5 +107,7 @@ module.exports = {
     normalizeVideoGenerationId,
     getVideoGenerationId,
     serializeVideoGenerationResult,
+    serializePendingVideoGeneration,
+    parsePendingVideoGeneration,
     videoGenerationJobResponse
 };

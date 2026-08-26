@@ -373,6 +373,130 @@ const db = {
         }
     },
 
+    async createPendingVideoGenerationJob({
+        userId,
+        clerkUserId,
+        requestType,
+        generationId,
+        providerState
+    }) {
+        const supabase = getSupabaseClient();
+        const {
+            parsePendingVideoGeneration,
+            serializePendingVideoGeneration
+        } = require('./videoGenerationJob');
+        const { data: existing, error: lookupError } = await supabase
+            .from('usage_logs')
+            .select('*')
+            .eq('clerk_user_id', clerkUserId)
+            .eq('gemini_request_id', generationId)
+            .eq('request_type', requestType)
+            .order('created_at', { ascending: false })
+            .limit(1);
+        if (lookupError) throw lookupError;
+        if (existing?.[0]) {
+            const record = existing[0];
+            if (record.success || parsePendingVideoGeneration(record.error_message)) return record;
+            throw new Error('This generation ID already has a terminal result');
+        }
+
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .insert({
+                user_id: userId,
+                clerk_user_id: clerkUserId,
+                request_type: requestType,
+                gemini_request_id: generationId,
+                image_size: 'video',
+                processing_time_ms: 0,
+                success: false,
+                error_message: serializePendingVideoGeneration(providerState)
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    async listPendingVideoGenerationJobs(client = null) {
+        const supabase = client || getSupabaseClient();
+        const { VIDEO_GENERATION_REQUEST_TYPES } = require('./videoGenerationJob');
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .select('id,user_id,clerk_user_id,request_type,gemini_request_id,error_message,created_at')
+            .in('request_type', VIDEO_GENERATION_REQUEST_TYPES)
+            .eq('success', false)
+            .like('error_message', '%"status":"provider_pending"%')
+            .order('created_at', { ascending: true })
+            .limit(50);
+        if (error) throw error;
+        return data || [];
+    },
+
+    async completePendingVideoGenerationJob({
+        jobId,
+        clerkUserId,
+        generationId,
+        requestType,
+        sourceUrl,
+        creditsUsed,
+        processingTimeMs
+    }) {
+        const { stageMediaDelivery } = require('./mediaDelivery');
+        const delivery = await stageMediaDelivery({
+            clerkUserId,
+            generationId,
+            artifactType: 'video',
+            provider: requestType,
+            sourceUrl
+        });
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .update({
+                success: true,
+                processing_time_ms: processingTimeMs,
+                error_message: JSON.stringify({
+                    deliveryId: delivery.id,
+                    artifactType: delivery.artifact_type,
+                    creditsUsed
+                })
+            })
+            .eq('id', jobId)
+            .eq('clerk_user_id', clerkUserId)
+            .eq('gemini_request_id', generationId)
+            .eq('success', false)
+            .select()
+            .limit(1);
+        if (error) throw error;
+        return { delivery, updated: data?.[0] || null };
+    },
+
+    async failPendingVideoGenerationJob({
+        jobId,
+        clerkUserId,
+        generationId,
+        message,
+        processingTimeMs
+    }) {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .update({
+                success: false,
+                processing_time_ms: processingTimeMs,
+                error_message: message || 'The video provider could not complete this generation.'
+            })
+            .eq('id', jobId)
+            .eq('clerk_user_id', clerkUserId)
+            .eq('gemini_request_id', generationId)
+            .eq('success', false)
+            .select()
+            .limit(1);
+        if (error) throw error;
+        return data?.[0] || null;
+    },
+
     async getVideoGenerationJob(clerkUserId, generationId, client = null) {
         try {
             const supabase = client || getSupabaseClient();

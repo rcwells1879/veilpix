@@ -20,9 +20,10 @@ The durable Album lives in each browser's IndexedDB and stores real image and vi
 VeilPix uses Supabase only as temporary transport storage:
 
 1. Reference inputs are retained only while the provider job needs them. Wan 3.0 uploads large references directly from the browser to private Storage, avoiding persistent files and large upload bodies on the VPS.
-2. A successful provider output is streamed into a private delivery outbox for up to 48 hours. Closing the browser does not interrupt the server-side task.
-3. Any browser signed into the owning account during that window can download the output into its own IndexedDB Album. Clerk ownership checks prevent another account from listing, downloading, or acknowledging it.
-4. Each browser records a local receipt after verifying its copy. The private remote object remains available to the account until the 48-hour expiry, then VeilPix deletes the object and delivery row.
+2. Kie video task IDs are recorded as owner-scoped pending jobs and reconciled by the API for up to 48 hours, so an HTTP timeout, closed browser, or API restart does not lose the provider result.
+3. A successful provider output is streamed into a private delivery outbox for up to 48 hours.
+4. Any browser signed into the owning account during that window can download the output into its own IndexedDB Album. Clerk ownership checks prevent another account from listing, downloading, or acknowledging it.
+5. Each browser records a local receipt after verifying its copy. The private remote object remains available to the account until the 48-hour expiry, then VeilPix deletes the object and delivery row.
 
 The provider may have its own retention policy; this lifecycle describes storage controlled by VeilPix.
 

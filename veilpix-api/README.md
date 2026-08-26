@@ -82,7 +82,9 @@ Legacy image/video routes receive multipart files, upload temporary objects to `
 
 ### Generated outputs
 
-Every successful route serializes its provider result through `db.logUsage()`. `utils/mediaDelivery.js` then:
+Kie video routes write the provider task ID and owner-scoped recovery metadata to `usage_logs` as soon as Kie accepts the task, then return `202`. `utils/kieVideoJobRecovery.js` checks those records every 30 seconds for up to 48 hours, including after an API restart. Terminal failures replace the pending marker; successful results continue through the delivery outbox. Image routes enter the same outbox through `db.logUsage()`.
+
+`utils/mediaDelivery.js` then:
 
 1. Fetches the provider result and streams it directly into private `media-deliveries` Storage without VPS disk persistence or a full in-memory blob.
 2. Creates an owner-scoped `media_deliveries` row with a 48-hour expiry and replaces the provider URL in `usage_logs` with a delivery receipt.
@@ -90,7 +92,7 @@ Every successful route serializes its provider result through `db.logUsage()`. `
 4. Lets each browser write and verify its own IndexedDB blob, retain a browser-local receipt, and call `POST /api/media-deliveries/:id/ack` (or the generation-ID ACK). ACK confirms ownership but does not delete the shared temporary object.
 5. Deletes the output object and delivery row at the hard 48-hour expiry. Cleanup runs when deliveries are listed and every five minutes in the API process; the usage receipt is marked expired.
 
-Closing the browser does not cancel provider polling. The browser stores pending generation metadata and short-lived delivery receipts in localStorage, recovers status through `/api/image-jobs` or `/api/video-jobs`, and polls the account outbox on return and while visible. Media blobs remain in IndexedDB, not localStorage.
+Closing the browser does not cancel a provider task. The browser stores pending generation metadata and short-lived delivery receipts in localStorage, recovers status through `/api/image-jobs` or `/api/video-jobs`, and polls the account outbox on return and while visible. Media blobs remain in IndexedDB, not localStorage.
 
 The deletion contract covers VeilPix-owned Supabase objects, not provider-side retention.
 

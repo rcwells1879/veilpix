@@ -18,16 +18,14 @@ const {
     estimateSeedanceVeilPixCredits,
     exceedsSeedanceMediaDurationLimit,
     normalizeResolution,
-    normalizeSeedanceResponse,
     normalizeVariant,
     getSeedanceReferenceLimits,
-    resolveSeedanceInputMode,
-    veilpixCreditsFromKieCredits
+    resolveSeedanceInputMode
 } = require('../utils/seedanceAdapter');
 const {
-    getVideoGenerationId,
-    serializeVideoGenerationResult
+    getVideoGenerationId
 } = require('../utils/videoGenerationJob');
+const { queuePendingKieVideoJob } = require('../utils/kieVideoJobRecovery');
 
 const router = express.Router();
 
@@ -162,57 +160,8 @@ async function createSeedanceTask(payload) {
         throw new Error(`Seedance task creation failed: ${result.message || result.msg || JSON.stringify(result)}`);
     }
 
+    console.log(`Seedance task accepted with ID ${result.data.taskId}`);
     return result.data.taskId;
-}
-
-async function pollSeedanceJob(taskId, maxAttempts = 360, intervalMs = 2000) {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const response = await fetch(`${SEEDANCE_API_URL}/api/v1/jobs/recordInfo?taskId=${encodeURIComponent(taskId)}`, {
-            method: 'GET',
-            headers: {
-                Authorization: `Bearer ${SEEDANCE_API_KEY}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Seedance task status failed: ${response.status} - ${errorText}`);
-        }
-
-        const result = await response.json();
-        if (result.code !== 200) {
-            throw new Error(`Seedance task query failed: ${result.message || result.msg || 'Unknown error'}`);
-        }
-
-        const taskData = result.data;
-        if (attempt % 15 === 0) {
-            console.log(`Seedance task status (attempt ${attempt + 1}/${maxAttempts}): ${taskData.state}`);
-        }
-
-        if (taskData.state === 'success') {
-            return {
-                resultJson: taskData.resultJson ? JSON.parse(taskData.resultJson) : {},
-                taskData
-            };
-        }
-
-        if (taskData.state === 'fail') {
-            const failMsg = taskData.failMsg || taskData.failCode || 'Unknown error';
-            if (
-                failMsg.toLowerCase().includes('review') ||
-                failMsg.toLowerCase().includes('nsfw') ||
-                failMsg.toLowerCase().includes('content') ||
-                failMsg.toLowerCase().includes('safety')
-            ) {
-                throw new Error(`NSFW content detected: ${failMsg}`);
-            }
-            throw new Error(`Seedance generation failed: ${failMsg}`);
-        }
-
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-
-    throw new Error('Seedance generation timeout - exceeded maximum wait time');
 }
 
 function referenceUploadError(uploadResult, mediaType) {
@@ -251,54 +200,6 @@ async function uploadReferenceFile(file, userId, uploadedFilenames) {
     throw new Error('Unsupported reference file type');
 }
 
-async function deductCreditsAndTrack(
-    req,
-    startTime,
-    requestType,
-    creditsToDeduct,
-    success = true,
-    errorMessage = null,
-    recovery = {}
-) {
-    const { user } = req;
-    const generationId = recovery.generationId || null;
-    const storedResult = success && generationId && recovery.videoUrl
-        ? serializeVideoGenerationResult(recovery.videoUrl, creditsToDeduct)
-        : errorMessage;
-
-    try {
-        await db.logUsage({
-            userId: user.id,
-            clerkUserId: user.userId,
-            requestType,
-            geminiRequestId: generationId || 'seedance-' + Date.now(),
-            imageSize: 'video',
-            processingTimeMs: Date.now() - startTime,
-            success,
-            errorMessage: storedResult
-        });
-
-        if (success) {
-            for (let i = 0; i < creditsToDeduct; i++) {
-                const deductResult = await db.deductUserCredit(user.userId);
-                if (!deductResult.success) {
-                    console.error('Failed to deduct Seedance credit:', deductResult.error);
-                    return false;
-                }
-            }
-
-            if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
-            }
-        }
-
-        return true;
-    } catch (error) {
-        console.error('Seedance credit deduction/tracking error:', error);
-        return false;
-    }
-}
-
 router.use(getUser, requireAuth, requireAllowedEmail);
 
 router.post('/generate-video', upload.fields([
@@ -311,11 +212,15 @@ router.post('/generate-video', upload.fields([
     const startTime = Date.now();
     const generationId = getVideoGenerationId(req);
     const uploadedFilenames = [];
-    let usageLogged = false;
+    let providerTaskId = null;
+    let pendingJob = null;
 
     try {
         if (!SEEDANCE_API_KEY) {
             return res.status(500).json({ error: 'Seedance API key is not configured' });
+        }
+        if (!generationId) {
+            return res.status(400).json({ error: 'A valid generation ID is required' });
         }
 
         const {
@@ -494,62 +399,65 @@ router.post('/generate-video', upload.fields([
             nsfwFilterEnabled: boolValue(nsfwFilterEnabled, true)
         });
 
-        const taskId = await createSeedanceTask(seedancePayload);
-        const completedJob = await pollSeedanceJob(taskId);
-        const normalizedResponse = normalizeSeedanceResponse(completedJob.resultJson);
-
-        if (!normalizedResponse.success) {
-            throw new Error(normalizedResponse.error || 'Failed to process Seedance response');
-        }
-
-        for (const filename of uploadedFilenames) {
-            await deleteTemporaryImage(filename);
-        }
-
-        const providerKieCredits = Number(completedJob.taskData?.creditsConsumed);
-        const providerCredits = Number.isFinite(providerKieCredits) && providerKieCredits > 0
-            ? veilpixCreditsFromKieCredits(providerKieCredits)
-            : 0;
-        const actualCredits = selectedDuration === -1 && providerCredits > 0
-            ? providerCredits
-            : Math.max(estimatedCredits, providerCredits);
-
-        console.log('Seedance billing summary:', {
+        providerTaskId = await createSeedanceTask(seedancePayload);
+        pendingJob = await db.createPendingVideoGenerationJob({
+            userId: req.user.id,
+            clerkUserId: req.user.userId,
+            requestType: 'seedance-video',
+            generationId,
+            providerState: {
+                provider: 'seedance',
+                providerTaskId,
+                estimatedCredits,
+                duration: selectedDuration,
+                cleanup: {
+                    kind: 'temporary-media',
+                    filenames: uploadedFilenames
+                }
+            }
+        });
+        console.log('Seedance job accepted for durable recovery:', {
+            generationId,
+            providerTaskId,
             variant: selectedVariant,
             resolution: selectedResolution,
             outputSeconds: selectedDuration,
             hasVideoReference,
             referenceVideoSeconds: measuredVideoDuration,
             estimatedKieCredits,
-            estimatedVeilPixCredits: estimatedCredits,
-            providerKieCredits: Number.isFinite(providerKieCredits) ? providerKieCredits : null,
-            providerVeilPixCredits: providerCredits || null,
-            chargedVeilPixCredits: actualCredits
+            estimatedVeilPixCredits: estimatedCredits
         });
+        queuePendingKieVideoJob(pendingJob);
 
-        usageLogged = await deductCreditsAndTrack(req, startTime, 'seedance-video', actualCredits, true, null, {
-            generationId,
-            videoUrl: normalizedResponse.videoUrl
-        });
-
-        res.json({
+        return res.status(202).json({
             success: true,
-            videoUrl: normalizedResponse.videoUrl,
-            lastFrameUrl: normalizedResponse.lastFrameUrl,
+            pending: true,
+            generationId,
             outputFormat: selectedVariant === 'v2_5' ? seedancePayload.input.output_format : 'mp4',
             processingTime: Date.now() - startTime,
-            creditsUsed: actualCredits,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsUsed: estimatedCredits,
+            creditsRemaining: req.creditsInfo?.remaining ?? credits
         });
     } catch (error) {
         console.error('Error generating video with Seedance:', error);
 
-        for (const filename of uploadedFilenames) {
-            await deleteTemporaryImage(filename);
+        if (!providerTaskId) {
+            for (const filename of uploadedFilenames) {
+                await deleteTemporaryImage(filename);
+            }
         }
 
-        if (!usageLogged) {
-            await deductCreditsAndTrack(req, startTime, 'seedance-video', 0, false, error.message, { generationId });
+        if (!pendingJob && generationId) {
+            await db.logUsage({
+                userId: req.user.id,
+                clerkUserId: req.user.userId,
+                requestType: 'seedance-video',
+                geminiRequestId: generationId,
+                imageSize: 'video',
+                processingTimeMs: Date.now() - startTime,
+                success: false,
+                errorMessage: error.message
+            }).catch(() => {});
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') ||

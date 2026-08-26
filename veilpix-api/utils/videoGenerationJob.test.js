@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     normalizeVideoGenerationId,
+    serializePendingVideoGeneration,
     serializeVideoGenerationResult,
     videoGenerationJobResponse
 } = require('./videoGenerationJob');
@@ -31,6 +32,13 @@ test('returns a recoverable successful video result', () => {
 
 test('distinguishes pending and failed video jobs', () => {
     assert.deepEqual(videoGenerationJobResponse(null), { status: 'pending' });
+    assert.deepEqual(videoGenerationJobResponse({
+        success: false,
+        error_message: serializePendingVideoGeneration({
+            provider: 'seedance',
+            providerTaskId: 'task-123'
+        })
+    }), { status: 'pending' });
     assert.deepEqual(videoGenerationJobResponse({ success: false, error_message: 'Provider rejected the video' }), {
         status: 'failed',
         message: 'Provider rejected the video'

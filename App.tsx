@@ -1445,7 +1445,10 @@ const App: React.FC = () => {
         });
       }
 
-      if (response.success && response.videoUrl) {
+      if (response.pending) {
+        setVideoError(null);
+        void recoverPendingVideo(activeJob);
+      } else if (response.success && response.videoUrl) {
         await finalizeVideoGeneration(response, activeJob, pendingFiles);
       } else {
         throw new Error(response.message || 'Failed to generate video');

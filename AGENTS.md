@@ -111,8 +111,8 @@ There are three distinct media stores. Do not describe them as one generic datab
 ### Generated Output Delivery
 
 - Successful provider output is streamed from the provider into the private `media-deliveries` bucket. The API does not retain it on VPS disk or load the entire blob into memory.
-- `media_deliveries` stores delivery metadata, Clerk-account ownership, and a hard 48-hour expiry. `usage_logs` stores a recovery receipt rather than a long-lived provider URL.
-- Closing the browser does not cancel backend provider polling. The browser keeps the generation ID in localStorage; `/api/image-jobs/:id` and `/api/video-jobs/:id` recover job state.
+- `media_deliveries` stores delivery metadata, Clerk-account ownership, and a hard 48-hour expiry. `usage_logs` stores either an owner-scoped pending Kie task marker or a delivery receipt, never a long-lived provider URL.
+- Kie video routes return `202` after persisting the provider task ID. The API reconciles pending tasks every 30 seconds for up to 48 hours, including after an API restart. The browser keeps the generation ID in localStorage; `/api/image-jobs/:id` and `/api/video-jobs/:id` recover job state.
 - On sign-in, page show/visibility, and every 30 seconds while visible, the frontend lists account-owned deliveries, downloads each through a 10-minute signed URL, writes the blob to that browser's IndexedDB, and verifies the generation ID and artifact type.
 - After local verification, that browser records a 48-hour local receipt and acknowledges delivery. ACK validates account ownership but deliberately does not consume the shared temporary object, allowing another signed-in browser to save its own local copy during the window.
 - Generated output remains in the private delivery bucket until its 48-hour expiry even after one browser retrieves it. API cleanup runs every five minutes, deletes expired objects/rows, and records `{ "expired": true }`.
@@ -132,6 +132,7 @@ When changing this flow, preserve idempotence and isolation: generation IDs and 
 - `veilpix-api/server.js`: middleware, rate limits, route registration, delivery cleanup timer.
 - `veilpix-api/utils/database.js`: Supabase helpers, usage logging, output staging hook.
 - `veilpix-api/utils/mediaDelivery.js`: 48-hour output outbox, signed downloads, ACK, expiry.
+- `veilpix-api/utils/kieVideoJobRecovery.js`: durable Kie video reconciliation, terminal cleanup, delivery staging, and billing.
 - `veilpix-api/utils/providerInput.js` and `routes/providerInput.js`: direct Wan 3.0 input uploads and streaming relay.
 - `veilpix-api/utils/imageUpload.js` and `routes/providerMedia.js`: legacy temporary-input path.
 - `veilpix-api/schema-migration-media-deliveries.sql`: private buckets and delivery table.
@@ -143,7 +144,7 @@ All generation and delivery-list routes require Clerk authentication and allowed
 
 Provider prefixes are `/api/nanobanana2`, `/api/seedream`, `/api/wanimage`, `/api/zimage`, `/api/wan`, `/api/seedance`, and `/api/wan3`. Recovery and delivery routes are `/api/image-jobs`, `/api/video-jobs`, and `/api/media-deliveries`.
 
-Kie jobs generally create a task and poll its record until a terminal state. Frontend hooks must be called unconditionally, then the active mutation selected, to preserve React hook ordering.
+Kie video jobs persist their task ID before returning and are reconciled to a terminal state by the API scheduler. Frontend hooks must be called unconditionally, then the active mutation selected, to preserve React hook ordering.
 
 ## Supabase And Database
 

@@ -10,13 +10,12 @@ const {
 const {
     buildImageToVideoRequest,
     buildTextToVideoRequest,
-    buildReferenceToVideoRequest,
-    normalizeVideoResponse
+    buildReferenceToVideoRequest
 } = require('../utils/wanAdapter');
 const {
-    getVideoGenerationId,
-    serializeVideoGenerationResult
+    getVideoGenerationId
 } = require('../utils/videoGenerationJob');
+const { queuePendingKieVideoJob } = require('../utils/kieVideoJobRecovery');
 
 const router = express.Router();
 
@@ -99,118 +98,6 @@ async function createWanTask(requestBody, model = 'wan/2-6-flash-image-to-video'
     return result;
 }
 
-// Helper: poll Wan job status (longer timeout for video - up to 10 minutes)
-async function pollWanJob(taskId, maxAttempts = 300, intervalMs = 2000) {
-    console.log(`⏳ Polling Wan task: ${taskId}`);
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const response = await fetch(`${WAN_API_URL}/api/v1/jobs/recordInfo?taskId=${taskId}`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${WAN_API_KEY}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Task status check failed: ${response.status} - ${errorText}`);
-        }
-
-        const result = await response.json();
-
-        if (result.code !== 200) {
-            throw new Error(`Task query failed: ${result.message || 'Unknown error'}`);
-        }
-
-        const taskData = result.data;
-        const state = taskData.state;
-
-        // Log progress every 30 seconds
-        if (attempt % 15 === 0) {
-            console.log(`📊 Wan task status (attempt ${attempt + 1}/${maxAttempts}): ${state}`);
-        }
-
-        if (state === 'success') {
-            console.log('✅ Wan video task completed successfully');
-            const resultData = JSON.parse(taskData.resultJson);
-            return resultData;
-        }
-
-        if (state === 'fail') {
-            const failMsg = taskData.failMsg || taskData.failCode || 'Unknown error';
-            // Detect NSFW / content review failures
-            if (failMsg.toLowerCase().includes('review') || failMsg.toLowerCase().includes('nsfw') || failMsg.toLowerCase().includes('content') || failMsg.toLowerCase().includes('safety')) {
-                throw new Error(`NSFW content detected: ${failMsg}`);
-            }
-            throw new Error(`Video generation failed: ${failMsg}`);
-        }
-
-        // States: waiting, queuing, generating - continue polling
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-
-    throw new Error('Video generation timeout - exceeded maximum wait time (10 minutes)');
-}
-
-// Helper: call Wan API with full async flow
-async function callWanAPI(requestBody) {
-    const taskResponse = await createWanTask(requestBody);
-    const taskId = taskResponse.data.taskId;
-    console.log(`📋 Wan task created with ID: ${taskId}`);
-
-    const completedJob = await pollWanJob(taskId);
-    return completedJob;
-}
-
-// Helper: deduct credit and track usage
-async function deductCreditAndTrack(
-    req,
-    startTime,
-    requestType,
-    creditsToDeduct,
-    success = true,
-    errorMessage = null,
-    recovery = {}
-) {
-    const { user } = req;
-    const generationId = recovery.generationId || null;
-    const storedResult = success && generationId && recovery.videoUrl
-        ? serializeVideoGenerationResult(recovery.videoUrl, creditsToDeduct)
-        : errorMessage;
-
-    try {
-        await db.logUsage({
-            userId: user.id,
-            clerkUserId: user.userId,
-            requestType,
-            geminiRequestId: generationId || 'wan-' + Date.now(),
-            imageSize: 'video',
-            processingTimeMs: Date.now() - startTime,
-            success,
-            errorMessage: storedResult
-        });
-
-        if (success) {
-            for (let i = 0; i < creditsToDeduct; i++) {
-                const deductResult = await db.deductUserCredit(user.userId);
-                if (!deductResult.success) {
-                    console.error('🚨 Failed to deduct credit:', deductResult.error);
-                    return false;
-                }
-            }
-
-            if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
-            }
-        }
-
-        return true;
-    } catch (error) {
-        console.error('🚨 Credit deduction/tracking error:', error);
-        return false;
-    }
-}
-
 // Check user credits (uses body params to calculate required credits)
 async function checkUserCredits(req, res, next) {
     try {
@@ -257,10 +144,14 @@ router.use(getUser, requireAuth, requireAllowedEmail);
 router.post('/generate-video', upload.single('image'), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     const generationId = getVideoGenerationId(req);
-    let usageLogged = false;
+    let providerTaskId = null;
+    let pendingJob = null;
     let uploadedFilename = null;
 
     try {
+        if (!generationId) {
+            return res.status(400).json({ error: 'A valid generation ID is required' });
+        }
         const { prompt, duration = '5', resolution = '1080p', nsfwFilterEnabled = 'true', audio = 'true', multiShots = 'false' } = req.body;
 
         if (!req.file) {
@@ -303,44 +194,54 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
             }
         );
 
-        // Call Wan 2.6 Flash API (this may take several minutes)
-        const wanResponse = await callWanAPI(wanRequest);
-
-        // Normalize response
-        const normalizedResponse = normalizeVideoResponse(wanResponse);
-
-        if (!normalizedResponse.success) {
-            throw new Error(normalizedResponse.error || 'Failed to process video response');
-        }
-
-        // Clean up uploaded reference image
-        if (uploadedFilename) {
-            await deleteTemporaryImage(uploadedFilename);
-        }
-
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'video', creditCost, true, null, {
+        const taskResponse = await createWanTask(wanRequest);
+        providerTaskId = taskResponse.data.taskId;
+        pendingJob = await db.createPendingVideoGenerationJob({
+            userId: req.user.id,
+            clerkUserId: req.user.userId,
+            requestType: 'video',
             generationId,
-            videoUrl: normalizedResponse.videoUrl
+            providerState: {
+                provider: 'wan',
+                providerTaskId,
+                estimatedCredits: creditCost,
+                duration: parseInt(duration),
+                cleanup: {
+                    kind: 'temporary-media',
+                    filenames: uploadedFilename ? [uploadedFilename] : []
+                }
+            }
         });
+        queuePendingKieVideoJob(pendingJob);
 
-        res.json({
+        return res.status(202).json({
             success: true,
-            videoUrl: normalizedResponse.videoUrl,
+            pending: true,
+            generationId,
             processingTime: Date.now() - startTime,
             creditsUsed: creditCost,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining ?? 0
         });
 
     } catch (error) {
         console.error('Error generating video with Wan:', error);
 
-        if (uploadedFilename) {
+        if (!providerTaskId && uploadedFilename) {
             await deleteTemporaryImage(uploadedFilename);
         }
 
-        if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message, { generationId });
+        if (!pendingJob && generationId) {
+            await db.logUsage({
+                userId: req.user.id,
+                clerkUserId: req.user.userId,
+                requestType: 'video',
+                geminiRequestId: generationId,
+                imageSize: 'video',
+                processingTimeMs: Date.now() - startTime,
+                success: false,
+                errorMessage: error.message
+            }).catch(() => {});
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
@@ -360,10 +261,14 @@ router.post('/generate-reference-to-video', upload.fields([
 ]), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     const generationId = getVideoGenerationId(req);
-    let usageLogged = false;
+    let providerTaskId = null;
+    let pendingJob = null;
     const uploadedFilenames = [];
 
     try {
+        if (!generationId) {
+            return res.status(400).json({ error: 'A valid generation ID is required' });
+        }
         const { prompt, duration = '5', resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = 'true', referenceVideoUrl } = req.body;
         const imageFiles = req.files?.image || [];
         const videoFile = req.files?.video?.[0];
@@ -434,42 +339,55 @@ router.post('/generate-reference-to-video', upload.fields([
         });
 
         const taskResponse = await createWanTask(wanRequest, 'wan/2-7-r2v');
-        const taskId = taskResponse.data.taskId;
-        console.log(`📋 Reference-to-video task created with ID: ${taskId}`);
-
-        const completedJob = await pollWanJob(taskId);
-        const normalizedResponse = normalizeVideoResponse(completedJob);
-
-        if (!normalizedResponse.success) {
-            throw new Error(normalizedResponse.error || 'Failed to process video response');
-        }
-
-        for (const filename of uploadedFilenames) {
-            await deleteTemporaryImage(filename);
-        }
+        providerTaskId = taskResponse.data.taskId;
 
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'reference-to-video', creditCost, true, null, {
+        pendingJob = await db.createPendingVideoGenerationJob({
+            userId: req.user.id,
+            clerkUserId: req.user.userId,
+            requestType: 'reference-to-video',
             generationId,
-            videoUrl: normalizedResponse.videoUrl
+            providerState: {
+                provider: 'wan',
+                providerTaskId,
+                estimatedCredits: creditCost,
+                duration: parseInt(duration),
+                cleanup: {
+                    kind: 'temporary-media',
+                    filenames: uploadedFilenames
+                }
+            }
         });
+        queuePendingKieVideoJob(pendingJob);
 
-        res.json({
+        return res.status(202).json({
             success: true,
-            videoUrl: normalizedResponse.videoUrl,
+            pending: true,
+            generationId,
             processingTime: Date.now() - startTime,
             creditsUsed: creditCost,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining ?? 0
         });
     } catch (error) {
         console.error('Error generating reference-to-video with Wan:', error);
 
-        for (const filename of uploadedFilenames) {
-            await deleteTemporaryImage(filename);
+        if (!providerTaskId) {
+            for (const filename of uploadedFilenames) {
+                await deleteTemporaryImage(filename);
+            }
         }
 
-        if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'reference-to-video', 0, false, error.message, { generationId });
+        if (!pendingJob && generationId) {
+            await db.logUsage({
+                userId: req.user.id,
+                clerkUserId: req.user.userId,
+                requestType: 'reference-to-video',
+                geminiRequestId: generationId,
+                imageSize: 'video',
+                processingTimeMs: Date.now() - startTime,
+                success: false,
+                errorMessage: error.message
+            }).catch(() => {});
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
@@ -486,9 +404,13 @@ router.post('/generate-reference-to-video', upload.fields([
 router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     const generationId = getVideoGenerationId(req);
-    let usageLogged = false;
+    let providerTaskId = null;
+    let pendingJob = null;
 
     try {
+        if (!generationId) {
+            return res.status(400).json({ error: 'A valid generation ID is required' });
+        }
         const { prompt, duration = 5, resolution = '1080p', ratio = '16:9', multiShots = false, nsfwFilterEnabled = true } = req.body;
 
         if (!prompt || !prompt.trim()) {
@@ -515,37 +437,47 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
 
         // Call Wan 2.6 API for text-to-video
         const taskResponse = await createWanTask(wanRequest, 'wan/2-6-text-to-video');
-        const taskId = taskResponse.data.taskId;
-        console.log(`📋 Text-to-video task created with ID: ${taskId}`);
-
-        const completedJob = await pollWanJob(taskId);
-
-        // Normalize response
-        const normalizedResponse = normalizeVideoResponse(completedJob);
-
-        if (!normalizedResponse.success) {
-            throw new Error(normalizedResponse.error || 'Failed to process video response');
-        }
+        providerTaskId = taskResponse.data.taskId;
 
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-video', creditCost, true, null, {
+        pendingJob = await db.createPendingVideoGenerationJob({
+            userId: req.user.id,
+            clerkUserId: req.user.userId,
+            requestType: 'text-to-video',
             generationId,
-            videoUrl: normalizedResponse.videoUrl
+            providerState: {
+                provider: 'wan',
+                providerTaskId,
+                estimatedCredits: creditCost,
+                duration: typeof duration === 'number' ? duration : parseInt(duration),
+                cleanup: { kind: 'temporary-media', filenames: [] }
+            }
         });
+        queuePendingKieVideoJob(pendingJob);
 
-        res.json({
+        return res.status(202).json({
             success: true,
-            videoUrl: normalizedResponse.videoUrl,
+            pending: true,
+            generationId,
             processingTime: Date.now() - startTime,
             creditsUsed: creditCost,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining ?? 0
         });
 
     } catch (error) {
         console.error('Error generating text-to-video with Wan:', error);
 
-        if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'text-to-video', 0, false, error.message, { generationId });
+        if (!pendingJob && generationId) {
+            await db.logUsage({
+                userId: req.user.id,
+                clerkUserId: req.user.userId,
+                requestType: 'text-to-video',
+                geminiRequestId: generationId,
+                imageSize: 'video',
+                processingTimeMs: Date.now() - startTime,
+                success: false,
+                errorMessage: error.message
+            }).catch(() => {});
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');

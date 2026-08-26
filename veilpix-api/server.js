@@ -153,6 +153,7 @@ const usageRoutes = require('./routes/usage');
 const stripeRoutes = require('./routes/stripe');
 const checkoutRoutes = require('./routes/checkout');
 const { cleanupExpiredDeliveries } = require('./utils/mediaDelivery');
+const { recoverPendingKieVideoJobs } = require('./utils/kieVideoJobRecovery');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -288,6 +289,17 @@ app.listen(PORT, '0.0.0.0', () => {
     void cleanExpiredDeliveryBatch();
     const deliveryCleanupTimer = setInterval(cleanExpiredDeliveryBatch, 5 * 60 * 1000);
     deliveryCleanupTimer.unref();
+
+    const reconcilePendingVideoJobs = async () => {
+        try {
+            await recoverPendingKieVideoJobs();
+        } catch (error) {
+            console.error('Scheduled video generation recovery failed:', error);
+        }
+    };
+    void reconcilePendingVideoJobs();
+    const videoRecoveryTimer = setInterval(reconcilePendingVideoJobs, 30 * 1000);
+    videoRecoveryTimer.unref();
 });
 
 module.exports = app;
