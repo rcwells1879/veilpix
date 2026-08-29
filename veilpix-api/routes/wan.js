@@ -10,7 +10,8 @@ const {
 const {
     buildImageToVideoRequest,
     buildTextToVideoRequest,
-    buildReferenceToVideoRequest
+    buildReferenceToVideoRequest,
+    estimateWanVeilPixCredits
 } = require('../utils/wanAdapter');
 const {
     getVideoGenerationId
@@ -36,26 +37,6 @@ const upload = multer({
 // Wan API configuration (same kie.ai key as other models)
 const WAN_API_KEY = process.env.SEEDREAM_API_KEY;
 const WAN_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
-
-// Video credit pricing table: { duration: { resolution: credits } }
-// Targeting ~12% profit margin at mid-tier credit pricing ($0.0699/credit)
-const VIDEO_CREDIT_TABLE = {
-    5:  { '720p': 7,  '1080p': 10 },
-    10: { '720p': 13, '1080p': 19 },
-    15: { '720p': 19, '1080p': 29 },
-};
-
-function getVideoCreditCost(duration, resolution) {
-    const d = parseInt(duration);
-    const r = resolution || '1080p';
-    // Exact match from table
-    if (VIDEO_CREDIT_TABLE[d] && VIDEO_CREDIT_TABLE[d][r]) {
-        return VIDEO_CREDIT_TABLE[d][r];
-    }
-    // Interpolate for non-standard durations using per-second rates
-    const perSecRate = r === '1080p' ? 2.0 : 1.4;
-    return Math.ceil(d * perSecRate);
-}
 
 // Helper: create Wan task
 async function createWanTask(requestBody, model = 'wan/2-6-flash-image-to-video') {
@@ -104,7 +85,11 @@ async function checkUserCredits(req, res, next) {
         const { user } = req;
         const duration = parseInt(req.body?.duration || '5');
         const resolution = req.body?.resolution || '1080p';
-        const requiredCredits = getVideoCreditCost(duration, resolution);
+        const requiredCredits = estimateWanVeilPixCredits({
+            duration,
+            resolution,
+            usesReferenceToVideo: req.path.includes('reference-to-video')
+        });
 
         const { credits, error } = await db.getUserCredits(user.userId);
 
@@ -492,9 +477,19 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
 
 // Get video credit pricing table (no auth required)
 router.get('/pricing', (req, res) => {
+    const pricingFor = (usesReferenceToVideo, durations) => Object.fromEntries(
+        durations.map(duration => [duration, Object.fromEntries(
+            ['720p', '1080p'].map(resolution => [resolution, estimateWanVeilPixCredits({
+                duration,
+                resolution,
+                usesReferenceToVideo
+            })])
+        )])
+    );
     res.json({
         success: true,
-        pricing: VIDEO_CREDIT_TABLE
+        pricing: pricingFor(false, [5, 10, 15]),
+        referencePricing: pricingFor(true, [5, 10])
     });
 });
 

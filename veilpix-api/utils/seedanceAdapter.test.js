@@ -2,12 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     KIE_CREDIT_USD,
+    SEEDANCE_DURATION_LIMITS,
+    SEEDANCE_PRICING,
     buildSeedanceRequest,
     estimateSeedanceKieCredits,
     estimateSeedanceVeilPixCredits,
     exceedsSeedanceMediaDurationLimit,
     resolveSeedanceInputMode
 } = require('./seedanceAdapter');
+const { MIN_NET_USD_PER_VEILPIX_CREDIT, TARGET_MARGIN } = require('./creditEconomics');
 
 test('maps strict Seedance frame inputs to first and last frame fields', () => {
     const payload = buildSeedanceRequest('Move between the frames', {
@@ -124,13 +127,14 @@ test('uses official Seedance 2.5 beta rates for video-guided billing', () => {
     };
 
     assert.equal(estimateSeedanceKieCredits(pricingContext), 38 * 22);
-    assert.equal(estimateSeedanceVeilPixCredits(pricingContext), 68);
+    assert.equal(estimateSeedanceVeilPixCredits(pricingContext), 85.13);
 });
 
 test('every Seedance 2.5 pricing path preserves at least the 12 percent margin', () => {
     const cases = [
         { resolution: '480p', duration: 5, hasVideoReference: false, referenceVideoDuration: 0 },
         { resolution: '720p', duration: 5, hasVideoReference: false, referenceVideoDuration: 0 },
+        { resolution: '1080p', duration: 5, hasVideoReference: false, referenceVideoDuration: 0 },
         { resolution: '480p', duration: 5, hasVideoReference: true, referenceVideoDuration: 7 },
         { resolution: '720p', duration: 5, hasVideoReference: true, referenceVideoDuration: 7 }
     ];
@@ -138,9 +142,44 @@ test('every Seedance 2.5 pricing path preserves at least the 12 percent margin',
     for (const pricingCase of cases) {
         const context = { variant: 'v2_5', ...pricingCase };
         const kieCostUsd = estimateSeedanceKieCredits(context) * KIE_CREDIT_USD;
-        const customerRevenueUsd = estimateSeedanceVeilPixCredits(context) * 0.0699;
+        const customerRevenueUsd = estimateSeedanceVeilPixCredits(context) * (11.16 / 200);
         const margin = (customerRevenueUsd - kieCostUsd) / customerRevenueUsd;
         assert.ok(margin >= 0.12, `${pricingCase.resolution} margin was ${(margin * 100).toFixed(2)}%`);
+    }
+});
+
+test('uses the current reduced Seedance 2.0 Fast and Mini rates', () => {
+    assert.equal(estimateSeedanceKieCredits({ variant: 'fast', resolution: '720p', duration: 5 }), 124);
+    assert.equal(estimateSeedanceKieCredits({ variant: 'mini', resolution: '720p', duration: 5 }), 41);
+    assert.equal(estimateSeedanceKieCredits({
+        variant: 'mini',
+        resolution: '480p',
+        duration: 5,
+        hasVideoReference: true,
+        referenceVideoDuration: 5
+    }), 24);
+});
+
+test('every Seedance variant, resolution, duration, and reference-video path preserves the margin', () => {
+    for (const variant of Object.keys(SEEDANCE_PRICING)) {
+        const limits = SEEDANCE_DURATION_LIMITS[variant];
+        for (const resolution of Object.keys(SEEDANCE_PRICING[variant])) {
+            for (const duration of [limits.min, limits.max]) {
+                for (const referenceVideoDuration of [0, limits.max]) {
+                    const context = {
+                        variant,
+                        resolution,
+                        duration,
+                        hasVideoReference: referenceVideoDuration > 0,
+                        referenceVideoDuration
+                    };
+                    const providerCostUsd = estimateSeedanceKieCredits(context) * KIE_CREDIT_USD;
+                    const netRevenueUsd = estimateSeedanceVeilPixCredits(context) * MIN_NET_USD_PER_VEILPIX_CREDIT;
+                    const margin = (netRevenueUsd - providerCostUsd) / netRevenueUsd;
+                    assert.ok(margin + 1e-10 >= TARGET_MARGIN, `${variant} ${resolution} margin was ${margin}`);
+                }
+            }
+        }
     }
 });
 

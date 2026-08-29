@@ -5,6 +5,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useImageImport } from '../src/hooks/useImageImport';
+import { veilpixCreditsFromKieCredits } from '../src/utils/creditEconomics';
 import { PhotoIcon, VideoIcon } from './icons';
 
 type VideoProvider = 'wan' | 'seedance';
@@ -82,20 +83,23 @@ const SEEDANCE_DURATION_LIMITS: Record<SeedanceVariant, { min: number; max: numb
   mini: { min: 4, max: 15, defaultValue: 5 },
 };
 
-const WAN_VIDEO_CREDIT_TABLE: Record<number, Record<string, number>> = {
-  5:  { '720p': 7,  '1080p': 10 },
-  10: { '720p': 13, '1080p': 19 },
-  15: { '720p': 19, '1080p': 29 },
-};
+const WAN_VIDEO_KIE_PRICING = {
+  standard: {
+    5: { '720p': 70, '1080p': 104.5 },
+    10: { '720p': 140, '1080p': 209.5 },
+    15: { '720p': 210, '1080p': 315 },
+  },
+  referencePerSecond: { '720p': 16, '1080p': 24 },
+} as const;
 
 const SEEDANCE_PRICING: Record<SeedanceVariant, Record<string, { noVideo: number; withVideo: number }>> = {
   fast: {
-    '480p': { noVideo: 15.5, withVideo: 9 },
-    '720p': { noVideo: 33, withVideo: 20 },
+    '480p': { noVideo: 11.7, withVideo: 6.8 },
+    '720p': { noVideo: 24.8, withVideo: 15 },
   },
   mini: {
-    '480p': { noVideo: 9.5, withVideo: 6 },
-    '720p': { noVideo: 20.5, withVideo: 12.5 },
+    '480p': { noVideo: 3.8, withVideo: 2.4 },
+    '720p': { noVideo: 8.2, withVideo: 5 },
   },
   regular: {
     '480p': { noVideo: 19, withVideo: 11.5 },
@@ -104,11 +108,13 @@ const SEEDANCE_PRICING: Record<SeedanceVariant, Record<string, { noVideo: number
   },
 };
 
-const KIE_CREDIT_USD = 0.005;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = 0.0699 * 0.88;
-
-function getWanCreditCost(duration: number, resolution: string): number {
-  return WAN_VIDEO_CREDIT_TABLE[duration]?.[resolution] ?? Math.ceil(duration * (resolution === '1080p' ? 2.0 : 1.4));
+function getWanCreditCost(duration: number, resolution: string, usesReferenceToVideo = false): number {
+  const selectedResolution = resolution === '720p' ? '720p' : '1080p';
+  const kieCredits = usesReferenceToVideo
+    ? duration * WAN_VIDEO_KIE_PRICING.referencePerSecond[selectedResolution]
+    : WAN_VIDEO_KIE_PRICING.standard[duration as keyof typeof WAN_VIDEO_KIE_PRICING.standard]?.[selectedResolution]
+      ?? duration * (WAN_VIDEO_KIE_PRICING.standard[15][selectedResolution] / 15);
+  return veilpixCreditsFromKieCredits(kieCredits);
 }
 
 function clampSeedanceDuration(variant: SeedanceVariant, duration: number): number {
@@ -127,11 +133,11 @@ function getSeedanceCreditCost(
   const pricing = SEEDANCE_PRICING[variant][resolution] ?? SEEDANCE_PRICING[variant][SEEDANCE_RESOLUTIONS[variant][0]];
   const outputSeconds = clampSeedanceDuration(variant, duration);
   const inputSeconds = hasVideoReference
-    ? Math.max(0, Math.min(SEEDANCE_DURATION_LIMITS[variant].max, Math.round(referenceVideoDuration ?? SEEDANCE_DURATION_LIMITS[variant].max)))
+    ? Math.max(0, Math.min(SEEDANCE_DURATION_LIMITS[variant].max, Number(referenceVideoDuration ?? SEEDANCE_DURATION_LIMITS[variant].max)))
     : 0;
   const rate = hasVideoReference ? pricing.withVideo : pricing.noVideo;
-  const kieCredits = Math.ceil(rate * (outputSeconds + inputSeconds));
-  return Math.max(1, Math.ceil((kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
+  const kieCredits = rate * (outputSeconds + inputSeconds);
+  return veilpixCreditsFromKieCredits(kieCredits);
 }
 
 function getWanMaxReferenceImages(hasVideoReference: boolean): number {
@@ -316,7 +322,10 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
     maxFiles: SEEDANCE_MAX_REFERENCE_IMAGES - seedanceReferenceImages.length,
   });
 
-  const wanCreditCost = useMemo(() => getWanCreditCost(wanDuration, wanResolution), [wanDuration, wanResolution]);
+  const wanCreditCost = useMemo(
+    () => getWanCreditCost(wanDuration, wanResolution, wanUsesReferenceToVideo),
+    [wanDuration, wanResolution, wanUsesReferenceToVideo]
+  );
   const seedanceCreditCost = useMemo(() => getSeedanceCreditCost(
     seedanceVariant,
     seedanceResolution,

@@ -306,14 +306,23 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const effectiveWanDuration = wanUsesReferenceToVideo && wanDuration > 10 ? 10 : wanDuration;
   const effectiveWan3Duration = clampWan3Duration(wan3Duration);
 
-  const wanCreditCost = useMemo(() => getWanCreditCost(effectiveWanDuration, wanResolution), [effectiveWanDuration, wanResolution]);
+  const wanCreditCost = useMemo(
+    () => getWanCreditCost(effectiveWanDuration, wanResolution, wanUsesReferenceToVideo),
+    [effectiveWanDuration, wanResolution, wanUsesReferenceToVideo]
+  );
   const seedanceCreditCost = useMemo(
     () => getSeedanceCreditCost(seedanceVariant, effectiveSeedanceResolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration),
     [seedanceVariant, effectiveSeedanceResolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration]
   );
   const wan3CreditCost = useMemo(
-    () => getWan3CreditCost(wan3Variant, wan3Resolution, effectiveWan3Duration),
-    [wan3Variant, wan3Resolution, effectiveWan3Duration]
+    () => getWan3CreditCost(
+      wan3Variant,
+      wan3Resolution,
+      effectiveWan3Duration,
+      wan3InputMode === 'references' && wan3ReferenceVideoFiles.length > 0,
+      wan3ReferenceVideoDuration
+    ),
+    [wan3Variant, wan3Resolution, effectiveWan3Duration, wan3InputMode, wan3ReferenceVideoFiles.length, wan3ReferenceVideoDuration]
   );
   const videoCreditCost = videoProvider === 'wan3' ? wan3CreditCost : videoProvider === 'seedance' ? seedanceCreditCost : wanCreditCost;
 
@@ -611,9 +620,9 @@ const Composer: React.FC<ComposerProps> = (props) => {
                         selected={videoProvider === 'wan3' ? wan3Resolution === resolution : videoProvider === 'seedance' ? effectiveSeedanceResolution === resolution : wanResolution === resolution}
                         label={resolution}
                         trailing={videoProvider === 'wan3'
-                          ? `${getWan3CreditCost(wan3Variant, resolution, effectiveWan3Duration)} cr`
+                          ? `${getWan3CreditCost(wan3Variant, resolution, effectiveWan3Duration, wan3InputMode === 'references' && wan3ReferenceVideoFiles.length > 0, wan3ReferenceVideoDuration)} cr`
                           : videoProvider === 'wan'
-                          ? `${getWanCreditCost(effectiveWanDuration, resolution)} cr`
+                          ? `${getWanCreditCost(effectiveWanDuration, resolution, wanUsesReferenceToVideo)} cr`
                           : `${getSeedanceCreditCost(seedanceVariant, resolution, effectiveSeedanceDuration, hasSeedanceVideoReference, seedanceReferenceVideoDuration)} cr`}
                         onSelect={() => {
                           if (videoProvider === 'wan3') setWan3Resolution(resolution);
@@ -690,7 +699,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
                       key={duration}
                       selected={effectiveWanDuration === duration}
                       label={`${duration} seconds`}
-                      trailing={`${getWanCreditCost(duration, wanResolution)} cr`}
+                      trailing={`${getWanCreditCost(duration, wanResolution, wanUsesReferenceToVideo)} cr`}
                       onSelect={() => { setWanDuration(duration); close(); }}
                     />
                   ))

@@ -1,12 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+    KIE_CREDIT_USD,
+    WAN3_PRICING,
     WAN3_MODELS,
     buildWan3Request,
     estimateWan3KieCredits,
     estimateWan3VeilPixCredits,
     normalizeWan3Response
 } = require('./wan3Adapter');
+const { MIN_NET_USD_PER_VEILPIX_CREDIT, TARGET_MARGIN } = require('./creditEconomics');
 
 test('maps every Wan 3.0 reference type and After Dark setting', () => {
     const payload = buildWan3Request('Use Image1 and Video1', {
@@ -58,9 +61,45 @@ test('supports frames, file, link, and text-only modes without mixing them', () 
 
 test('prices Standard and Prime from current Kie per-second credit rates', () => {
     assert.equal(estimateWan3KieCredits({ variant: 'standard', resolution: '480P', duration: 5 }), 40);
-    assert.equal(estimateWan3VeilPixCredits({ variant: 'standard', resolution: '480P', duration: 5 }), 4);
+    assert.equal(estimateWan3VeilPixCredits({ variant: 'standard', resolution: '480P', duration: 5 }), 4.08);
     assert.equal(estimateWan3KieCredits({ variant: 'prime', resolution: '480P', duration: 5 }), 61);
-    assert.equal(estimateWan3VeilPixCredits({ variant: 'prime', resolution: '480P', duration: 5 }), 5);
+    assert.equal(estimateWan3VeilPixCredits({ variant: 'prime', resolution: '480P', duration: 5 }), 6.22);
+});
+
+test('adds reference-video duration but not image or audio references to Wan 3.0 billing', () => {
+    const context = {
+        variant: 'prime',
+        resolution: '720P',
+        duration: 6,
+        hasVideoReference: true,
+        referenceVideoDuration: 6
+    };
+    assert.equal(estimateWan3KieCredits(context), 302.4);
+    assert.equal(estimateWan3VeilPixCredits(context), 30.8);
+    assert.equal(estimateWan3KieCredits({ ...context, hasVideoReference: false }), 151.2);
+});
+
+test('every Wan 3.0 tier, resolution, duration, and video-reference path preserves the margin', () => {
+    for (const variant of Object.keys(WAN3_PRICING)) {
+        for (const resolution of Object.keys(WAN3_PRICING[variant])) {
+            for (const duration of [2, 6, 30]) {
+                for (const referenceVideoDuration of [0, 6, 15]) {
+                    if (duration + referenceVideoDuration > 30) continue;
+                    const context = {
+                        variant,
+                        resolution,
+                        duration,
+                        hasVideoReference: referenceVideoDuration > 0,
+                        referenceVideoDuration
+                    };
+                    const providerCostUsd = estimateWan3KieCredits(context) * KIE_CREDIT_USD;
+                    const netRevenueUsd = estimateWan3VeilPixCredits(context) * MIN_NET_USD_PER_VEILPIX_CREDIT;
+                    const margin = (netRevenueUsd - providerCostUsd) / netRevenueUsd;
+                    assert.ok(margin + 1e-10 >= TARGET_MARGIN, `${variant} ${resolution} margin was ${margin}`);
+                }
+            }
+        }
+    }
 });
 
 test('normalizes Kie Wan 3.0 task results', () => {

@@ -9,6 +9,33 @@
  * and normalizes responses for the frontend video player.
  */
 
+const { veilpixCreditsFromKieCredits } = require('./creditEconomics');
+
+// Kie pricing verified on 2026-08-29. Wan 2.6 uses fixed duration tiers;
+// Wan 2.7 reference-to-video is billed per generated second.
+const WAN_VIDEO_KIE_PRICING = {
+    standard: {
+        5: { '720p': 70, '1080p': 104.5 },
+        10: { '720p': 140, '1080p': 209.5 },
+        15: { '720p': 210, '1080p': 315 }
+    },
+    referencePerSecond: { '720p': 16, '1080p': 24 }
+};
+
+function estimateWanKieCredits({ duration = 5, resolution = '1080p', usesReferenceToVideo = false } = {}) {
+    const selectedDuration = Math.max(1, Number(duration) || 5);
+    const selectedResolution = resolution === '720p' ? '720p' : '1080p';
+    if (usesReferenceToVideo) {
+        return WAN_VIDEO_KIE_PRICING.referencePerSecond[selectedResolution] * selectedDuration;
+    }
+    return WAN_VIDEO_KIE_PRICING.standard[selectedDuration]?.[selectedResolution]
+        || WAN_VIDEO_KIE_PRICING.standard[15][selectedResolution] * (selectedDuration / 15);
+}
+
+function estimateWanVeilPixCredits(options) {
+    return veilpixCreditsFromKieCredits(estimateWanKieCredits(options));
+}
+
 /**
  * Snap a duration value to the nearest valid duration string.
  * Wan 2.6 Flash accepts '5', '10', or '15'.
@@ -152,8 +179,11 @@ function buildReferenceToVideoRequest(prompt, options = {}) {
 }
 
 module.exports = {
+    WAN_VIDEO_KIE_PRICING,
     buildImageToVideoRequest,
     buildTextToVideoRequest,
     buildReferenceToVideoRequest,
+    estimateWanKieCredits,
+    estimateWanVeilPixCredits,
     normalizeVideoResponse
 };

@@ -22,17 +22,17 @@ test('normalizes completed video results from every Kie video provider', () => {
     }).videoUrl, 'https://example.com/wan3.mp4');
 });
 
-test('uses fixed legacy Wan pricing and provider-aware Seedance pricing', () => {
+test('reconciles every video provider against the settled Kie charge', () => {
     assert.equal(creditsForCompletedVideo({
         provider: 'wan',
         estimatedCredits: 7,
         duration: 5
-    }, { creditsConsumed: 999 }), 7);
+    }, { creditsConsumed: 999 }), 101.73);
 
     const seedanceCredits = creditsForCompletedVideo({
         provider: 'seedance',
-        estimatedCredits: 3,
-        duration: -1
+        estimatedCredits: 30,
+        duration: 5
     }, { creditsConsumed: 100 });
-    assert.ok(seedanceCredits > 3);
+    assert.equal(seedanceCredits, 10.19);
 });

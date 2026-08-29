@@ -1,14 +1,13 @@
 const { db } = require('./database');
+const { veilpixCreditsFromKieCredits } = require('./creditEconomics');
 const { deleteTemporaryImage } = require('./imageUpload');
 const { deleteProviderInputs } = require('./providerInput');
 const {
-    normalizeSeedanceResponse,
-    veilpixCreditsFromKieCredits: seedanceCreditsFromKie
+    normalizeSeedanceResponse
 } = require('./seedanceAdapter');
 const { normalizeVideoResponse } = require('./wanAdapter');
 const {
-    normalizeWan3Response,
-    veilpixCreditsFromKieCredits: wan3CreditsFromKie
+    normalizeWan3Response
 } = require('./wan3Adapter');
 const { parsePendingVideoGeneration } = require('./videoGenerationJob');
 
@@ -68,17 +67,9 @@ function creditsForCompletedVideo(state, taskData) {
     const estimatedCredits = Math.max(0, Number(state.estimatedCredits) || 0);
     const providerKieCredits = Number(taskData.creditsConsumed);
     const hasProviderCredits = Number.isFinite(providerKieCredits) && providerKieCredits > 0;
-    if (state.provider === 'seedance') {
-        const providerCredits = hasProviderCredits ? seedanceCreditsFromKie(providerKieCredits) : 0;
-        return state.duration === -1 && providerCredits > 0
-            ? providerCredits
-            : Math.max(estimatedCredits, providerCredits);
-    }
-    if (state.provider === 'wan3') {
-        const providerCredits = hasProviderCredits ? wan3CreditsFromKie(providerKieCredits) : 0;
-        return state.duration === -1 && providerCredits > 0
-            ? providerCredits
-            : Math.max(estimatedCredits, providerCredits);
+    if (['seedance', 'wan', 'wan3'].includes(state.provider)) {
+        const providerCredits = hasProviderCredits ? veilpixCreditsFromKieCredits(providerKieCredits) : 0;
+        return providerCredits > 0 ? providerCredits : estimatedCredits;
     }
     return estimatedCredits;
 }

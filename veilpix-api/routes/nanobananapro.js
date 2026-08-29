@@ -2,7 +2,8 @@
  * Nano Banana Pro (Google Gemini 3 Pro Image) API Routes
  *
  * Uses Kie.ai API infrastructure with the nano-banana-pro model.
- * Costs 2 credits per generation.
+ * Retained for compatibility with older clients; pricing follows the shared
+ * after-fee margin floor even though the model is not in the current UI.
  */
 
 const express = require('express');
@@ -31,6 +32,7 @@ const {
     urlToBase64
 } = require('../utils/nanobananaproAdapter');
 const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
+const { getNanoBananaProCreditCost } = require('../utils/imageCreditPricing');
 
 const router = express.Router();
 
@@ -69,8 +71,6 @@ const uploadMultiple = multer({
 // API configuration (uses same key as SeeDream)
 const API_KEY = process.env.SEEDREAM_API_KEY;
 const API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
-const CREDITS_PER_GENERATION = 2;
-
 // Helper function to create Nano Banana Pro task
 async function createNanoBananaProTask(requestBody) {
     try {
@@ -181,17 +181,19 @@ async function callNanoBananaProAPI(requestBody) {
     }
 }
 
-// Helper function to deduct 2 credits and track usage
+// Helper function to deduct the resolution-aware charge and track usage
 async function deductCreditsAndTrack(req, startTime, requestType, result, success = true, errorMessage = null) {
     const { user } = req;
     const generationId = getGenerationId(req);
+    const creditCost = req.creditsInfo?.required || getNanoBananaProCreditCost(req.body?.resolution);
     const storedResult = success && generationId
-        ? serializeImageGenerationResult(result, CREDITS_PER_GENERATION)
+        ? serializeImageGenerationResult(result, creditCost)
         : errorMessage;
 
-    console.log('CREDIT DEDUCT: Starting credit deduction (2 credits) and tracking', {
+    console.log('CREDIT DEDUCT: Starting Nano Banana Pro credit deduction and tracking', {
         userId: user?.userId,
         requestType,
+        creditCost,
         success
     });
 
@@ -210,25 +212,17 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
         console.log('CREDIT DEDUCT: Successfully logged usage');
 
         if (success) {
-            console.log('CREDIT DEDUCT: Deducting 2 credits for user:', user.userId);
-
-            // Deduct 2 credits by calling the function twice
-            const deductResult1 = await db.deductUserCredit(user.userId);
-            if (!deductResult1.success) {
-                console.error('CREDIT DEDUCT: Failed to deduct first credit:', deductResult1.error);
+            console.log(`CREDIT DEDUCT: Deducting ${creditCost} credits for user:`, user.userId);
+            const deductResult = await db.deductUserCredits(user.userId, creditCost);
+            if (!deductResult.success) {
+                console.error('CREDIT DEDUCT: Failed to deduct credits:', deductResult.error);
                 return false;
             }
 
-            const deductResult2 = await db.deductUserCredit(user.userId);
-            if (!deductResult2.success) {
-                console.error('CREDIT DEDUCT: Failed to deduct second credit:', deductResult2.error);
-                return false;
-            }
-
-            console.log('CREDIT DEDUCT: Successfully deducted 2 credits');
+            console.log(`CREDIT DEDUCT: Successfully deducted ${creditCost} credits`);
 
             if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - CREDITS_PER_GENERATION);
+                req.creditsInfo.remaining = Math.max(0, Math.round((req.creditsInfo.remaining - creditCost) * 100) / 100);
             }
         }
 
@@ -240,7 +234,7 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
     }
 }
 
-// Check user has at least 2 credits (Nano Banana Pro requirement)
+// Check user has enough credits for the requested output resolution.
 async function checkUserCredits(req, res, next) {
     try {
         const { user } = req;
@@ -259,19 +253,19 @@ async function checkUserCredits(req, res, next) {
 
         console.log('CREDITS: User has credits:', credits);
 
-        // Nano Banana Pro requires at least 2 credits
-        if (credits < CREDITS_PER_GENERATION) {
-            console.log('CREDITS: User has insufficient credits for Nano Banana Pro (needs 2)');
+        const requiredCredits = getNanoBananaProCreditCost(req.body?.resolution);
+        if (credits < requiredCredits) {
+            console.log(`CREDITS: User has insufficient credits for Nano Banana Pro (needs ${requiredCredits})`);
             return res.status(402).json({
                 error: 'Insufficient credits',
-                message: `Nano Banana Pro requires ${CREDITS_PER_GENERATION} credits per image. You have ${credits} credit(s) remaining.`,
+                message: `Nano Banana Pro requires ${requiredCredits} credits per image. You have ${credits} credit(s) remaining.`,
                 creditsRemaining: credits,
-                creditsRequired: CREDITS_PER_GENERATION,
+                creditsRequired: requiredCredits,
                 requiresPayment: true
             });
         }
 
-        req.creditsInfo = { remaining: credits };
+        req.creditsInfo = { remaining: credits, required: requiredCredits };
         console.log('CREDITS: User has sufficient credits:', credits);
 
         next();
@@ -367,7 +361,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -456,7 +450,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -546,7 +540,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -641,7 +635,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -713,7 +707,7 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {

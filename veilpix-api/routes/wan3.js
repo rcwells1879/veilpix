@@ -100,15 +100,26 @@ router.post('/generate-video', async (req, res) => {
         const inputMode = String(req.body?.inputMode || 'references');
         const referenceVideoDuration = Number(req.body?.referenceVideoDuration || 0);
         const referenceAudioDuration = Number(req.body?.referenceAudioDuration || 0);
+        const hasVideoReference = Array.isArray(uploads.referenceVideos) && uploads.referenceVideos.length > 0;
+        const billableReferenceVideoDuration = hasVideoReference
+            ? referenceVideoDuration > 0 ? referenceVideoDuration : 15
+            : 0;
         const outputSeconds = duration === -1 ? 30 : Math.max(1, duration || 5);
         if (referenceVideoDuration > 15.25) return res.status(400).json({ error: 'Reference videos must total 15 seconds or less' });
         if (referenceAudioDuration > 15.25) return res.status(400).json({ error: 'Reference audio must total 15 seconds or less' });
-        if (referenceVideoDuration > 0 && referenceVideoDuration + outputSeconds > 30.25) {
+        if (billableReferenceVideoDuration > 0 && billableReferenceVideoDuration + outputSeconds > 30.25) {
             return res.status(400).json({ error: 'Reference video duration plus output duration must be 30 seconds or less' });
         }
 
-        const estimatedKieCredits = estimateWan3KieCredits({ variant, resolution, duration });
-        const estimatedCredits = estimateWan3VeilPixCredits({ variant, resolution, duration });
+        const pricingContext = {
+            variant,
+            resolution,
+            duration,
+            hasVideoReference,
+            referenceVideoDuration: billableReferenceVideoDuration
+        };
+        const estimatedKieCredits = estimateWan3KieCredits(pricingContext);
+        const estimatedCredits = estimateWan3VeilPixCredits(pricingContext);
         const { credits, error: creditsError } = await db.getUserCredits(req.user.userId);
         if (creditsError) return res.status(500).json({ error: 'Failed to check credits' });
         if (credits < estimatedCredits) {
@@ -173,6 +184,7 @@ router.post('/generate-video', async (req, res) => {
             variant,
             resolution,
             duration,
+            referenceVideoSeconds: billableReferenceVideoDuration,
             estimatedKieCredits,
             estimatedVeilPixCredits: estimatedCredits
         });

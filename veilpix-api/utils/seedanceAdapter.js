@@ -5,10 +5,12 @@
  * requests and centralizes Seedance pricing.
  */
 
-const VEILPIX_CREDIT_USD = 6.99 / 100;
-const TARGET_MARGIN = 0.12;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
-const KIE_CREDIT_USD = 0.005;
+const {
+    BILLABLE_USD_PER_VEILPIX_CREDIT,
+    KIE_CREDIT_USD,
+    veilpixCreditsFromKieCredits,
+    veilpixCreditsFromUsd
+} = require('./creditEconomics');
 const SEEDANCE_MEDIA_DURATION_TOLERANCE_SECONDS = 0.25;
 
 const SEEDANCE_MODELS = {
@@ -18,18 +20,20 @@ const SEEDANCE_MODELS = {
     mini: 'bytedance/seedance-2-mini'
 };
 
+// Verified against Kie's live pricing table on 2026-08-29.
 const SEEDANCE_PRICING = {
     v2_5: {
         '480p': { noVideo: 28, withVideo: 17 },
-        '720p': { noVideo: 63, withVideo: 38 }
+        '720p': { noVideo: 63, withVideo: 38 },
+        '1080p': { noVideo: 114, withVideo: 68.5 }
     },
     fast: {
-        '480p': { noVideo: 15.5, withVideo: 9 },
-        '720p': { noVideo: 33, withVideo: 20 }
+        '480p': { noVideo: 11.7, withVideo: 6.8 },
+        '720p': { noVideo: 24.8, withVideo: 15 }
     },
     mini: {
-        '480p': { noVideo: 9.5, withVideo: 6 },
-        '720p': { noVideo: 20.5, withVideo: 12.5 }
+        '480p': { noVideo: 3.8, withVideo: 2.4 },
+        '720p': { noVideo: 8.2, withVideo: 5 }
     },
     regular: {
         '480p': { noVideo: 19, withVideo: 11.5 },
@@ -91,14 +95,6 @@ function exceedsSeedanceMediaDurationLimit(duration, limitSeconds) {
         && measuredDuration > Number(limitSeconds) + SEEDANCE_MEDIA_DURATION_TOLERANCE_SECONDS;
 }
 
-function veilpixCreditsFromUsd(usdCost) {
-    return Math.max(1, Math.ceil(usdCost / BILLABLE_USD_PER_VEILPIX_CREDIT));
-}
-
-function veilpixCreditsFromKieCredits(kieCredits) {
-    return veilpixCreditsFromUsd(Number(kieCredits || 0) * KIE_CREDIT_USD);
-}
-
 function estimateSeedanceKieCredits({
     variant = 'regular',
     resolution = '720p',
@@ -119,7 +115,7 @@ function estimateSeedanceKieCredits({
         : selectedDuration;
     const rate = hasVideoReference ? pricing.withVideo : pricing.noVideo;
 
-    return Math.ceil(rate * billableSeconds);
+    return rate * billableSeconds;
 }
 
 function estimateSeedanceVeilPixCredits(options) {

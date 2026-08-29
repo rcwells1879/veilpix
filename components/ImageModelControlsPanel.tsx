@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { formatCreditAmount } from '../src/utils/creditFormatting';
+import { veilpixCreditsFromKieCredits } from '../src/utils/creditEconomics';
 import { PhotoIcon } from './icons';
 
 export type ImageProvider = 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
@@ -45,14 +46,6 @@ interface ImageModelConfig {
   aspectRatios: RatioOption[];
   resolutions: ResolutionOption[];
 }
-
-const VEILPIX_CREDIT_USD = 0.0699;
-const TARGET_MARGIN = 0.12;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
-const KIE_CREDIT_USD = 0.005;
-const IMAGE_MINIMUM_VEILPIX_CREDITS: Partial<Record<ImageProvider, number>> = {
-  zimage: 0.1,
-};
 
 export const IMAGE_KIE_CREDIT_PRICING: Record<ImageProvider, Partial<Record<ImageResolution, number>>> = {
   nanobanana2: {
@@ -225,13 +218,6 @@ export function getImageModelResolutions(provider: ImageProvider, workflow?: Ima
   return workflowResolutions.filter((resolution) => allowed.includes(resolution.value));
 }
 
-function veilpixCreditsFromKieCredits(kieCredits: number): number {
-  const rawCredits = Math.max(0, (kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT);
-  if (rawCredits <= 0) return 0;
-  if (rawCredits < 1) return Math.ceil(rawCredits * 100) / 100;
-  return Math.ceil(rawCredits);
-}
-
 export function getImageKieCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite', imageCount = 0): number {
   const config = IMAGE_MODEL_CONFIGS[provider] ?? IMAGE_MODEL_CONFIGS.seedream;
   const availableResolutions = getImageModelResolutions(config.id, workflow, seedreamTier);
@@ -247,10 +233,9 @@ export function getImageKieCreditCost(provider: ImageProvider, resolution?: Imag
 }
 
 export function getImageCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite', imageCount = 0): number {
-  const calculatedCredits = veilpixCreditsFromKieCredits(
+  return veilpixCreditsFromKieCredits(
     getImageKieCreditCost(provider, resolution, workflow, seedreamTier, imageCount)
   );
-  return Math.max(calculatedCredits, IMAGE_MINIMUM_VEILPIX_CREDITS[provider] ?? 0);
 }
 
 export function normalizeImageGenerationOptions(options?: Partial<ImageGenerationOptions>, workflow?: ImageWorkflow): ImageGenerationOptions {

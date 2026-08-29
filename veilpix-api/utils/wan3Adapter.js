@@ -1,14 +1,16 @@
-const VEILPIX_CREDIT_USD = 6.99 / 100;
-const TARGET_MARGIN = 0.12;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
-const KIE_CREDIT_USD = 0.005;
+const {
+    BILLABLE_USD_PER_VEILPIX_CREDIT,
+    KIE_CREDIT_USD,
+    veilpixCreditsFromKieCredits
+} = require('./creditEconomics');
 
 const WAN3_MODELS = {
     standard: 'wan/3-0-video',
     prime: 'wan/3-0-video-prime'
 };
 
-// Current Kie pricing endpoint rates, in Kie credits per generated second.
+// Kie credits per billable second, verified on 2026-08-29. When a reference
+// video is supplied, both its duration and the generated duration are billed.
 const WAN3_PRICING = {
     standard: { '480P': 8, '720P': 16, '1080P': 32 },
     prime: { '480P': 12.2, '720P': 25.2, '1080P': 50.4 }
@@ -37,15 +39,20 @@ function normalizeWan3Duration(value, hasVideoReference = false) {
     return Number.isFinite(parsed) ? Math.max(minimum, Math.min(30, parsed)) : 5;
 }
 
-function veilpixCreditsFromKieCredits(kieCredits) {
-    return Math.max(1, Math.ceil((Number(kieCredits || 0) * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
-}
-
-function estimateWan3KieCredits({ variant = 'standard', resolution = '1080P', duration = 5 } = {}) {
+function estimateWan3KieCredits({
+    variant = 'standard',
+    resolution = '1080P',
+    duration = 5,
+    hasVideoReference = false,
+    referenceVideoDuration = 0
+} = {}) {
     const selectedVariant = normalizeWan3Variant(variant);
     const selectedResolution = normalizeWan3Resolution(resolution);
     const selectedDuration = Number(duration) === -1 ? 30 : Math.max(1, Number(duration) || 5);
-    return WAN3_PRICING[selectedVariant][selectedResolution] * selectedDuration;
+    const inputSeconds = hasVideoReference
+        ? Math.max(0, Math.min(15, Number(referenceVideoDuration) || 0))
+        : 0;
+    return WAN3_PRICING[selectedVariant][selectedResolution] * (selectedDuration + inputSeconds);
 }
 
 function estimateWan3VeilPixCredits(options) {
