@@ -7,7 +7,7 @@ const {
     createRateLimiter
 } = require('./rateLimiter');
 const { handleClerkWebhookEvent } = require('./clerkWebhook');
-const { isClerkUserNotFound } = require('../middleware/auth');
+const { isClerkUserBanned, isClerkUserNotFound } = require('../middleware/auth');
 
 test('rate limiter counts failed responses instead of skipping every request', () => {
     const options = buildRateLimiterOptions(15 * 60 * 1000, 20, 'Too many requests');
@@ -82,6 +82,18 @@ test('deleted Clerk users are recognized even when Clerk returns structured erro
         errors: [{ code: 'resource_not_found' }]
     }), true);
     assert.equal(isClerkUserNotFound(new Error('Clerk API timeout')), false);
+});
+
+test('banned Clerk users are recognized from Clerk state or private moderation metadata', () => {
+    assert.equal(isClerkUserBanned({ banned: true }), true);
+    assert.equal(isClerkUserBanned({
+        banned: false,
+        privateMetadata: { moderation: { status: 'banned' } }
+    }), true);
+    assert.equal(isClerkUserBanned({
+        banned: false,
+        privateMetadata: { moderation: { status: 'reviewed' } }
+    }), false);
 });
 
 test('Stripe router no longer exposes the billing meter setup endpoint', () => {

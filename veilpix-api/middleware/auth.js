@@ -8,6 +8,10 @@ function isClerkUserNotFound(error) {
     return status === 404 || errorCodes.includes('resource_not_found');
 }
 
+function isClerkUserBanned(user) {
+    return user?.banned === true || user?.privateMetadata?.moderation?.status === 'banned';
+}
+
 // Middleware to extract user from Clerk session (optional authentication)
 async function getUser(req, res, next) {
     const requestId = Math.random().toString(36).substring(7);
@@ -54,6 +58,12 @@ async function getUser(req, res, next) {
                     );
                     
                     const clerkUser = await Promise.race([clerkPromise, timeoutPromise]);
+                    if (isClerkUserBanned(clerkUser)) {
+                        console.warn(`AUTH[${requestId}]: Blocking banned Clerk user ${auth.userId}`);
+                        req.user = null;
+                        req.authFailure = 'banned_user';
+                        return next();
+                    }
                     userEmail = clerkUser.emailAddresses?.[0]?.emailAddress || userEmail;
                     clerkUserVerified = true;
                     console.log(`✅ AUTH[${requestId}]: Successfully fetched user email`);
@@ -142,6 +152,14 @@ function requireAuth(req, res, next) {
             return res.status(401).json({
                 error: 'Authentication required',
                 message: 'Please sign in to access this feature'
+            });
+        }
+
+        if (req.authFailure === 'banned_user') {
+            return res.status(403).json({
+                error: 'Account suspended',
+                message: 'This account has been suspended for violating the service rules.',
+                code: 'ACCOUNT_SUSPENDED'
             });
         }
 
@@ -251,5 +269,6 @@ module.exports = {
     requireAuth,
     requirePaymentMethod,
     requireAllowedEmail,
+    isClerkUserBanned,
     isClerkUserNotFound
 };
