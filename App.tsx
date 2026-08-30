@@ -56,7 +56,14 @@ import Composer from './components/studio/Composer';
 import ResultStage from './components/studio/ResultStage';
 import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } from './components/studio/GalleryRail';
 import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './components/studio/types';
-import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES, WAN3_REFERENCE_LIMITS } from './components/studio/videoPricing';
+import {
+  getWanMaxReferenceImages,
+  getSeedanceReferenceLimits,
+  SEEDANCE_MAX_REFERENCE_AUDIOS,
+  SEEDANCE_MAX_REFERENCE_IMAGES,
+  SEEDANCE_MAX_REFERENCE_VIDEOS,
+  WAN3_REFERENCE_LIMITS,
+} from './components/studio/videoPricing';
 import {
   clearPendingVideoReferenceImages,
   debouncedSaveWorkflow,
@@ -113,6 +120,18 @@ function getVideoDurationSeconds(source: File | string): Promise<number | null> 
     };
     video.onerror = () => finish(null);
     video.src = objectUrl || (source as string);
+  });
+}
+
+function areSameFiles(left: File[], right: File[]): boolean {
+  return left.length === right.length && left.every((file, index) => {
+    const other = right[index];
+    return file === other || (
+      file.name === other.name
+      && file.size === other.size
+      && file.type === other.type
+      && file.lastModified === other.lastModified
+    );
   });
 }
 
@@ -1840,6 +1859,78 @@ const App: React.FC = () => {
     if (!durations.some((value) => value !== null && (value < 1 || value > 15.25))) setVideoError(null);
   }, []);
 
+  const handleVideoProviderChange = useCallback((nextProvider: VideoProvider) => {
+    if (nextProvider === videoProvider) return;
+
+    if (videoProvider === 'seedance' && nextProvider === 'wan3') {
+      if (seedanceInputMode === 'frames') {
+        setWan3InputMode('frames');
+        setWan3FirstFrame(seedanceFirstFrame);
+        setWan3LastFrame(seedanceLastFrame);
+      } else {
+        setWan3InputMode('references');
+        setWan3ReferenceImages(seedanceReferenceImages.slice(0, WAN3_REFERENCE_LIMITS.images));
+        setWan3ReferenceVideoFiles(seedanceReferenceVideoFiles.slice(0, WAN3_REFERENCE_LIMITS.videos));
+        setWan3ReferenceVideoDuration(seedanceReferenceVideoDuration);
+        setWan3ReferenceAudioFiles(seedanceReferenceAudioFiles.slice(0, WAN3_REFERENCE_LIMITS.audios));
+        setWan3ReferenceAudioDuration(seedanceReferenceAudioDuration);
+      }
+    } else if (videoProvider === 'wan3' && nextProvider === 'seedance') {
+      if (wan3InputMode === 'frames') {
+        setSeedanceInputMode('frames');
+        setSeedanceFirstFrame(wan3FirstFrame);
+        setSeedanceLastFrame(wan3LastFrame);
+      } else if (wan3InputMode === 'references') {
+        setSeedanceInputMode('references');
+        const seedanceImagesWereCopiedToWan3 = areSameFiles(
+          wan3ReferenceImages,
+          seedanceReferenceImages.slice(0, WAN3_REFERENCE_LIMITS.images),
+        );
+        const seedanceVideosWereCopiedToWan3 = areSameFiles(
+          wan3ReferenceVideoFiles,
+          seedanceReferenceVideoFiles.slice(0, WAN3_REFERENCE_LIMITS.videos),
+        );
+        const seedanceAudiosWereCopiedToWan3 = areSameFiles(
+          wan3ReferenceAudioFiles,
+          seedanceReferenceAudioFiles.slice(0, WAN3_REFERENCE_LIMITS.audios),
+        );
+        if (!seedanceImagesWereCopiedToWan3) {
+          setSeedanceReferenceImages(wan3ReferenceImages.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+        }
+        if (!seedanceVideosWereCopiedToWan3) {
+          setSeedanceReferenceVideoFiles(wan3ReferenceVideoFiles.slice(0, SEEDANCE_MAX_REFERENCE_VIDEOS));
+          setSeedanceReferenceVideoUrl(null);
+        }
+        setSeedanceReferenceVideoDuration(wan3ReferenceVideoDuration);
+        if (!seedanceAudiosWereCopiedToWan3) {
+          setSeedanceReferenceAudioFiles(wan3ReferenceAudioFiles.slice(0, SEEDANCE_MAX_REFERENCE_AUDIOS));
+        }
+        setSeedanceReferenceAudioDuration(wan3ReferenceAudioDuration);
+      }
+    }
+
+    setVideoProvider(nextProvider);
+    setVideoError(null);
+  }, [
+    seedanceFirstFrame,
+    seedanceInputMode,
+    seedanceLastFrame,
+    seedanceReferenceAudioDuration,
+    seedanceReferenceAudioFiles,
+    seedanceReferenceImages,
+    seedanceReferenceVideoDuration,
+    seedanceReferenceVideoFiles,
+    videoProvider,
+    wan3FirstFrame,
+    wan3InputMode,
+    wan3LastFrame,
+    wan3ReferenceAudioDuration,
+    wan3ReferenceAudioFiles,
+    wan3ReferenceImages,
+    wan3ReferenceVideoDuration,
+    wan3ReferenceVideoFiles,
+  ]);
+
   const handleUseGeneratedVideoAsReference = useCallback(() => {
     if (!videoUrl) return;
     if (videoProvider === 'wan3') {
@@ -2516,7 +2607,7 @@ const App: React.FC = () => {
               imageCreditCost={imageActionCreditCost}
               onGenerateImage={handleGenerateImage}
               videoProvider={videoProvider}
-              onVideoProviderChange={setVideoProvider}
+              onVideoProviderChange={handleVideoProviderChange}
               onGenerateVideo={handleGenerateVideo}
               hasGeneratedVideo={Boolean(videoUrl)}
               onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
