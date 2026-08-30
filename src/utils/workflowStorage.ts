@@ -13,13 +13,15 @@ import {
 } from './videoFrameExtraction';
 
 const DB_NAME = 'veilpix-workflow';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'workflow';
 const GALLERY_STORE_NAME = 'gallery';
+const PENDING_VIDEO_INPUTS_STORE_NAME = 'pending-video-inputs';
 const WORKFLOW_KEY = 'current';
 const MAX_GALLERY_IMAGES = 20;
 const DELIVERY_RECEIPT_STORAGE_KEY = 'veilpix-media-delivery-receipts';
 const DELIVERY_RECEIPT_TTL_MS = 48 * 60 * 60 * 1000;
+const PENDING_VIDEO_INPUT_TTL_MS = 48 * 60 * 60 * 1000;
 
 type LocalDeliveryReceipts = Record<string, number>;
 
@@ -89,6 +91,8 @@ export interface GalleryImage {
   hasReferenceImage?: boolean;
   provider?: 'wan' | 'wan3' | 'seedance';
   generationId?: string;
+  wan3InputMode?: 'frames' | 'references' | 'file' | 'link';
+  wan3Variant?: 'standard' | 'prime';
   seedanceInputMode?: 'frames' | 'references';
   seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
   videoOutputFormat?: 'mp4' | 'mov';
@@ -121,6 +125,12 @@ interface StoredGalleryFile {
   lastModified?: number;
 }
 
+interface StoredPendingVideoInputs {
+  generationId: string;
+  referenceImages: StoredGalleryFile[];
+  savedAt: number;
+}
+
 export interface GalleryVideoDetails {
   videoUrl: string;
   videoFile: File | null;
@@ -128,6 +138,8 @@ export interface GalleryVideoDetails {
   referenceImages: File[];
   videoDuration?: number;
   provider?: 'wan' | 'wan3' | 'seedance';
+  wan3InputMode?: 'frames' | 'references' | 'file' | 'link';
+  wan3Variant?: 'standard' | 'prime';
   seedanceInputMode?: 'frames' | 'references';
   seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
   videoOutputFormat?: 'mp4' | 'mov';
@@ -178,6 +190,23 @@ function openDB(): Promise<IDBDatabase> {
         return;
       }
 
+      if (db.objectStoreNames.contains(PENDING_VIDEO_INPUTS_STORE_NAME)) {
+        const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readwrite');
+        const savedAtIndex = transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME).index('savedAt');
+        const expiredCursor = savedAtIndex.openCursor(
+          IDBKeyRange.upperBound(Date.now() - PENDING_VIDEO_INPUT_TTL_MS)
+        );
+        expiredCursor.onsuccess = () => {
+          const cursor = expiredCursor.result;
+          if (!cursor) return;
+          cursor.delete();
+          cursor.continue();
+        };
+        transaction.onerror = () => {
+          console.warn('Could not clean up expired pending video reference images:', transaction.error);
+        };
+      }
+
       resolve(db);
     };
 
@@ -193,6 +222,14 @@ function openDB(): Promise<IDBDatabase> {
           autoIncrement: true,
         });
         galleryStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+      // v3: Keep active video reference images in the browser so an async
+      // delivery can preserve them after a reload or suspended tab.
+      if (!db.objectStoreNames.contains(PENDING_VIDEO_INPUTS_STORE_NAME)) {
+        const pendingVideoInputsStore = db.createObjectStore(PENDING_VIDEO_INPUTS_STORE_NAME, {
+          keyPath: 'generationId',
+        });
+        pendingVideoInputsStore.createIndex('savedAt', 'savedAt', { unique: false });
       }
     };
 
@@ -591,6 +628,62 @@ function fromStoredGalleryFile(file: StoredGalleryFile, fallbackName: string): F
   });
 }
 
+/**
+ * Persist active video reference images locally until the generated video has
+ * been verified in this browser's Album. This store is never synchronized to
+ * the account delivery outbox or any server-side database.
+ */
+export async function savePendingVideoReferenceImages(
+  generationId: string,
+  referenceImages: File[],
+): Promise<void> {
+  if (!generationId) return;
+  const db = await openDB();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME);
+    store.put({
+      generationId,
+      referenceImages: referenceImages.map(toStoredGalleryFile),
+      savedAt: Date.now(),
+    } satisfies StoredPendingVideoInputs);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+export async function getPendingVideoReferenceImages(generationId: string): Promise<File[]> {
+  if (!generationId) return [];
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readonly');
+    const request = transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME).get(generationId);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const entry = request.result as StoredPendingVideoInputs | undefined;
+      resolve(entry?.referenceImages.map((file, index) => (
+        fromStoredGalleryFile(file, `pending-video-reference-${index + 1}.png`)
+      )) ?? []);
+    };
+  });
+}
+
+export async function clearPendingVideoReferenceImages(generationId: string): Promise<void> {
+  if (!generationId) return;
+  const db = await openDB();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readwrite');
+    transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME).delete(generationId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
 export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDetails | null> {
   try {
     const db = await openDB();
@@ -624,6 +717,8 @@ export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDe
           referenceImages,
           videoDuration: entry.videoDuration,
           provider: entry.provider,
+          wan3InputMode: entry.wan3InputMode,
+          wan3Variant: entry.wan3Variant,
           // Older gallery records did not persist the Seedance mode. Treat a
           // two-image legacy record as the likely first/end-frame workflow.
           seedanceInputMode: entry.seedanceInputMode
@@ -760,6 +855,8 @@ export interface SaveVideoToGalleryOptions {
   referenceVideoFile?: File | null;
   referenceVideoUrl?: string | null;
   videoDuration?: number;
+  wan3InputMode?: 'frames' | 'references' | 'file' | 'link';
+  wan3Variant?: 'standard' | 'prime';
   seedanceInputMode?: 'frames' | 'references';
   seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
   videoOutputFormat?: 'mp4' | 'mov';
@@ -782,6 +879,8 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       referenceVideoFile = null,
       referenceVideoUrl = null,
       videoDuration,
+      wan3InputMode,
+      wan3Variant,
       seedanceInputMode,
       seedanceVariant,
       videoOutputFormat = 'mp4',
@@ -839,6 +938,8 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       hasReferenceImage: storedReferenceImages.length > 0,
       provider,
       generationId,
+      wan3InputMode,
+      wan3Variant,
       seedanceInputMode,
       seedanceVariant,
       videoOutputFormat,

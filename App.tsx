@@ -58,10 +58,13 @@ import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } fro
 import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './components/studio/types';
 import { getWanMaxReferenceImages, getSeedanceReferenceLimits, SEEDANCE_MAX_REFERENCE_IMAGES, WAN3_REFERENCE_LIMITS } from './components/studio/videoPricing';
 import {
+  clearPendingVideoReferenceImages,
   debouncedSaveWorkflow,
+  getPendingVideoReferenceImages,
   hasGalleryArtifact,
   hasLocalDeliveryReceipt,
   markLocalDeliveryReceipt,
+  savePendingVideoReferenceImages,
   saveToGallery,
   saveVideoToGallery,
   type GalleryVideoDetails,
@@ -750,6 +753,9 @@ const App: React.FC = () => {
     if (pendingVideoFilesRef.current?.generationId === generationId) {
       pendingVideoFilesRef.current = null;
     }
+    void clearPendingVideoReferenceImages(generationId).catch((storageError) => {
+      console.warn('Could not clear completed video reference images from local storage:', storageError);
+    });
   }, []);
 
   const finalizeVideoGeneration = useCallback(async (
@@ -765,6 +771,14 @@ const App: React.FC = () => {
       : pendingVideoFilesRef.current?.generationId === job.id
         ? pendingVideoFilesRef.current
         : null;
+    let referenceImages = files?.referenceImages ?? [];
+    if (referenceImages.length === 0) {
+      try {
+        referenceImages = await getPendingVideoReferenceImages(job.id);
+      } catch (storageError) {
+        console.warn('Could not restore pending video reference images:', storageError);
+      }
+    }
 
     setVideoError(null);
     const finalizedVideoDuration = job.duration === -1
@@ -775,11 +789,13 @@ const App: React.FC = () => {
       videoUrl: response.videoUrl,
       generationId: job.id,
       provider: job.provider,
-      referenceImage: files?.referenceImages[0] ?? null,
-      referenceImages: files?.referenceImages ?? [],
+      referenceImage: referenceImages[0] ?? null,
+      referenceImages,
       referenceVideoFile: files?.referenceVideoFiles[0] ?? null,
       referenceVideoUrl: files?.referenceVideoUrl ?? null,
       videoDuration: finalizedVideoDuration,
+      wan3InputMode: job.provider === 'wan3' ? job.wan3InputMode : undefined,
+      wan3Variant: job.provider === 'wan3' ? job.wan3Variant : undefined,
       seedanceInputMode: job.provider === 'seedance' ? job.seedanceInputMode : undefined,
       seedanceVariant: job.provider === 'seedance' ? job.seedanceVariant : undefined,
       videoOutputFormat: job.provider === 'seedance' ? job.seedanceOutputFormat : 'mp4',
@@ -1090,20 +1106,34 @@ const App: React.FC = () => {
               : '';
             storedLocally = await saveToGallery(file, prompt, delivery.generationId);
           } else {
-            const provider = delivery.provider.includes('seedance')
+            const pendingJob = pendingVideoGeneration?.id === delivery.generationId
+              ? pendingVideoGeneration
+              : null;
+            const provider = pendingJob?.provider ?? (delivery.provider.includes('seedance')
               ? 'seedance'
               : delivery.provider.includes('wan3') || delivery.provider.includes('wan-3')
                 ? 'wan3'
-                : 'wan';
-            const prompt = pendingVideoGeneration?.id === delivery.generationId
-              ? pendingVideoGeneration.prompt
-              : '';
+                : 'wan');
+            let referenceImages: File[] = [];
+            try {
+              referenceImages = await getPendingVideoReferenceImages(delivery.generationId);
+            } catch (storageError) {
+              console.warn('Could not restore delivered video reference images:', storageError);
+            }
             storedLocally = await saveVideoToGallery({
               videoUrl: delivery.downloadUrl,
               videoFile: file,
               generationId: delivery.generationId,
               provider,
-              prompt,
+              referenceImage: referenceImages[0] ?? null,
+              referenceImages,
+              videoDuration: pendingJob && pendingJob.duration !== -1 ? pendingJob.duration : undefined,
+              wan3InputMode: provider === 'wan3' ? pendingJob?.wan3InputMode : undefined,
+              wan3Variant: provider === 'wan3' ? pendingJob?.wan3Variant : undefined,
+              seedanceInputMode: provider === 'seedance' ? pendingJob?.seedanceInputMode : undefined,
+              seedanceVariant: provider === 'seedance' ? pendingJob?.seedanceVariant : undefined,
+              videoOutputFormat: provider === 'seedance' ? pendingJob?.seedanceOutputFormat : 'mp4',
+              prompt: pendingJob?.prompt ?? '',
             });
           }
         }
@@ -1362,6 +1392,14 @@ const App: React.FC = () => {
           ? null
         : queued.referenceVideoUrl,
     };
+
+    try {
+      await savePendingVideoReferenceImages(activeJob.id, pendingFiles.referenceImages);
+    } catch (storageError) {
+      // Do not block a paid generation if browser storage is unavailable. The
+      // in-memory path can still preserve the references for this page load.
+      console.warn('Could not persist pending video reference images:', storageError);
+    }
 
     setVideoError(null);
     setError(null);
@@ -2090,18 +2128,32 @@ const App: React.FC = () => {
     setReferenceVideoFile(null);
     setReferenceVideoUrl(null);
     setReferenceVideoDuration(null);
+    setWanReferenceImages([]);
+    setWan3ReferenceImages([]);
+    setWan3ReferenceVideoFiles([]);
+    setWan3ReferenceVideoDuration(null);
+    setWan3ReferenceAudioFiles([]);
+    setWan3ReferenceAudioDuration(null);
+    setWan3ReferenceFile(null);
+    setWan3ReferenceLink('');
+    setWan3FirstFrame(null);
+    setWan3LastFrame(null);
+    setSeedanceReferenceImages([]);
     setSeedanceReferenceVideoFiles([]);
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(null);
     setSeedanceReferenceAudioFiles([]);
     setSeedanceReferenceAudioDuration(null);
     if (selectedProvider === 'wan3') {
-      setWan3InputMode('references');
-      setWan3ReferenceImages(referenceImages.slice(0, WAN3_REFERENCE_LIMITS.images));
-      setWan3FirstFrame(null);
-      setWan3LastFrame(null);
-      setWanReferenceImages([]);
-      setSeedanceReferenceImages([]);
+      const restoredInputMode = details.wan3InputMode ?? 'references';
+      setWan3InputMode(restoredInputMode);
+      setWan3FirstFrame(restoredInputMode === 'frames' ? referenceImages[0] ?? null : null);
+      setWan3LastFrame(restoredInputMode === 'frames' ? referenceImages[1] ?? null : null);
+      setWan3ReferenceImages(
+        restoredInputMode === 'references'
+          ? referenceImages.slice(0, WAN3_REFERENCE_LIMITS.images)
+          : []
+      );
     } else if (selectedProvider === 'seedance') {
       const restoredInputMode = details.seedanceInputMode ?? 'references';
       setSeedanceInputMode(restoredInputMode);
@@ -2112,12 +2164,10 @@ const App: React.FC = () => {
           ? referenceImages.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES)
           : []
       );
-      setWanReferenceImages([]);
     } else {
       setSeedanceFirstFrame(null);
       setSeedanceLastFrame(null);
       setWanReferenceImages(referenceImages.slice(0, 5));
-      setSeedanceReferenceImages([]);
     }
     if (details.videoFile) {
       showGalleryVideoResult(details.videoFile);
