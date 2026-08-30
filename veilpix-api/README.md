@@ -94,7 +94,7 @@ Video routes write the upstream name, provider task ID, and owner-scoped recover
 4. Lets each browser write and verify its own IndexedDB blob, retain a browser-local receipt, and call `POST /api/media-deliveries/:id/ack` (or the generation-ID ACK). ACK confirms ownership but does not delete the shared temporary object.
 5. Deletes the output object and delivery row at the hard 48-hour expiry. Cleanup runs when deliveries are listed and every five minutes in the API process; the usage receipt is marked expired.
 
-Closing the browser does not cancel a provider task. The browser stores pending generation metadata and short-lived delivery receipts in localStorage, recovers status through `/api/image-jobs` or `/api/video-jobs`, and polls the account outbox on return and while visible. Media blobs remain in IndexedDB, not localStorage.
+Closing the browser does not cancel a provider task. The browser submits up to three generations independently instead of holding an unsent in-memory queue, stores every pending generation record and short-lived delivery receipt in localStorage, recovers status through `/api/image-jobs` or `/api/video-jobs`, and polls the account outbox on return and while visible. Media blobs remain in IndexedDB, not localStorage.
 
 The deletion contract covers VeilPix-owned Supabase objects, not provider-side retention.
 
@@ -102,7 +102,7 @@ The deletion contract covers VeilPix-owned Supabase objects, not provider-side r
 
 - Generation routes require authentication, allowed email, sufficient credits, and route-specific rate limits.
 - Credit costs are model/workflow-specific. Use `utils/imageCreditPricing.js`, the video pricing helpers/adapters, and their tests rather than documentation constants.
-- Credit deduction uses the atomic `deduct_user_credits` RPC with hundredth-credit precision.
+- Credit deduction uses the atomic `deduct_user_credits` RPC with hundredth-credit precision. Asynchronous video routes reserve the displayed estimate before provider submission, then settle or refund the reservation when the provider reaches a terminal state.
 - After Dark maps to Kie/model NSFW flags. During the OpenRouter Seedance trial, filtered requests use OpenRouter without an `nsfw_checker` parameter, while After Dark requests stay on Kie with `nsfw_checker=false`. The frontend keeps the setting enabled for users without a credit purchase; the API does not add a second safety classifier.
 
 ## Supabase Setup

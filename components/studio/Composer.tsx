@@ -90,8 +90,8 @@ export interface ComposerProps {
   mode: StudioMode;
   onModeChange: (mode: StudioMode) => void;
   isLoading: boolean;
-  generationQueueCount: number;
-  generationQueueLimit: number;
+  activeGenerationCount: number;
+  activeGenerationLimit: number;
   prompt: string;
   onPromptChange: (value: string) => void;
   onNewSession: () => void;
@@ -199,7 +199,7 @@ const storedVideoSettings: Partial<StoredVideoSettings> = (() => {
 
 const Composer: React.FC<ComposerProps> = (props) => {
   const {
-    mode, onModeChange, isLoading, generationQueueCount, generationQueueLimit,
+    mode, onModeChange, isLoading, activeGenerationCount, activeGenerationLimit,
     prompt, onPromptChange, onNewSession,
     imageOptions, onImageOptionsChange, baseImage, onBaseImageSelect, styleImage, onStyleImageSelect,
     onOpenWebcam, retouchActive, hasHotspot, imageCreditCost, onGenerateImage,
@@ -442,7 +442,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
   };
 
   const generateDisabled = isLoading
-    || generationQueueCount >= generationQueueLimit
+    || activeGenerationCount >= activeGenerationLimit
     || !prompt.trim()
     || (mode === 'video' && videoProvider === 'wan3' && wan3InputMode === 'frames' && !wan3FirstFrame)
     || (mode === 'video' && videoProvider === 'wan3' && wan3InputMode === 'file' && !wan3ReferenceFile)
@@ -1075,15 +1075,15 @@ const Composer: React.FC<ComposerProps> = (props) => {
           </Dropdown>
         )}
 
-        {generationQueueCount > 0 && (
+        {activeGenerationCount > 0 && (
           <span className="text-[11px] font-medium text-gray-400" role="status" aria-live="polite">
-            {generationQueueCount === 1
+            {activeGenerationCount === 1
               ? '1 generation active'
-              : `${generationQueueCount} generations active or queued`}
+              : `${activeGenerationCount} generations active`}
           </span>
         )}
 
-        {/* Generate / queue — same row as the pills, pinned right */}
+        {/* Generate — same row as the pills, pinned right */}
         <button
           type="button"
           onClick={handleGenerate}
@@ -1097,7 +1097,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
             </>
           ) : (
             <>
-              {generationQueueCount > 0 ? 'Add to queue' : 'Generate'}
+              Generate
               <span className="text-[12px] font-medium opacity-60">{formatCreditAmount(creditCost)} cr</span>
             </>
           )}

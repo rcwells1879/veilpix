@@ -88,6 +88,16 @@ function creditsForCompletedVideo(state, taskData) {
     return estimatedCredits;
 }
 
+function creditSettlementForCompletedVideo(state, creditsUsed) {
+    const reservedCredits = Math.max(0, Number(state?.reservedCredits) || 0);
+    const completedCredits = Math.max(0, Number(creditsUsed) || 0);
+    return {
+        reservedCredits,
+        deductCredits: Math.round(Math.max(0, completedCredits - reservedCredits) * 100) / 100,
+        refundCredits: Math.round(Math.max(0, reservedCredits - completedCredits) * 100) / 100
+    };
+}
+
 async function getProviderTask(state) {
     if (state.provider === 'seedance' && state.upstreamProvider === 'openrouter') {
         return getOpenRouterSeedanceTask(state);
@@ -142,13 +152,20 @@ async function failPendingJob(record, state, message) {
     await cleanupProviderInputs(record, state).catch(error => {
         console.warn(`Could not clean inputs for video generation ${record.gemini_request_id}:`, error.message);
     });
-    await db.failPendingVideoGenerationJob({
+    const failed = await db.failPendingVideoGenerationJob({
         jobId: record.id,
         clerkUserId: record.clerk_user_id,
         generationId: record.gemini_request_id,
         message,
         processingTimeMs: processingTimeMs(record)
     });
+    const reservedCredits = Math.max(0, Number(state?.reservedCredits) || 0);
+    if (failed && reservedCredits > 0) {
+        const refund = await db.addUserCredits(record.clerk_user_id, reservedCredits);
+        if (!refund.success) {
+            console.error(`Could not refund ${reservedCredits} reserved credits for failed generation ${record.gemini_request_id}`);
+        }
+    }
 }
 
 async function recoverPendingKieVideoJob(record) {
@@ -197,10 +214,18 @@ async function recoverPendingKieVideoJob(record) {
         processingTimeMs: processingTimeMs(record)
     });
 
-    if (completion.updated && creditsUsed > 0) {
-        const deduction = await db.deductUserCredits(record.clerk_user_id, creditsUsed);
-        if (!deduction.success) {
-            console.error(`Could not deduct ${creditsUsed} credits for recovered generation ${record.gemini_request_id}`);
+    if (completion.updated) {
+        const settlement = creditSettlementForCompletedVideo(state, creditsUsed);
+        if (settlement.deductCredits > 0) {
+            const deduction = await db.deductUserCredits(record.clerk_user_id, settlement.deductCredits);
+            if (!deduction.success) {
+                console.error(`Could not deduct ${settlement.deductCredits} settlement credits for recovered generation ${record.gemini_request_id}`);
+            }
+        } else if (settlement.refundCredits > 0) {
+            const refund = await db.addUserCredits(record.clerk_user_id, settlement.refundCredits);
+            if (!refund.success) {
+                console.error(`Could not refund ${settlement.refundCredits} excess reserved credits for recovered generation ${record.gemini_request_id}`);
+            }
         }
     }
     await cleanupProviderInputs(record, state).catch(error => {
@@ -227,6 +252,7 @@ async function recoverPendingKieVideoJobs() {
 
 module.exports = {
     PENDING_VIDEO_JOB_TTL_MS,
+    creditSettlementForCompletedVideo,
     creditsForCompletedVideo,
     deliveryProviderForState,
     normalizeCompletedVideo,

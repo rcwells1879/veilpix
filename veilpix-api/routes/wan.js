@@ -122,6 +122,41 @@ async function checkUserCredits(req, res, next) {
     }
 }
 
+async function reserveVideoCredits(req, res) {
+    const requiredCredits = req.videoCreditCost;
+    const reservation = await db.deductUserCredits(req.user.userId, requiredCredits);
+    if (reservation.error) {
+        res.status(500).json({
+            error: 'Failed to reserve credits',
+            message: 'Please try again in a moment.'
+        });
+        return false;
+    }
+    if (!reservation.success) {
+        const currentBalance = await db.getUserCredits(req.user.userId);
+        res.status(402).json({
+            error: 'Insufficient credits',
+            message: `This video requires ${requiredCredits} credits. You have ${currentBalance.credits}.`,
+            creditsRemaining: currentBalance.credits,
+            creditsRequired: requiredCredits,
+            requiresPayment: true
+        });
+        return false;
+    }
+
+    req.videoCreditsReserved = requiredCredits;
+    const currentBalance = await db.getUserCredits(req.user.userId);
+    req.creditsInfo = { remaining: currentBalance.credits };
+    return true;
+}
+
+async function refundReservedVideoCredits(req) {
+    const reservedCredits = Math.max(0, Number(req.videoCreditsReserved) || 0);
+    if (reservedCredits <= 0) return;
+    await db.addUserCredits(req.user.userId, reservedCredits);
+    req.videoCreditsReserved = 0;
+}
+
 // Apply authentication middleware to all routes
 router.use(getUser, requireAuth, requireAllowedEmail);
 
@@ -180,6 +215,10 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         );
 
         const creditCost = req.videoCreditCost;
+        if (!await reserveVideoCredits(req, res)) {
+            if (uploadedFilename) await deleteTemporaryImage(uploadedFilename);
+            return;
+        }
         const taskResponse = await createWanTask(wanRequest);
         providerTaskId = taskResponse.data.taskId;
         pendingJob = await db.createPendingVideoGenerationJob({
@@ -191,6 +230,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
                 provider: 'wan',
                 providerTaskId,
                 estimatedCredits: creditCost,
+                reservedCredits: req.videoCreditsReserved,
                 duration: parseInt(duration),
                 cleanup: {
                     kind: 'temporary-media',
@@ -215,6 +255,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
         if (!providerTaskId && uploadedFilename) {
             await deleteTemporaryImage(uploadedFilename);
         }
+        if (!providerTaskId) await refundReservedVideoCredits(req);
 
         if (!pendingJob && generationId) {
             await db.logUsage({
@@ -323,10 +364,14 @@ router.post('/generate-reference-to-video', upload.fields([
             nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true || nsfwFilterEnabled === undefined
         });
 
+        const creditCost = req.videoCreditCost;
+        if (!await reserveVideoCredits(req, res)) {
+            for (const filename of uploadedFilenames) await deleteTemporaryImage(filename);
+            return;
+        }
         const taskResponse = await createWanTask(wanRequest, 'wan/2-7-r2v');
         providerTaskId = taskResponse.data.taskId;
 
-        const creditCost = req.videoCreditCost;
         pendingJob = await db.createPendingVideoGenerationJob({
             userId: req.user.id,
             clerkUserId: req.user.userId,
@@ -336,6 +381,7 @@ router.post('/generate-reference-to-video', upload.fields([
                 provider: 'wan',
                 providerTaskId,
                 estimatedCredits: creditCost,
+                reservedCredits: req.videoCreditsReserved,
                 duration: parseInt(duration),
                 cleanup: {
                     kind: 'temporary-media',
@@ -360,6 +406,7 @@ router.post('/generate-reference-to-video', upload.fields([
             for (const filename of uploadedFilenames) {
                 await deleteTemporaryImage(filename);
             }
+            await refundReservedVideoCredits(req);
         }
 
         if (!pendingJob && generationId) {
@@ -421,10 +468,11 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
         );
 
         // Call Wan 2.6 API for text-to-video
+        const creditCost = req.videoCreditCost;
+        if (!await reserveVideoCredits(req, res)) return;
         const taskResponse = await createWanTask(wanRequest, 'wan/2-6-text-to-video');
         providerTaskId = taskResponse.data.taskId;
 
-        const creditCost = req.videoCreditCost;
         pendingJob = await db.createPendingVideoGenerationJob({
             userId: req.user.id,
             clerkUserId: req.user.userId,
@@ -434,6 +482,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
                 provider: 'wan',
                 providerTaskId,
                 estimatedCredits: creditCost,
+                reservedCredits: req.videoCreditsReserved,
                 duration: typeof duration === 'number' ? duration : parseInt(duration),
                 cleanup: { kind: 'temporary-media', filenames: [] }
             }
@@ -451,6 +500,8 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
 
     } catch (error) {
         console.error('Error generating text-to-video with Wan:', error);
+
+        if (!providerTaskId) await refundReservedVideoCredits(req);
 
         if (!pendingJob && generationId) {
             await db.logUsage({

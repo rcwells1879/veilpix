@@ -254,10 +254,12 @@ const getGenerationErrorMessage = (error: unknown, fallbackPrefix: string): stri
 /* ------------------------------------------------------------------ */
 
 const SETTINGS_STORAGE_KEY = 'veilpix-settings';
-const PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generation';
-const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
+const PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generations';
+const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generations';
+const LEGACY_PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generation';
+const LEGACY_PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
 const GENERATION_RECOVERY_TIMEOUT_MS = 48 * 60 * 60 * 1000;
-const MAX_GENERATION_QUEUE_SIZE = 3;
+const MAX_CONCURRENT_GENERATIONS = 3;
 
 type RecoverableImageWorkflow = 'text-to-image' | 'retouch' | 'composite' | 'adjust';
 
@@ -291,7 +293,7 @@ interface PendingVideoFiles {
   referenceVideoUrl: string | null;
 }
 
-interface QueuedImageGeneration {
+interface ImageGenerationSubmission {
   kind: 'image';
   job: PendingImageGeneration;
   options: ImageGenerationOptions;
@@ -301,7 +303,7 @@ interface QueuedImageGeneration {
   nsfwFilterEnabled: boolean;
 }
 
-interface QueuedVideoGeneration {
+interface VideoGenerationSubmission {
   kind: 'video';
   job: PendingVideoGeneration;
   options: VideoGenerateOptions;
@@ -328,67 +330,91 @@ interface QueuedVideoGeneration {
   nsfwFilterEnabled: boolean;
 }
 
-type QueuedGeneration = QueuedImageGeneration | QueuedVideoGeneration;
+type GenerationSubmission = ImageGenerationSubmission | VideoGenerationSubmission;
 
-function readPendingImageGeneration(): PendingImageGeneration | null {
-  try {
-    const raw = localStorage.getItem(PENDING_IMAGE_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PendingImageGeneration>;
-    if (
-      typeof parsed.id !== 'string' ||
-      !['nanobanana2', 'seedream', 'wanimage', 'zimage'].includes(parsed.provider || '') ||
-      typeof parsed.prompt !== 'string' ||
-      !['text-to-image', 'retouch', 'composite', 'adjust'].includes(parsed.workflow || '') ||
-      typeof parsed.createdAt !== 'number'
-    ) {
-      localStorage.removeItem(PENDING_IMAGE_STORAGE_KEY);
-      return null;
-    }
-    return parsed as PendingImageGeneration;
-  } catch {
-    return null;
-  }
+function isPendingImageGeneration(value: unknown): value is PendingImageGeneration {
+  if (!value || typeof value !== 'object') return false;
+  const parsed = value as Partial<PendingImageGeneration>;
+  return (
+    typeof parsed.id === 'string' &&
+    ['nanobanana2', 'seedream', 'wanimage', 'zimage'].includes(parsed.provider || '') &&
+    typeof parsed.prompt === 'string' &&
+    ['text-to-image', 'retouch', 'composite', 'adjust'].includes(parsed.workflow || '') &&
+    typeof parsed.createdAt === 'number'
+  );
 }
 
-function storePendingImageGeneration(job: PendingImageGeneration | null): void {
+function storePendingImageGenerations(jobs: PendingImageGeneration[]): void {
   try {
-    if (job) localStorage.setItem(PENDING_IMAGE_STORAGE_KEY, JSON.stringify(job));
+    if (jobs.length > 0) localStorage.setItem(PENDING_IMAGE_STORAGE_KEY, JSON.stringify(jobs));
     else localStorage.removeItem(PENDING_IMAGE_STORAGE_KEY);
   } catch {
     // Recovery still works during this page lifetime when storage is unavailable.
   }
 }
 
-function readPendingVideoGeneration(): PendingVideoGeneration | null {
+function readPendingImageGenerations(): PendingImageGeneration[] {
   try {
-    const raw = localStorage.getItem(PENDING_VIDEO_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PendingVideoGeneration>;
-    if (
-      typeof parsed.id !== 'string' ||
-      (parsed.provider !== 'wan' && parsed.provider !== 'wan3' && parsed.provider !== 'seedance') ||
-      typeof parsed.prompt !== 'string' ||
-      typeof parsed.duration !== 'number' ||
-      typeof parsed.resolution !== 'string' ||
-      typeof parsed.ratio !== 'string' ||
-      typeof parsed.createdAt !== 'number'
-    ) {
-      localStorage.removeItem(PENDING_VIDEO_STORAGE_KEY);
-      return null;
+    const raw = localStorage.getItem(PENDING_IMAGE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter(isPendingImageGeneration);
+      localStorage.removeItem(PENDING_IMAGE_STORAGE_KEY);
     }
-    return parsed as PendingVideoGeneration;
+
+    const legacyRaw = localStorage.getItem(LEGACY_PENDING_IMAGE_STORAGE_KEY);
+    if (!legacyRaw) return [];
+    const legacy = JSON.parse(legacyRaw) as unknown;
+    localStorage.removeItem(LEGACY_PENDING_IMAGE_STORAGE_KEY);
+    if (!isPendingImageGeneration(legacy)) return [];
+    storePendingImageGenerations([legacy]);
+    return [legacy];
   } catch {
-    return null;
+    return [];
   }
 }
 
-function storePendingVideoGeneration(job: PendingVideoGeneration | null): void {
+function isPendingVideoGeneration(value: unknown): value is PendingVideoGeneration {
+  if (!value || typeof value !== 'object') return false;
+  const parsed = value as Partial<PendingVideoGeneration>;
+  return (
+    typeof parsed.id === 'string' &&
+    (parsed.provider === 'wan' || parsed.provider === 'wan3' || parsed.provider === 'seedance') &&
+    typeof parsed.prompt === 'string' &&
+    typeof parsed.duration === 'number' &&
+    typeof parsed.resolution === 'string' &&
+    typeof parsed.ratio === 'string' &&
+    typeof parsed.createdAt === 'number'
+  );
+}
+
+function storePendingVideoGenerations(jobs: PendingVideoGeneration[]): void {
   try {
-    if (job) localStorage.setItem(PENDING_VIDEO_STORAGE_KEY, JSON.stringify(job));
+    if (jobs.length > 0) localStorage.setItem(PENDING_VIDEO_STORAGE_KEY, JSON.stringify(jobs));
     else localStorage.removeItem(PENDING_VIDEO_STORAGE_KEY);
   } catch {
     // Recovery still works during this page lifetime when storage is unavailable.
+  }
+}
+
+function readPendingVideoGenerations(): PendingVideoGeneration[] {
+  try {
+    const raw = localStorage.getItem(PENDING_VIDEO_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter(isPendingVideoGeneration);
+      localStorage.removeItem(PENDING_VIDEO_STORAGE_KEY);
+    }
+
+    const legacyRaw = localStorage.getItem(LEGACY_PENDING_VIDEO_STORAGE_KEY);
+    if (!legacyRaw) return [];
+    const legacy = JSON.parse(legacyRaw) as unknown;
+    localStorage.removeItem(LEGACY_PENDING_VIDEO_STORAGE_KEY);
+    if (!isPendingVideoGeneration(legacy)) return [];
+    storePendingVideoGenerations([legacy]);
+    return [legacy];
+  } catch {
+    return [];
   }
 }
 
@@ -636,21 +662,23 @@ const App: React.FC = () => {
   const [galleryVideoFile, setGalleryVideoFile] = useState<File | null>(null);
   const galleryVideoObjectUrlRef = useRef<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
-  const [pendingImageGeneration, setPendingImageGeneration] = useState<PendingImageGeneration | null>(
-    () => readPendingImageGeneration()
+  const [pendingImageGenerations, setPendingImageGenerations] = useState<PendingImageGeneration[]>(
+    () => readPendingImageGenerations()
   );
+  const pendingImageGenerationsRef = useRef(pendingImageGenerations);
   const finalizingImageJobsRef = useRef(new Set<string>());
-  const imageRecoveryRequestInFlightRef = useRef(false);
-  const [pendingVideoGeneration, setPendingVideoGeneration] = useState<PendingVideoGeneration | null>(
-    () => readPendingVideoGeneration()
+  const imageRecoveryRequestInFlightRef = useRef(new Set<string>());
+  const [pendingVideoGenerations, setPendingVideoGenerations] = useState<PendingVideoGeneration[]>(
+    () => readPendingVideoGenerations()
   );
-  const [queuedGenerations, setQueuedGenerations] = useState<QueuedGeneration[]>([]);
-  const generationQueueRef = useRef<QueuedGeneration[]>([]);
-  const activeQueueItemRef = useRef<QueuedGeneration | null>(null);
-  const queueWorkerBusyRef = useRef(false);
-  const pendingVideoFilesRef = useRef<PendingVideoFiles | null>(null);
+  const pendingVideoGenerationsRef = useRef(pendingVideoGenerations);
+  const activeGenerationIdsRef = useRef(new Set([
+    ...pendingImageGenerations.map(job => job.id),
+    ...pendingVideoGenerations.map(job => job.id),
+  ]));
+  const pendingVideoFilesRef = useRef(new Map<string, PendingVideoFiles>());
   const finalizingVideoJobsRef = useRef(new Set<string>());
-  const recoveryRequestInFlightRef = useRef(false);
+  const recoveryRequestInFlightRef = useRef(new Set<string>());
   const deliveryRecoveryInFlightRef = useRef(false);
   const [isExtractingLastFrame, setIsExtractingLastFrame] = useState(false);
   const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
@@ -677,23 +705,21 @@ const App: React.FC = () => {
   const [wan3ReferenceFile, setWan3ReferenceFile] = useState<File | null>(null);
   const [wan3ReferenceLink, setWan3ReferenceLink] = useState('');
 
-  const activeGenerationCount = Number(Boolean(pendingImageGeneration))
-    + Number(Boolean(pendingVideoGeneration));
-  const generationQueueCount = Math.min(
-    MAX_GENERATION_QUEUE_SIZE,
-    activeGenerationCount + queuedGenerations.length,
+  const activeGenerationCount = pendingImageGenerations.length + pendingVideoGenerations.length;
+  const displayedActiveGenerationCount = Math.min(
+    MAX_CONCURRENT_GENERATIONS,
+    activeGenerationCount,
   );
   const pendingGalleryItems: PendingGalleryItem[] = [
-    ...(pendingImageGeneration
-      ? [{ id: pendingImageGeneration.id, type: 'image' as const, status: 'generating' as const }]
-      : []),
-    ...(pendingVideoGeneration
-      ? [{ id: pendingVideoGeneration.id, type: 'video' as const, status: 'generating' as const }]
-      : []),
-    ...queuedGenerations.map((generation) => ({
-      id: generation.job.id,
-      type: generation.kind,
-      status: 'queued' as const,
+    ...pendingImageGenerations.map(job => ({
+      id: job.id,
+      type: 'image' as const,
+      status: 'generating' as const,
+    })),
+    ...pendingVideoGenerations.map(job => ({
+      id: job.id,
+      type: 'video' as const,
+      status: 'generating' as const,
     })),
   ];
 
@@ -784,12 +810,12 @@ const App: React.FC = () => {
   }, [revokeGalleryVideoObjectUrl]);
 
   const clearPendingVideoJob = useCallback((generationId: string) => {
-    setPendingVideoGeneration(current => current?.id === generationId ? null : current);
-    const stored = readPendingVideoGeneration();
-    if (stored?.id === generationId) storePendingVideoGeneration(null);
-    if (pendingVideoFilesRef.current?.generationId === generationId) {
-      pendingVideoFilesRef.current = null;
-    }
+    const next = pendingVideoGenerationsRef.current.filter(job => job.id !== generationId);
+    pendingVideoGenerationsRef.current = next;
+    setPendingVideoGenerations(next);
+    storePendingVideoGenerations(next);
+    activeGenerationIdsRef.current.delete(generationId);
+    pendingVideoFilesRef.current.delete(generationId);
     void clearPendingVideoReferenceImages(generationId).catch((storageError) => {
       console.warn('Could not clear completed video reference images from local storage:', storageError);
     });
@@ -805,9 +831,7 @@ const App: React.FC = () => {
 
     const files = suppliedFiles?.generationId === job.id
       ? suppliedFiles
-      : pendingVideoFilesRef.current?.generationId === job.id
-        ? pendingVideoFilesRef.current
-        : null;
+      : pendingVideoFilesRef.current.get(job.id) ?? null;
     let referenceImages = files?.referenceImages ?? [];
     if (referenceImages.length === 0) {
       try {
@@ -858,8 +882,8 @@ const App: React.FC = () => {
   }, [clearPendingVideoJob, mediaDeliveryRecovery]);
 
   const recoverPendingVideo = useCallback(async (job: PendingVideoGeneration) => {
-    if (recoveryRequestInFlightRef.current || finalizingVideoJobsRef.current.has(job.id)) return;
-    recoveryRequestInFlightRef.current = true;
+    if (recoveryRequestInFlightRef.current.has(job.id) || finalizingVideoJobsRef.current.has(job.id)) return;
+    recoveryRequestInFlightRef.current.add(job.id);
 
     try {
       if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'video')) {
@@ -904,12 +928,12 @@ const App: React.FC = () => {
       // A status check can also be suspended on mobile. Keep the durable job
       // and try again when the page becomes visible or the timer fires.
     } finally {
-      recoveryRequestInFlightRef.current = false;
+      recoveryRequestInFlightRef.current.delete(job.id);
     }
   }, [clearPendingVideoJob, finalizeVideoGeneration, getVideoGenerationStatus]);
 
   useEffect(() => {
-    if (!pendingVideoGeneration || !isLoaded || !isSignedIn) return;
+    if (pendingVideoGenerations.length === 0 || !isLoaded || !isSignedIn) return;
 
     let timer: number | null = null;
     let disposed = false;
@@ -919,7 +943,7 @@ const App: React.FC = () => {
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(async () => {
         if (document.visibilityState === 'visible') {
-          await recoverPendingVideo(pendingVideoGeneration);
+          await Promise.allSettled(pendingVideoGenerations.map(recoverPendingVideo));
         }
         scheduleCheck();
       }, 5000);
@@ -927,7 +951,7 @@ const App: React.FC = () => {
 
     const checkNow = () => {
       if (document.visibilityState === 'visible') {
-        void recoverPendingVideo(pendingVideoGeneration);
+        for (const job of pendingVideoGenerations) void recoverPendingVideo(job);
       }
     };
 
@@ -946,7 +970,7 @@ const App: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pageshow', checkNow);
     };
-  }, [isLoaded, isSignedIn, pendingVideoGeneration, recoverPendingVideo]);
+  }, [isLoaded, isSignedIn, pendingVideoGenerations, recoverPendingVideo]);
 
   useEffect(() => {
     return () => revokeGalleryVideoObjectUrl();
@@ -993,9 +1017,11 @@ const App: React.FC = () => {
   }, [history, historyIndex, historyPrompts]);
 
   const clearPendingImageJob = useCallback((generationId: string) => {
-    setPendingImageGeneration(current => current?.id === generationId ? null : current);
-    const stored = readPendingImageGeneration();
-    if (stored?.id === generationId) storePendingImageGeneration(null);
+    const next = pendingImageGenerationsRef.current.filter(job => job.id !== generationId);
+    pendingImageGenerationsRef.current = next;
+    setPendingImageGenerations(next);
+    storePendingImageGenerations(next);
+    activeGenerationIdsRef.current.delete(generationId);
   }, []);
 
   const finalizeImageGeneration = useCallback(async (
@@ -1029,8 +1055,8 @@ const App: React.FC = () => {
   }, [clearPendingImageJob, mediaDeliveryRecovery]);
 
   const recoverPendingImage = useCallback(async (job: PendingImageGeneration) => {
-    if (imageRecoveryRequestInFlightRef.current || finalizingImageJobsRef.current.has(job.id)) return;
-    imageRecoveryRequestInFlightRef.current = true;
+    if (imageRecoveryRequestInFlightRef.current.has(job.id) || finalizingImageJobsRef.current.has(job.id)) return;
+    imageRecoveryRequestInFlightRef.current.add(job.id);
 
     try {
       if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'image')) {
@@ -1069,12 +1095,12 @@ const App: React.FC = () => {
       // Mobile browsers can suspend this status request too. Keep the job and
       // check it again when the page becomes visible or the timer fires.
     } finally {
-      imageRecoveryRequestInFlightRef.current = false;
+      imageRecoveryRequestInFlightRef.current.delete(job.id);
     }
   }, [clearPendingImageJob, finalizeImageGeneration, getImageGenerationStatus]);
 
   useEffect(() => {
-    if (!pendingImageGeneration || !isLoaded || !isSignedIn) return;
+    if (pendingImageGenerations.length === 0 || !isLoaded || !isSignedIn) return;
 
     let timer: number | null = null;
     let disposed = false;
@@ -1084,7 +1110,7 @@ const App: React.FC = () => {
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(async () => {
         if (document.visibilityState === 'visible') {
-          await recoverPendingImage(pendingImageGeneration);
+          await Promise.allSettled(pendingImageGenerations.map(recoverPendingImage));
         }
         scheduleCheck();
       }, 5000);
@@ -1092,7 +1118,7 @@ const App: React.FC = () => {
 
     const checkNow = () => {
       if (document.visibilityState === 'visible') {
-        void recoverPendingImage(pendingImageGeneration);
+        for (const job of pendingImageGenerations) void recoverPendingImage(job);
       }
     };
 
@@ -1111,7 +1137,7 @@ const App: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pageshow', checkNow);
     };
-  }, [isLoaded, isSignedIn, pendingImageGeneration, recoverPendingImage]);
+  }, [isLoaded, isSignedIn, pendingImageGenerations, recoverPendingImage]);
 
   const restorePendingMediaDeliveries = useCallback(async () => {
     if (deliveryRecoveryInFlightRef.current || !isLoaded || !isSignedIn) return;
@@ -1124,10 +1150,10 @@ const App: React.FC = () => {
         if (delivery.artifactType !== 'image' && delivery.artifactType !== 'video') continue;
 
         if (hasLocalDeliveryReceipt(delivery.generationId)) {
-          if (pendingImageGeneration?.id === delivery.generationId) {
+          if (pendingImageGenerations.some(job => job.id === delivery.generationId)) {
             clearPendingImageJob(delivery.generationId);
           }
-          if (pendingVideoGeneration?.id === delivery.generationId) {
+          if (pendingVideoGenerations.some(job => job.id === delivery.generationId)) {
             clearPendingVideoJob(delivery.generationId);
           }
           continue;
@@ -1142,15 +1168,11 @@ const App: React.FC = () => {
               delivery.fileName,
               delivery.mimeType,
             );
-            const prompt = pendingImageGeneration?.id === delivery.generationId
-              ? pendingImageGeneration.prompt
-              : '';
+            const prompt = pendingImageGenerations.find(job => job.id === delivery.generationId)?.prompt ?? '';
             storedLocally = await saveToGallery(file, prompt, delivery.generationId);
           }
         } else {
-          const pendingJob = pendingVideoGeneration?.id === delivery.generationId
-            ? pendingVideoGeneration
-            : null;
+          const pendingJob = pendingVideoGenerations.find(job => job.id === delivery.generationId) ?? null;
           const provider = pendingJob?.provider ?? (delivery.provider.includes('seedance')
             ? 'seedance'
             : delivery.provider.includes('wan3') || delivery.provider.includes('wan-3')
@@ -1201,10 +1223,10 @@ const App: React.FC = () => {
 
         markLocalDeliveryReceipt(delivery.generationId, delivery.expiresAt);
         await mediaDeliveryRecovery.acknowledge(delivery.id);
-        if (pendingImageGeneration?.id === delivery.generationId) {
+        if (pendingImageGenerations.some(job => job.id === delivery.generationId)) {
           clearPendingImageJob(delivery.generationId);
         }
-        if (pendingVideoGeneration?.id === delivery.generationId) {
+        if (pendingVideoGenerations.some(job => job.id === delivery.generationId)) {
           clearPendingVideoJob(delivery.generationId);
         }
         restoredCount += 1;
@@ -1222,8 +1244,8 @@ const App: React.FC = () => {
     isLoaded,
     isSignedIn,
     mediaDeliveryRecovery,
-    pendingImageGeneration,
-    pendingVideoGeneration,
+    pendingImageGenerations,
+    pendingVideoGenerations,
   ]);
 
   useEffect(() => {
@@ -1295,30 +1317,36 @@ const App: React.FC = () => {
     setWebcamTarget(null);
   }, [webcamTarget, handleBaseImageSelect]);
 
-  /* ---------------- background generation queue ---------------- */
-  const enqueueGeneration = useCallback((generation: QueuedGeneration): boolean => {
-    const activeQueueId = activeQueueItemRef.current?.job.id;
-    const outstandingCount = generationQueueRef.current.length
-      + Number(Boolean(activeQueueItemRef.current))
-      + Number(Boolean(pendingImageGeneration && pendingImageGeneration.id !== activeQueueId))
-      + Number(Boolean(pendingVideoGeneration && pendingVideoGeneration.id !== activeQueueId));
-
-    if (outstandingCount >= MAX_GENERATION_QUEUE_SIZE) {
-      const message = `You can have up to ${MAX_GENERATION_QUEUE_SIZE} generations active or queued at once.`;
+  /* ---------------- concurrent generation registration ---------------- */
+  const registerGeneration = useCallback((generation: GenerationSubmission): boolean => {
+    if (activeGenerationIdsRef.current.size >= MAX_CONCURRENT_GENERATIONS) {
+      const message = `You can have up to ${MAX_CONCURRENT_GENERATIONS} generations active at once.`;
       if (generation.kind === 'video') setVideoError(message);
       else setError(message);
       return false;
     }
 
-    generationQueueRef.current = [...generationQueueRef.current, generation];
-    setQueuedGenerations(generationQueueRef.current);
-    if (generation.kind === 'video') setVideoError(null);
-    else setError(null);
-    return true;
-  }, [pendingImageGeneration, pendingVideoGeneration]);
+    if (activeGenerationIdsRef.current.has(generation.job.id)) return false;
+    activeGenerationIdsRef.current.add(generation.job.id);
 
-  const executeImageGeneration = useCallback(async (queued: QueuedImageGeneration) => {
-    const activeJob: PendingImageGeneration = { ...queued.job, createdAt: Date.now() };
+    if (generation.kind === 'video') {
+      const next = [...pendingVideoGenerationsRef.current, generation.job];
+      pendingVideoGenerationsRef.current = next;
+      setPendingVideoGenerations(next);
+      storePendingVideoGenerations(next);
+      setVideoError(null);
+    } else {
+      const next = [...pendingImageGenerationsRef.current, generation.job];
+      pendingImageGenerationsRef.current = next;
+      setPendingImageGenerations(next);
+      storePendingImageGenerations(next);
+      setError(null);
+    }
+    return true;
+  }, []);
+
+  const executeImageGeneration = useCallback(async (queued: ImageGenerationSubmission) => {
+    const activeJob = queued.job;
     const { options, sourceImage, styleImage: queuedStyleImage, hotspot } = queued;
     const requestBase = {
       generationId: activeJob.id,
@@ -1332,10 +1360,6 @@ const App: React.FC = () => {
     const editableMutations = options.provider === 'zimage'
       ? null
       : editableImageMutationsByProvider[options.provider];
-
-    setError(null);
-    setPendingImageGeneration(activeJob);
-    storePendingImageGeneration(activeJob);
 
     try {
       let response: ImageGenerationResponse;
@@ -1395,7 +1419,7 @@ const App: React.FC = () => {
     recoverPendingImage,
   ]);
 
-  const executeVideoGeneration = useCallback(async (queued: QueuedVideoGeneration) => {
+  const executeVideoGeneration = useCallback(async (queued: VideoGenerationSubmission) => {
     const {
       provider,
       prompt,
@@ -1415,7 +1439,7 @@ const App: React.FC = () => {
       seedanceReturnLastFrame = false,
       seedanceOutputFormat = 'mp4',
     } = queued.options;
-    const activeJob: PendingVideoGeneration = { ...queued.job, createdAt: Date.now() };
+    const activeJob = queued.job;
     const wanHasReferenceVideo = Boolean(queued.referenceVideoFile || queued.referenceVideoUrl);
     const wanReferenceImagesForRequest = queued.wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
     const usesSeedanceFrameMode = selectedSeedanceInputMode === 'frames';
@@ -1460,9 +1484,7 @@ const App: React.FC = () => {
 
     setVideoError(null);
     setError(null);
-    pendingVideoFilesRef.current = pendingFiles;
-    setPendingVideoGeneration(activeJob);
-    storePendingVideoGeneration(activeJob);
+    pendingVideoFilesRef.current.set(activeJob.id, pendingFiles);
 
     try {
       let response: VideoGenerationResponse;
@@ -1617,7 +1639,7 @@ const App: React.FC = () => {
     }
 
     const generationId = crypto.randomUUID();
-    enqueueGeneration({
+    const generation: ImageGenerationSubmission = {
       kind: 'image',
       job: {
         id: generationId,
@@ -1631,7 +1653,8 @@ const App: React.FC = () => {
       styleImage,
       hotspot: editHotspot ? { ...editHotspot } : null,
       nsfwFilterEnabled: settings.nsfwFilterEnabled,
-    });
+    };
+    if (registerGeneration(generation)) void executeImageGeneration(generation);
   }, [
     requireAuth,
     imageGenerationOptions,
@@ -1640,7 +1663,8 @@ const App: React.FC = () => {
     editHotspot,
     styleImage,
     settings.nsfwFilterEnabled,
-    enqueueGeneration,
+    registerGeneration,
+    executeImageGeneration,
   ]);
 
   /* ---------------- video generation ---------------- */
@@ -1649,7 +1673,7 @@ const App: React.FC = () => {
 
     const generationId = crypto.randomUUID();
     const selectedSeedanceInputMode = options.seedanceInputMode ?? 'references';
-    enqueueGeneration({
+    const generation: VideoGenerationSubmission = {
       kind: 'video',
       job: {
         id: generationId,
@@ -1687,10 +1711,12 @@ const App: React.FC = () => {
       wan3ReferenceFile,
       wan3ReferenceLink,
       nsfwFilterEnabled: settings.nsfwFilterEnabled,
-    });
+    };
+    if (registerGeneration(generation)) void executeVideoGeneration(generation);
   }, [
     requireAuth,
-    enqueueGeneration,
+    registerGeneration,
+    executeVideoGeneration,
     wanReferenceImages,
     referenceVideoFile,
     referenceVideoUrl,
@@ -1712,41 +1738,6 @@ const App: React.FC = () => {
     wan3ReferenceFile,
     wan3ReferenceLink,
     settings.nsfwFilterEnabled,
-  ]);
-
-  useEffect(() => {
-    if (
-      !isLoaded
-      || !isSignedIn
-      || queueWorkerBusyRef.current
-      || pendingImageGeneration
-      || pendingVideoGeneration
-    ) return;
-
-    const next = generationQueueRef.current.shift();
-    if (!next) return;
-
-    queueWorkerBusyRef.current = true;
-    activeQueueItemRef.current = next;
-    setQueuedGenerations([...generationQueueRef.current]);
-
-    const request = next.kind === 'image'
-      ? executeImageGeneration(next)
-      : executeVideoGeneration(next);
-
-    void request.finally(() => {
-      queueWorkerBusyRef.current = false;
-      activeQueueItemRef.current = null;
-      setQueuedGenerations([...generationQueueRef.current]);
-    });
-  }, [
-    executeImageGeneration,
-    executeVideoGeneration,
-    isLoaded,
-    isSignedIn,
-    pendingImageGeneration,
-    pendingVideoGeneration,
-    queuedGenerations,
   ]);
 
   /* ---------------- video reference handlers ---------------- */
@@ -2617,8 +2608,8 @@ const App: React.FC = () => {
               mode={studioMode}
               onModeChange={handleModeChange}
               isLoading={isProcessingFile}
-              generationQueueCount={generationQueueCount}
-              generationQueueLimit={MAX_GENERATION_QUEUE_SIZE}
+              activeGenerationCount={displayedActiveGenerationCount}
+              activeGenerationLimit={MAX_CONCURRENT_GENERATIONS}
               prompt={studioMode === 'video' ? videoPrompt : imagePrompt}
               onPromptChange={studioMode === 'video' ? setVideoPrompt : setImagePrompt}
               onNewSession={handleNewSession}

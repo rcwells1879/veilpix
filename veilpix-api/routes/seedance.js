@@ -220,6 +220,7 @@ router.post('/generate-video', upload.fields([
     const uploadedFilenames = [];
     let providerTaskId = null;
     let pendingJob = null;
+    let reservedCredits = 0;
 
     try {
         if (!generationId) {
@@ -416,6 +417,24 @@ router.post('/generate-video', upload.fields([
             ? await uploadReferenceFile(lastFrameFile, req.user.userId, uploadedFilenames)
             : null;
 
+        const reservation = await db.deductUserCredits(req.user.userId, estimatedCredits);
+        if (reservation.error) {
+            throw new Error('Failed to reserve video credits');
+        }
+        if (!reservation.success) {
+            for (const filename of uploadedFilenames) await deleteTemporaryImage(filename);
+            const currentBalance = await db.getUserCredits(req.user.userId);
+            return res.status(402).json({
+                error: 'Insufficient credits',
+                message: `This Seedance video requires about ${estimatedCredits} credits. You have ${currentBalance.credits}.`,
+                creditsRemaining: currentBalance.credits,
+                creditsRequired: estimatedCredits,
+                requiresPayment: true
+            });
+        }
+        reservedCredits = estimatedCredits;
+        const reservedBalance = await db.getUserCredits(req.user.userId);
+
         const commonProviderOptions = {
             variant: selectedVariant,
             duration: selectedDuration,
@@ -452,6 +471,7 @@ router.post('/generate-video', upload.fields([
                 providerTaskId,
                 providerPollingUrl: providerTask.pollingUrl,
                 estimatedCredits,
+                reservedCredits,
                 duration: selectedDuration,
                 cleanup: {
                     kind: 'temporary-media',
@@ -481,7 +501,7 @@ router.post('/generate-video', upload.fields([
             outputFormat: selectedVariant === 'v2_5' ? outputFormat : 'mp4',
             processingTime: Date.now() - startTime,
             creditsUsed: estimatedCredits,
-            creditsRemaining: req.creditsInfo?.remaining ?? credits
+            creditsRemaining: reservedBalance.credits
         });
     } catch (error) {
         console.error('Error generating video with Seedance:', error);
@@ -489,6 +509,10 @@ router.post('/generate-video', upload.fields([
         if (!providerTaskId) {
             for (const filename of uploadedFilenames) {
                 await deleteTemporaryImage(filename);
+            }
+            if (reservedCredits > 0) {
+                await db.addUserCredits(req.user.userId, reservedCredits).catch(() => {});
+                reservedCredits = 0;
             }
         }
 

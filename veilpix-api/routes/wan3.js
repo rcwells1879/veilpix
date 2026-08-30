@@ -86,6 +86,7 @@ router.post('/generate-video', async (req, res) => {
     const objectPaths = allUploads.map(upload => upload.objectPath);
     let providerTaskId = null;
     let pendingJob = null;
+    let reservedCredits = 0;
 
     try {
         if (!WAN_API_KEY) return res.status(500).json({ error: 'Wan 3.0 API key is not configured' });
@@ -132,6 +133,24 @@ router.post('/generate-video', async (req, res) => {
             });
         }
 
+        const reservation = await db.deductUserCredits(req.user.userId, estimatedCredits);
+        if (reservation.error) throw new Error('Failed to reserve video credits');
+        if (!reservation.success) {
+            if (objectPaths.length) {
+                await deleteProviderInputs(req.user.userId, objectPaths).catch(() => {});
+            }
+            const currentBalance = await db.getUserCredits(req.user.userId);
+            return res.status(402).json({
+                error: 'Insufficient credits',
+                message: `This Wan 3.0 video requires about ${estimatedCredits} credits. You have ${currentBalance.credits}.`,
+                creditsRemaining: currentBalance.credits,
+                creditsRequired: estimatedCredits,
+                requiresPayment: true
+            });
+        }
+        reservedCredits = estimatedCredits;
+        const reservedBalance = await db.getUserCredits(req.user.userId);
+
         const kieUrls = allUploads.map(upload => createProviderInputRelayUrl(req.user.userId, upload));
         const copiedUrl = upload => upload ? kieUrls[allUploads.indexOf(upload)] : null;
         const copiedUrls = values => (values || []).map(copiedUrl);
@@ -172,6 +191,7 @@ router.post('/generate-video', async (req, res) => {
                 variant,
                 providerTaskId,
                 estimatedCredits,
+                reservedCredits,
                 duration,
                 cleanup: {
                     kind: 'provider-input',
@@ -198,12 +218,16 @@ router.post('/generate-video', async (req, res) => {
             outputFormat: 'mp4',
             processingTime: Date.now() - startTime,
             creditsUsed: estimatedCredits,
-            creditsRemaining: credits
+            creditsRemaining: reservedBalance.credits
         });
     } catch (error) {
         console.error('Wan 3.0 generation error:', error);
         if (!providerTaskId && objectPaths.length) {
             await deleteProviderInputs(req.user.userId, objectPaths).catch(() => {});
+        }
+        if (!providerTaskId && reservedCredits > 0) {
+            await db.addUserCredits(req.user.userId, reservedCredits).catch(() => {});
+            reservedCredits = 0;
         }
         if (!pendingJob && generationId) {
             await db.logUsage({

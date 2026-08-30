@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     PENDING_VIDEO_JOB_TTL_MS,
+    creditSettlementForCompletedVideo,
     creditsForCompletedVideo,
     deliveryProviderForState,
     normalizeCompletedVideo,
@@ -83,4 +84,30 @@ test('does not increase the displayed OpenRouter charge when provider cost is hi
         usage: { cost: 0.1345 }
     });
     assert.equal(credits, 1.55);
+});
+
+test('settles completed videos against credits reserved during concurrent submission', () => {
+    assert.deepEqual(creditSettlementForCompletedVideo({ reservedCredits: 7 }, 7), {
+        reservedCredits: 7,
+        deductCredits: 0,
+        refundCredits: 0
+    });
+    assert.deepEqual(creditSettlementForCompletedVideo({ reservedCredits: 7 }, 8.25), {
+        reservedCredits: 7,
+        deductCredits: 1.25,
+        refundCredits: 0
+    });
+    assert.deepEqual(creditSettlementForCompletedVideo({ reservedCredits: 7 }, 6.4), {
+        reservedCredits: 7,
+        deductCredits: 0,
+        refundCredits: 0.6
+    });
+});
+
+test('keeps legacy pending videos on completion-time deduction', () => {
+    assert.deepEqual(creditSettlementForCompletedVideo({}, 4.2), {
+        reservedCredits: 0,
+        deductCredits: 4.2,
+        refundCredits: 0
+    });
 });
