@@ -62,6 +62,7 @@ import {
   debouncedSaveWorkflow,
   getPendingVideoReferenceImages,
   hasGalleryArtifact,
+  hasGalleryVideoReferences,
   hasLocalDeliveryReceipt,
   markLocalDeliveryReceipt,
   savePendingVideoReferenceImages,
@@ -801,9 +802,13 @@ const App: React.FC = () => {
       videoOutputFormat: job.provider === 'seedance' ? job.seedanceOutputFormat : 'mp4',
       prompt: job.prompt,
     });
-    if (!savedLocally || !await hasGalleryArtifact(job.id, 'video')) {
+    if (
+      !savedLocally
+      || !await hasGalleryArtifact(job.id, 'video')
+      || !await hasGalleryVideoReferences(job.id, referenceImages.length)
+    ) {
       finalizingVideoJobsRef.current.delete(job.id);
-      throw new Error('The video finished, but VeilPix could not verify it in this browser\'s Album.');
+      throw new Error('The video finished, but VeilPix could not verify its video and references in this browser\'s Album.');
     }
     markLocalDeliveryReceipt(job.id);
     try {
@@ -1093,53 +1098,67 @@ const App: React.FC = () => {
         }
 
         let storedLocally = await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
-        if (!storedLocally) {
-          const file = await downloadDeliveryFile(
-            delivery.downloadUrl,
-            delivery.fileName,
-            delivery.mimeType,
-          );
-
-          if (delivery.artifactType === 'image') {
+        let expectedVideoReferenceCount = 0;
+        if (delivery.artifactType === 'image') {
+          if (!storedLocally) {
+            const file = await downloadDeliveryFile(
+              delivery.downloadUrl,
+              delivery.fileName,
+              delivery.mimeType,
+            );
             const prompt = pendingImageGeneration?.id === delivery.generationId
               ? pendingImageGeneration.prompt
               : '';
             storedLocally = await saveToGallery(file, prompt, delivery.generationId);
-          } else {
-            const pendingJob = pendingVideoGeneration?.id === delivery.generationId
-              ? pendingVideoGeneration
-              : null;
-            const provider = pendingJob?.provider ?? (delivery.provider.includes('seedance')
-              ? 'seedance'
-              : delivery.provider.includes('wan3') || delivery.provider.includes('wan-3')
-                ? 'wan3'
-                : 'wan');
-            let referenceImages: File[] = [];
-            try {
-              referenceImages = await getPendingVideoReferenceImages(delivery.generationId);
-            } catch (storageError) {
-              console.warn('Could not restore delivered video reference images:', storageError);
-            }
-            storedLocally = await saveVideoToGallery({
-              videoUrl: delivery.downloadUrl,
-              videoFile: file,
-              generationId: delivery.generationId,
-              provider,
-              referenceImage: referenceImages[0] ?? null,
-              referenceImages,
-              videoDuration: pendingJob && pendingJob.duration !== -1 ? pendingJob.duration : undefined,
-              wan3InputMode: provider === 'wan3' ? pendingJob?.wan3InputMode : undefined,
-              wan3Variant: provider === 'wan3' ? pendingJob?.wan3Variant : undefined,
-              seedanceInputMode: provider === 'seedance' ? pendingJob?.seedanceInputMode : undefined,
-              seedanceVariant: provider === 'seedance' ? pendingJob?.seedanceVariant : undefined,
-              videoOutputFormat: provider === 'seedance' ? pendingJob?.seedanceOutputFormat : 'mp4',
-              prompt: pendingJob?.prompt ?? '',
-            });
           }
+        } else {
+          const pendingJob = pendingVideoGeneration?.id === delivery.generationId
+            ? pendingVideoGeneration
+            : null;
+          const provider = pendingJob?.provider ?? (delivery.provider.includes('seedance')
+            ? 'seedance'
+            : delivery.provider.includes('wan3') || delivery.provider.includes('wan-3')
+              ? 'wan3'
+              : 'wan');
+          let referenceImages: File[] = [];
+          try {
+            referenceImages = await getPendingVideoReferenceImages(delivery.generationId);
+          } catch (storageError) {
+            console.warn('Could not restore delivered video reference images:', storageError);
+          }
+          expectedVideoReferenceCount = referenceImages.length;
+          const file = storedLocally
+            ? null
+            : await downloadDeliveryFile(
+              delivery.downloadUrl,
+              delivery.fileName,
+              delivery.mimeType,
+            );
+
+          // Always call the video saver. If another recovery path already put
+          // the output in the Album, this merges the reusable prompt/reference
+          // context into that record without downloading the video again.
+          storedLocally = await saveVideoToGallery({
+            videoUrl: delivery.downloadUrl,
+            videoFile: file,
+            generationId: delivery.generationId,
+            provider,
+            referenceImage: referenceImages[0] ?? null,
+            referenceImages,
+            videoDuration: pendingJob && pendingJob.duration !== -1 ? pendingJob.duration : undefined,
+            wan3InputMode: provider === 'wan3' ? pendingJob?.wan3InputMode : undefined,
+            wan3Variant: provider === 'wan3' ? pendingJob?.wan3Variant : undefined,
+            seedanceInputMode: provider === 'seedance' ? pendingJob?.seedanceInputMode : undefined,
+            seedanceVariant: provider === 'seedance' ? pendingJob?.seedanceVariant : undefined,
+            videoOutputFormat: provider === 'seedance' ? pendingJob?.seedanceOutputFormat : 'mp4',
+            prompt: pendingJob?.prompt ?? '',
+          });
         }
 
         const verified = storedLocally
-          && await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
+          && await hasGalleryArtifact(delivery.generationId, delivery.artifactType)
+          && (delivery.artifactType !== 'video'
+            || await hasGalleryVideoReferences(delivery.generationId, expectedVideoReferenceCount));
         if (!verified) continue;
 
         markLocalDeliveryReceipt(delivery.generationId, delivery.expiresAt);
