@@ -17,10 +17,16 @@ export function getGalleryVideoDragId(dataTransfer: DataTransfer): number | null
 }
 
 const IMAGE_FILE_EXTENSION = /\.(avif|gif|heic|heif|jpe?g|png|webp)$/i;
+const HEIC_FILE_EXTENSION = /\.(heic|heif)$/i;
+const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 const VIDEO_FILE_EXTENSION = /\.(m4v|mkv|mov|mp4|webm)$/i;
 
 export function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || IMAGE_FILE_EXTENSION.test(file.name);
+}
+
+function isLikelyHEICFile(file: File): boolean {
+  return HEIC_MIME_TYPES.has(file.type.toLowerCase()) || HEIC_FILE_EXTENSION.test(file.name);
 }
 
 export function isVideoFile(file: File): boolean {
@@ -145,6 +151,12 @@ export async function prepareImageFiles(files: File[]): Promise<File[]> {
   const imageFiles = files.filter(isImageFile);
   if (imageFiles.length === 0) return [];
 
+  // Album images and normal browser uploads are already provider-ready. Avoid
+  // fetching the optional HEIC conversion chunk unless a file may need it.
+  if (!imageFiles.some(isLikelyHEICFile)) return imageFiles;
+
   const { processFileForUpload } = await import('./heicConverter');
-  return Promise.all(imageFiles.map(processFileForUpload));
+  return Promise.all(imageFiles.map((file) => (
+    isLikelyHEICFile(file) ? processFileForUpload(file) : file
+  )));
 }
