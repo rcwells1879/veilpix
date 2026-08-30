@@ -55,5 +55,16 @@ test('reconciles OpenRouter Seedance billing against settled USD cost', () => {
     }, {
         usage: { cost: 0.1512 }
     });
-    assert.equal(credits, veilpixCreditsFromUsd(0.1512));
+    assert.equal(credits, Math.min(veilpixCreditsFromUsd(0.1512), 30));
+});
+
+test('never charges more than the Seedance amount displayed when an OpenRouter job started', () => {
+    const credits = creditsForCompletedVideo({
+        provider: 'seedance',
+        upstreamProvider: 'openrouter',
+        estimatedCredits: 1.55
+    }, {
+        usage: { cost: 0.1345 }
+    });
+    assert.equal(credits, 1.55);
 });

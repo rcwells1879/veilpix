@@ -77,6 +77,12 @@ function creditsForCompletedVideo(state, taskData) {
         const settledCredits = Number.isFinite(providerUsd) && providerUsd > 0
             ? veilpixCreditsFromUsd(providerUsd)
             : 0;
+        // The trial UI still displays the existing Seedance estimate. Never
+        // settle above that amount; OpenRouter may charge less, but users must
+        // not be charged more than the amount shown when they clicked Generate.
+        if (settledCredits > 0 && estimatedCredits > 0) {
+            return Math.min(settledCredits, estimatedCredits);
+        }
         return settledCredits > 0 ? settledCredits : estimatedCredits;
     }
     const providerKieCredits = Number(taskData.creditsConsumed);

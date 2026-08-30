@@ -43,7 +43,7 @@ FRONTEND_URL=http://127.0.0.1:5173
 
 `KIE_API_KEY` and `KIE_API_BASE_URL` may override the legacy-named Kie credentials for Seedance. Relay base URLs and TTLs have production defaults. Never commit real credentials.
 
-To trial Seedance through OpenRouter, set `SEEDANCE_PROVIDER=openrouter` and `OPENROUTER_API_KEY` in the server environment. `OPENROUTER_API_BASE_URL` defaults to `https://openrouter.ai`. Kie remains the default and continues serving the other Kie-backed routes. The OpenRouter trial deliberately omits `nsfw_checker` because OpenRouter does not document it as a supported Seedance passthrough parameter.
+To trial Seedance through OpenRouter, set `SEEDANCE_PROVIDER=openrouter` and `OPENROUTER_API_KEY` in the server environment. `OPENROUTER_API_BASE_URL` defaults to `https://openrouter.ai`. Kie remains the default and continues serving the other Kie-backed routes. The OpenRouter trial deliberately omits `nsfw_checker` because OpenRouter does not document it as a supported Seedance passthrough parameter. Completed jobs settle against OpenRouter's reported USD cost but are capped at the credit estimate displayed when the job started, so a user is never charged more than the visible trial price.
 
 ## Current Routes
 
