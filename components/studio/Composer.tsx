@@ -6,7 +6,7 @@
  * real time to the selected model, for both image and video workflows.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { formatCreditAmount } from '../../src/utils/creditFormatting';
 import { getSubmittedPrompt } from '../../src/utils/promptSubmission';
 import {
@@ -54,7 +54,7 @@ import {
   getWan3CreditCost,
   clampWan3Duration,
 } from './videoPricing';
-import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './types';
+import type { StudioMode, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions, VideoModelRestoreRequest } from './types';
 
 /* ------------------------------------------------------------------ */
 
@@ -112,6 +112,7 @@ export interface ComposerProps {
   /* video workflow */
   videoProvider: VideoProvider;
   onVideoProviderChange: (provider: VideoProvider) => void;
+  videoModelRestoreRequest: VideoModelRestoreRequest | null;
   onGenerateVideo: (options: VideoGenerateOptions) => void;
   hasGeneratedVideo: boolean;
   onUseGeneratedVideoAsReference: () => void;
@@ -202,7 +203,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
     prompt, onPromptChange, onNewSession,
     imageOptions, onImageOptionsChange, baseImage, onBaseImageSelect, styleImage, onStyleImageSelect,
     onOpenWebcam, retouchActive, hasHotspot, imageCreditCost, onGenerateImage,
-    videoProvider, onVideoProviderChange, onGenerateVideo, hasGeneratedVideo, onUseGeneratedVideoAsReference,
+    videoProvider, onVideoProviderChange, videoModelRestoreRequest, onGenerateVideo, hasGeneratedVideo, onUseGeneratedVideoAsReference,
     wanReferenceImages, onWanReferenceImagesChange, referenceVideoFile, referenceVideoUrl, onReferenceVideoSelect,
     wan3InputMode, onWan3InputModeChange, wan3FirstFrame, onWan3FirstFrameSelect, wan3LastFrame, onWan3LastFrameSelect,
     wan3ReferenceImages, onWan3ReferenceImagesChange, wan3ReferenceVideoFiles, onWan3ReferenceVideosChange,
@@ -243,6 +244,19 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const [seedanceOutputFormat, setSeedanceOutputFormat] = useState<SeedanceOutputFormat>(
     storedVideoSettings.seedanceOutputFormat === 'mov' ? 'mov' : 'mp4'
   );
+
+  // Album selection restores the exact model variant used by that video. A
+  // layout effect prevents the selector from briefly showing the last-used
+  // variant (for example Mini) before changing to the saved one (Fast).
+  useLayoutEffect(() => {
+    if (!videoModelRestoreRequest) return;
+    if (videoModelRestoreRequest.provider === 'seedance' && videoModelRestoreRequest.seedanceVariant) {
+      setSeedanceVariant(videoModelRestoreRequest.seedanceVariant);
+    }
+    if (videoModelRestoreRequest.provider === 'wan3' && videoModelRestoreRequest.wan3Variant) {
+      setWan3Variant(videoModelRestoreRequest.wan3Variant);
+    }
+  }, [videoModelRestoreRequest]);
 
   /* --------------------------- derived: image --------------------------- */
   const imageSupportsReferences = imageProviderSupportsReferences(imageOptions.provider);

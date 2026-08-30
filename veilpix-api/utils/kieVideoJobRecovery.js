@@ -132,6 +132,12 @@ function processingTimeMs(record) {
     return Number.isFinite(createdAt) ? Math.max(0, Date.now() - createdAt) : 0;
 }
 
+function deliveryProviderForState(state, fallbackRequestType) {
+    return state?.provider && state?.variant
+        ? `${state.provider}-${state.variant}`
+        : fallbackRequestType;
+}
+
 async function failPendingJob(record, state, message) {
     await cleanupProviderInputs(record, state).catch(error => {
         console.warn(`Could not clean inputs for video generation ${record.gemini_request_id}:`, error.message);
@@ -184,6 +190,7 @@ async function recoverPendingKieVideoJob(record) {
         clerkUserId: record.clerk_user_id,
         generationId: record.gemini_request_id,
         requestType: record.request_type,
+        deliveryProvider: deliveryProviderForState(state, record.request_type),
         sourceUrl: normalized.videoUrl,
         sourceHeaders: normalized.sourceHeaders,
         creditsUsed,
@@ -221,6 +228,7 @@ async function recoverPendingKieVideoJobs() {
 module.exports = {
     PENDING_VIDEO_JOB_TTL_MS,
     creditsForCompletedVideo,
+    deliveryProviderForState,
     normalizeCompletedVideo,
     providerFailureMessage,
     queuePendingKieVideoJob,

@@ -169,6 +169,7 @@ router.post('/generate-video', async (req, res) => {
             generationId,
             providerState: {
                 provider: 'wan3',
+                variant,
                 providerTaskId,
                 estimatedCredits,
                 duration,

@@ -447,6 +447,7 @@ router.post('/generate-video', upload.fields([
             generationId,
             providerState: {
                 provider: 'seedance',
+                variant: selectedVariant,
                 upstreamProvider,
                 providerTaskId,
                 providerPollingUrl: providerTask.pollingUrl,

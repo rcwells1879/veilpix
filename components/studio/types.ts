@@ -14,6 +14,13 @@ export type SeedanceOutputFormat = 'mp4' | 'mov';
 export type Wan3Variant = 'standard' | 'prime';
 export type Wan3InputMode = 'frames' | 'references' | 'file' | 'link';
 
+export interface VideoModelRestoreRequest {
+  revision: number;
+  provider: VideoProvider;
+  seedanceVariant?: SeedanceVariant;
+  wan3Variant?: Wan3Variant;
+}
+
 export type StageTool = 'none' | 'retouch' | 'crop';
 
 export interface VideoGenerateOptions {

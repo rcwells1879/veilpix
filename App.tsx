@@ -55,7 +55,7 @@ import {
 import Composer from './components/studio/Composer';
 import ResultStage from './components/studio/ResultStage';
 import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } from './components/studio/GalleryRail';
-import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions } from './components/studio/types';
+import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions, VideoModelRestoreRequest } from './components/studio/types';
 import {
   getWanMaxReferenceImages,
   getSeedanceReferenceLimits,
@@ -133,6 +133,22 @@ function areSameFiles(left: File[], right: File[]): boolean {
       && file.lastModified === other.lastModified
     );
   });
+}
+
+function seedanceVariantFromDeliveryProvider(provider: string): SeedanceVariant | undefined {
+  const normalized = provider.toLowerCase();
+  if (normalized.includes('seedance-v2-5')) return 'v2_5';
+  if (normalized.includes('seedance-regular')) return 'regular';
+  if (normalized.includes('seedance-fast')) return 'fast';
+  if (normalized.includes('seedance-mini')) return 'mini';
+  return undefined;
+}
+
+function wan3VariantFromDeliveryProvider(provider: string): Wan3Variant | undefined {
+  const normalized = provider.toLowerCase();
+  if (normalized.includes('wan3-prime')) return 'prime';
+  if (normalized.includes('wan3-standard')) return 'standard';
+  return undefined;
 }
 
 const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -607,6 +623,7 @@ const App: React.FC = () => {
     } catch { /* storage unavailable */ }
     return 'seedance';
   });
+  const [videoModelRestoreRequest, setVideoModelRestoreRequest] = useState<VideoModelRestoreRequest | null>(null);
 
   useEffect(() => {
     try {
@@ -1139,6 +1156,8 @@ const App: React.FC = () => {
             : delivery.provider.includes('wan3') || delivery.provider.includes('wan-3')
               ? 'wan3'
               : 'wan');
+          const deliveredSeedanceVariant = seedanceVariantFromDeliveryProvider(delivery.provider);
+          const deliveredWan3Variant = wan3VariantFromDeliveryProvider(delivery.provider);
           let referenceImages: File[] = [];
           try {
             referenceImages = await getPendingVideoReferenceImages(delivery.generationId);
@@ -1166,9 +1185,9 @@ const App: React.FC = () => {
             referenceImages,
             videoDuration: pendingJob && pendingJob.duration !== -1 ? pendingJob.duration : undefined,
             wan3InputMode: provider === 'wan3' ? pendingJob?.wan3InputMode : undefined,
-            wan3Variant: provider === 'wan3' ? pendingJob?.wan3Variant : undefined,
+            wan3Variant: provider === 'wan3' ? pendingJob?.wan3Variant ?? deliveredWan3Variant : undefined,
             seedanceInputMode: provider === 'seedance' ? pendingJob?.seedanceInputMode : undefined,
-            seedanceVariant: provider === 'seedance' ? pendingJob?.seedanceVariant : undefined,
+            seedanceVariant: provider === 'seedance' ? pendingJob?.seedanceVariant ?? deliveredSeedanceVariant : undefined,
             videoOutputFormat: provider === 'seedance' ? pendingJob?.seedanceOutputFormat : 'mp4',
             prompt: pendingJob?.prompt ?? '',
           });
@@ -1860,6 +1879,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleVideoProviderChange = useCallback((nextProvider: VideoProvider) => {
+    // A manual model choice supersedes any one-shot Album restoration request.
+    setVideoModelRestoreRequest(null);
     if (nextProvider === videoProvider) return;
 
     if (videoProvider === 'seedance' && nextProvider === 'wan3') {
@@ -2232,6 +2253,12 @@ const App: React.FC = () => {
 
     setStudioMode('video');
     setVideoProvider(selectedProvider);
+    setVideoModelRestoreRequest(current => ({
+      revision: (current?.revision ?? 0) + 1,
+      provider: selectedProvider,
+      seedanceVariant: selectedProvider === 'seedance' ? details.seedanceVariant : undefined,
+      wan3Variant: selectedProvider === 'wan3' ? details.wan3Variant : undefined,
+    }));
     setVideoPrompt(details.prompt);
     setVideoOutputFormat(details.videoOutputFormat ?? 'mp4');
     setVideoLastFrameUrl(null);
@@ -2608,6 +2635,7 @@ const App: React.FC = () => {
               onGenerateImage={handleGenerateImage}
               videoProvider={videoProvider}
               onVideoProviderChange={handleVideoProviderChange}
+              videoModelRestoreRequest={videoModelRestoreRequest}
               onGenerateVideo={handleGenerateVideo}
               hasGeneratedVideo={Boolean(videoUrl)}
               onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}

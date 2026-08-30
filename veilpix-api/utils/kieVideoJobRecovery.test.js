@@ -3,12 +3,19 @@ const assert = require('node:assert/strict');
 const {
     PENDING_VIDEO_JOB_TTL_MS,
     creditsForCompletedVideo,
+    deliveryProviderForState,
     normalizeCompletedVideo,
     providerFailureMessage
 } = require('./kieVideoJobRecovery');
 
 test('keeps provider jobs recoverable for 48 hours', () => {
     assert.equal(PENDING_VIDEO_JOB_TTL_MS, 48 * 60 * 60 * 1000);
+});
+
+test('carries exact video variants into cross-browser delivery metadata', () => {
+    assert.equal(deliveryProviderForState({ provider: 'seedance', variant: 'fast' }, 'seedance-video'), 'seedance-fast');
+    assert.equal(deliveryProviderForState({ provider: 'wan3', variant: 'prime' }, 'wan3-video'), 'wan3-prime');
+    assert.equal(deliveryProviderForState({ provider: 'seedance' }, 'seedance-video'), 'seedance-video');
 });
 
 test('normalizes completed video results from every Kie video provider', () => {

@@ -438,6 +438,7 @@ const db = {
         clerkUserId,
         generationId,
         requestType,
+        deliveryProvider = requestType,
         sourceUrl,
         sourceHeaders,
         creditsUsed,
@@ -448,7 +449,7 @@ const db = {
             clerkUserId,
             generationId,
             artifactType: 'video',
-            provider: requestType,
+            provider: deliveryProvider,
             sourceUrl,
             sourceHeaders
         });
