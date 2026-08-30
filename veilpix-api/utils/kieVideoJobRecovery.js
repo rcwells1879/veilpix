@@ -1,5 +1,5 @@
 const { db } = require('./database');
-const { veilpixCreditsFromKieCredits, veilpixCreditsFromUsd } = require('./creditEconomics');
+const { veilpixCreditsFromKieCredits } = require('./creditEconomics');
 const { deleteTemporaryImage } = require('./imageUpload');
 const { deleteProviderInputs } = require('./providerInput');
 const {
@@ -73,17 +73,10 @@ function normalizeCompletedVideo(provider, taskData, upstreamProvider = 'kie') {
 function creditsForCompletedVideo(state, taskData) {
     const estimatedCredits = Math.max(0, Number(state.estimatedCredits) || 0);
     if (state.provider === 'seedance' && state.upstreamProvider === 'openrouter') {
-        const providerUsd = Number(taskData?.usage?.cost);
-        const settledCredits = Number.isFinite(providerUsd) && providerUsd > 0
-            ? veilpixCreditsFromUsd(providerUsd)
-            : 0;
-        // The trial UI still displays the existing Seedance estimate. Never
-        // settle above that amount; OpenRouter may charge less, but users must
-        // not be charged more than the amount shown when they clicked Generate.
-        if (settledCredits > 0 && estimatedCredits > 0) {
-            return Math.min(settledCredits, estimatedCredits);
-        }
-        return settledCredits > 0 ? settledCredits : estimatedCredits;
+        // Keep OpenRouter on the same Kie-baseline price displayed before the
+        // generation starts. Provider savings help fund complimentary credits
+        // and operating costs instead of changing the user price at settlement.
+        return estimatedCredits;
     }
     const providerKieCredits = Number(taskData.creditsConsumed);
     const hasProviderCredits = Number.isFinite(providerKieCredits) && providerKieCredits > 0;

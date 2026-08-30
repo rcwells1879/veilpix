@@ -5,7 +5,6 @@ const {
     creditsForCompletedVideo,
     normalizeCompletedVideo
 } = require('./kieVideoJobRecovery');
-const { veilpixCreditsFromUsd } = require('./creditEconomics');
 
 test('keeps provider jobs recoverable for 48 hours', () => {
     assert.equal(PENDING_VIDEO_JOB_TTL_MS, 48 * 60 * 60 * 1000);
@@ -47,18 +46,18 @@ test('reconciles every video provider against the settled Kie charge', () => {
     assert.equal(seedanceCredits, 10.19);
 });
 
-test('reconciles OpenRouter Seedance billing against settled USD cost', () => {
+test('keeps OpenRouter Seedance billing at the displayed Kie-baseline estimate', () => {
     const credits = creditsForCompletedVideo({
         provider: 'seedance',
         upstreamProvider: 'openrouter',
-        estimatedCredits: 30
+        estimatedCredits: 1.55
     }, {
-        usage: { cost: 0.1512 }
+        usage: { cost: 0.0568 }
     });
-    assert.equal(credits, Math.min(veilpixCreditsFromUsd(0.1512), 30));
+    assert.equal(credits, 1.55);
 });
 
-test('never charges more than the Seedance amount displayed when an OpenRouter job started', () => {
+test('does not increase the displayed OpenRouter charge when provider cost is higher', () => {
     const credits = creditsForCompletedVideo({
         provider: 'seedance',
         upstreamProvider: 'openrouter',
