@@ -97,6 +97,12 @@ export interface GalleryImage {
   seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
   videoOutputFormat?: 'mp4' | 'mov';
   referenceImages?: StoredGalleryFile[];
+  imageProvider?: 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
+  imageResolution?: '1K' | '2K' | '4K';
+  imageAspectRatio?: string;
+  imageSeedreamTier?: 'lite' | 'pro';
+  imageOutputFormat?: 'png' | 'jpeg';
+  styleImage?: StoredGalleryFile;
   prompt?: string;
 }
 
@@ -116,6 +122,42 @@ export interface GalleryThumbnail {
 export interface GalleryImageDetails {
   file: File;
   prompt: string;
+  imageProvider?: 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
+  imageResolution?: '1K' | '2K' | '4K';
+  imageAspectRatio?: string;
+  imageSeedreamTier?: 'lite' | 'pro';
+  imageOutputFormat?: 'png' | 'jpeg';
+  styleImage: File | null;
+}
+
+export interface SaveImageToGalleryContext {
+  imageProvider?: 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
+  imageResolution?: '1K' | '2K' | '4K';
+  imageAspectRatio?: string;
+  imageSeedreamTier?: 'lite' | 'pro';
+  imageOutputFormat?: 'png' | 'jpeg';
+  styleImage?: File | null;
+}
+
+function mergeImageGenerationContext(
+  entry: GalleryImage,
+  prompt: string,
+  context: SaveImageToGalleryContext,
+): GalleryImage {
+  return {
+    ...entry,
+    prompt: prompt || entry.prompt || '',
+    imageProvider: context.imageProvider ?? entry.imageProvider,
+    imageResolution: context.imageResolution ?? entry.imageResolution,
+    imageAspectRatio: context.imageAspectRatio ?? entry.imageAspectRatio,
+    imageSeedreamTier: context.imageSeedreamTier ?? entry.imageSeedreamTier,
+    imageOutputFormat: context.imageOutputFormat ?? entry.imageOutputFormat,
+    styleImage: context.styleImage === undefined
+      ? entry.styleImage
+      : context.styleImage
+        ? toStoredGalleryFile(context.styleImage)
+        : undefined,
+  };
 }
 
 interface StoredGalleryFile {
@@ -448,19 +490,33 @@ async function createThumbnail(file: File): Promise<Blob> {
  * Creates a thumbnail and stores both the full image and thumbnail
  * Enforces MAX_GALLERY_IMAGES limit by removing oldest
  */
-export async function saveToGallery(image: File, prompt = '', generationId?: string): Promise<boolean> {
+export async function saveToGallery(
+  image: File,
+  prompt = '',
+  generationId?: string,
+  context: SaveImageToGalleryContext = {},
+): Promise<boolean> {
   try {
     const db = await openDB();
     if (generationId) {
-      const alreadySaved = await new Promise<boolean>((resolve, reject) => {
+      const existingEntry = await new Promise<GalleryImage | undefined>((resolve, reject) => {
         const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
         const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
         request.onerror = () => reject(request.error);
         request.onsuccess = () => resolve(
-          (request.result as GalleryImage[]).some(entry => entry.generationId === generationId)
+          (request.result as GalleryImage[]).find(entry => entry.generationId === generationId)
         );
       });
-      if (alreadySaved) return true;
+      if (existingEntry?.id !== undefined) {
+        const mergedEntry = mergeImageGenerationContext(existingEntry, prompt, context);
+        return new Promise<boolean>((resolve, reject) => {
+          const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+          transaction.objectStore(GALLERY_STORE_NAME).put(mergedEntry);
+          transaction.oncomplete = () => resolve(true);
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+      }
     }
     const thumbnail = await createThumbnail(image);
 
@@ -471,6 +527,12 @@ export async function saveToGallery(image: File, prompt = '', generationId?: str
       name: image.name,
       prompt,
       generationId,
+      imageProvider: context.imageProvider,
+      imageResolution: context.imageResolution,
+      imageAspectRatio: context.imageAspectRatio,
+      imageSeedreamTier: context.imageSeedreamTier,
+      imageOutputFormat: context.imageOutputFormat,
+      styleImage: context.styleImage ? toStoredGalleryFile(context.styleImage) : undefined,
     };
 
     return new Promise<boolean>((resolve, reject) => {
@@ -576,7 +638,18 @@ export async function getGalleryImage(id: number): Promise<GalleryImageDetails |
         const image = request.result as GalleryImage | undefined;
         if (image?.blob) {
           const file = new File([image.blob], image.name, { type: image.blob.type || 'image/png' });
-          resolve({ file, prompt: image.prompt || '' });
+          resolve({
+            file,
+            prompt: image.prompt || '',
+            imageProvider: image.imageProvider,
+            imageResolution: image.imageResolution,
+            imageAspectRatio: image.imageAspectRatio,
+            imageSeedreamTier: image.imageSeedreamTier,
+            imageOutputFormat: image.imageOutputFormat,
+            styleImage: image.styleImage
+              ? fromStoredGalleryFile(image.styleImage, 'style-reference.png')
+              : null,
+          });
         } else {
           resolve(null);
         }
@@ -682,6 +755,26 @@ export async function clearPendingVideoReferenceImages(generationId: string): Pr
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
   });
+}
+
+/**
+ * Image and video generations share the same browser-only 48-hour input
+ * snapshot store. Generation UUIDs are unique, so the image style reference
+ * can use the established durable path without another IndexedDB migration.
+ */
+export async function savePendingImageStyleImage(
+  generationId: string,
+  styleImage: File | null,
+): Promise<void> {
+  return savePendingVideoReferenceImages(generationId, styleImage ? [styleImage] : []);
+}
+
+export async function getPendingImageStyleImage(generationId: string): Promise<File | null> {
+  return (await getPendingVideoReferenceImages(generationId))[0] ?? null;
+}
+
+export async function clearPendingImageStyleImage(generationId: string): Promise<void> {
+  return clearPendingVideoReferenceImages(generationId);
 }
 
 export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDetails | null> {
@@ -1062,6 +1155,61 @@ export async function hasGalleryVideoReferences(
     });
   } catch (error) {
     console.warn('Could not verify saved video references:', error);
+    return false;
+  }
+}
+
+/** Merge replayable model/reference context into an image already in the Album. */
+export async function updateGalleryImageGenerationContext(
+  generationId: string,
+  prompt: string,
+  context: SaveImageToGalleryContext,
+): Promise<boolean> {
+  if (!generationId) return false;
+  try {
+    const db = await openDB();
+    const existingEntry = await new Promise<GalleryImage | undefined>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(
+        (request.result as GalleryImage[]).find(entry => entry.generationId === generationId)
+      );
+    });
+    if (existingEntry?.id === undefined) return false;
+    const mergedEntry = mergeImageGenerationContext(existingEntry, prompt, context);
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+      transaction.objectStore(GALLERY_STORE_NAME).put(mergedEntry);
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } catch (error) {
+    console.error('Failed to update gallery image generation context:', error);
+    return false;
+  }
+}
+
+/** Verify that a generated image retained its reusable style reference. */
+export async function hasGalleryImageStyleReference(
+  generationId: string,
+  expected: boolean,
+): Promise<boolean> {
+  if (!expected) return true;
+  try {
+    const db = await openDB();
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const entry = (request.result as GalleryImage[]).find(item => item.generationId === generationId);
+        resolve(Boolean(entry?.styleImage?.blob?.size));
+      };
+    });
+  } catch (error) {
+    console.warn('Could not verify saved image style reference:', error);
     return false;
   }
 }

@@ -16,6 +16,7 @@ import {
   deleteGalleryImage,
   clearGallery,
   type GalleryThumbnail,
+  type GalleryImageDetails,
   type GalleryVideoDetails,
 } from '../../src/utils/workflowStorage';
 import {
@@ -58,7 +59,7 @@ export interface PendingGalleryItem {
 export interface GalleryRailProps {
   refreshTrigger?: number;
   pendingItems?: PendingGalleryItem[];
-  onSelectImage: (file: File, prompt: string) => void;
+  onSelectImage: (file: File, prompt: string, details: GalleryImageDetails) => void;
   onSelectVideo: (details: GalleryVideoDetails) => void;
   onUseImageAsReference: (file: File, prompt: string) => void;
   onUseVideoAsReference?: (details: GalleryVideoDetails) => void;
@@ -143,7 +144,7 @@ const GalleryRail: React.FC<GalleryRailProps> = ({
         if (details) onSelectVideo(details);
       } else {
         const details = await getGalleryImage(item.id);
-        if (details) onSelectImage(details.file, details.prompt);
+        if (details) onSelectImage(details.file, details.prompt, details);
       }
     } catch (error) {
       console.error('Failed to open gallery item:', error);

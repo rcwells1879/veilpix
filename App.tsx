@@ -65,16 +65,22 @@ import {
   WAN3_REFERENCE_LIMITS,
 } from './components/studio/videoPricing';
 import {
+  clearPendingImageStyleImage,
   clearPendingVideoReferenceImages,
   debouncedSaveWorkflow,
+  getPendingImageStyleImage,
   getPendingVideoReferenceImages,
   hasGalleryArtifact,
+  hasGalleryImageStyleReference,
   hasGalleryVideoReferences,
   hasLocalDeliveryReceipt,
   markLocalDeliveryReceipt,
+  savePendingImageStyleImage,
   savePendingVideoReferenceImages,
   saveToGallery,
   saveVideoToGallery,
+  updateGalleryImageGenerationContext,
+  type GalleryImageDetails,
   type GalleryVideoDetails,
 } from './src/utils/workflowStorage';
 import { extractLastVideoFrame } from './src/utils/videoFrameExtraction';
@@ -268,6 +274,11 @@ interface PendingImageGeneration {
   provider: ImageProvider;
   prompt: string;
   workflow: RecoverableImageWorkflow;
+  resolution?: ImageGenerationOptions['resolution'];
+  aspectRatio?: string;
+  seedreamTier?: ImageGenerationOptions['seedreamTier'];
+  outputFormat?: ImageGenerationOptions['outputFormat'];
+  hasStyleImage?: boolean;
   createdAt: number;
 }
 
@@ -1022,20 +1033,43 @@ const App: React.FC = () => {
     setPendingImageGenerations(next);
     storePendingImageGenerations(next);
     activeGenerationIdsRef.current.delete(generationId);
+    void clearPendingImageStyleImage(generationId).catch((storageError) => {
+      console.warn('Could not clear completed image style reference from local storage:', storageError);
+    });
   }, []);
 
   const finalizeImageGeneration = useCallback(async (
     response: ImageGenerationResponse,
     job: PendingImageGeneration,
+    suppliedStyleImage?: File | null,
   ) => {
     if (!response.success || !response.image || finalizingImageJobsRef.current.has(job.id)) return;
     finalizingImageJobsRef.current.add(job.id);
 
     try {
+      let restoredStyleImage = suppliedStyleImage ?? null;
+      if (!restoredStyleImage && job.hasStyleImage) {
+        try {
+          restoredStyleImage = await getPendingImageStyleImage(job.id);
+        } catch (storageError) {
+          console.warn('Could not restore pending image style reference:', storageError);
+        }
+      }
       const newImageFile = await generatedImageToFile(response.image, job.workflow);
-      const savedLocally = await saveToGallery(newImageFile, job.prompt, job.id);
-      if (!savedLocally || !await hasGalleryArtifact(job.id, 'image')) {
-        throw new Error('The image finished, but VeilPix could not verify it in this browser\'s Album.');
+      const savedLocally = await saveToGallery(newImageFile, job.prompt, job.id, {
+        imageProvider: job.provider,
+        imageResolution: job.resolution,
+        imageAspectRatio: job.aspectRatio,
+        imageSeedreamTier: job.seedreamTier,
+        imageOutputFormat: job.outputFormat,
+        styleImage: restoredStyleImage,
+      });
+      if (
+        !savedLocally
+        || !await hasGalleryArtifact(job.id, 'image')
+        || !await hasGalleryImageStyleReference(job.id, Boolean(job.hasStyleImage))
+      ) {
+        throw new Error('The image finished, but VeilPix could not verify it and its references in this browser\'s Album.');
       }
       markLocalDeliveryReceipt(job.id);
       try {
@@ -1059,7 +1093,9 @@ const App: React.FC = () => {
     imageRecoveryRequestInFlightRef.current.add(job.id);
 
     try {
-      if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'image')) {
+      const alreadyStored = await hasGalleryArtifact(job.id, 'image');
+      const storedWithStyle = await hasGalleryImageStyleReference(job.id, Boolean(job.hasStyleImage));
+      if (hasLocalDeliveryReceipt(job.id) || (alreadyStored && storedWithStyle)) {
         markLocalDeliveryReceipt(job.id);
         clearPendingImageJob(job.id);
         return;
@@ -1161,15 +1197,40 @@ const App: React.FC = () => {
 
         let storedLocally = await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
         let expectedVideoReferenceCount = 0;
+        let expectedImageStyleReference = false;
         if (delivery.artifactType === 'image') {
+          const pendingJob = pendingImageGenerations.find(job => job.id === delivery.generationId) ?? null;
+          expectedImageStyleReference = Boolean(pendingJob?.hasStyleImage);
+          let restoredStyleImage: File | null = null;
+          if (pendingJob?.hasStyleImage) {
+            try {
+              restoredStyleImage = await getPendingImageStyleImage(delivery.generationId);
+            } catch (storageError) {
+              console.warn('Could not restore delivered image style reference:', storageError);
+            }
+          }
+          if (pendingJob?.hasStyleImage && !restoredStyleImage) continue;
+          const imageContext = {
+            imageProvider: pendingJob?.provider,
+            imageResolution: pendingJob?.resolution,
+            imageAspectRatio: pendingJob?.aspectRatio,
+            imageSeedreamTier: pendingJob?.seedreamTier,
+            imageOutputFormat: pendingJob?.outputFormat,
+            styleImage: restoredStyleImage,
+          };
           if (!storedLocally) {
             const file = await downloadDeliveryFile(
               delivery.downloadUrl,
               delivery.fileName,
               delivery.mimeType,
             );
-            const prompt = pendingImageGenerations.find(job => job.id === delivery.generationId)?.prompt ?? '';
-            storedLocally = await saveToGallery(file, prompt, delivery.generationId);
+            storedLocally = await saveToGallery(file, pendingJob?.prompt ?? '', delivery.generationId, imageContext);
+          } else if (pendingJob) {
+            storedLocally = await updateGalleryImageGenerationContext(
+              delivery.generationId,
+              pendingJob.prompt,
+              imageContext,
+            );
           }
         } else {
           const pendingJob = pendingVideoGenerations.find(job => job.id === delivery.generationId) ?? null;
@@ -1217,8 +1278,9 @@ const App: React.FC = () => {
 
         const verified = storedLocally
           && await hasGalleryArtifact(delivery.generationId, delivery.artifactType)
-          && (delivery.artifactType !== 'video'
-            || await hasGalleryVideoReferences(delivery.generationId, expectedVideoReferenceCount));
+          && (delivery.artifactType === 'video'
+            ? await hasGalleryVideoReferences(delivery.generationId, expectedVideoReferenceCount)
+            : await hasGalleryImageStyleReference(delivery.generationId, expectedImageStyleReference));
         if (!verified) continue;
 
         markLocalDeliveryReceipt(delivery.generationId, delivery.expiresAt);
@@ -1284,19 +1346,17 @@ const App: React.FC = () => {
 
     if (file) {
       setHistory([file]);
-      setHistoryPrompts(['']);
+      setHistoryPrompts([imagePrompt]);
       setHistoryIndex(0);
-      setImagePrompt('');
       saveToGallery(file).then(() => setGalleryRefreshTrigger(n => n + 1));
     } else {
       setHistory([]);
       setHistoryPrompts([]);
       setHistoryIndex(-1);
-      setStyleImage(null);
     }
     resetImageTools();
     setError(null);
-  }, [requireAuth, resetImageTools]);
+  }, [imagePrompt, requireAuth, resetImageTools]);
 
   const handleStyleImageSelect = useCallback((file: File | null) => {
     if (file && !requireAuth()) return;
@@ -1362,6 +1422,14 @@ const App: React.FC = () => {
       : editableImageMutationsByProvider[options.provider];
 
     try {
+      await savePendingImageStyleImage(activeJob.id, queuedStyleImage);
+    } catch (storageError) {
+      // The in-memory style reference still covers this page load. Keeping the
+      // provider request available is preferable to failing the generation.
+      console.warn('Could not persist pending image style reference:', storageError);
+    }
+
+    try {
       let response: ImageGenerationResponse;
 
       if (activeJob.workflow === 'text-to-image') {
@@ -1395,7 +1463,7 @@ const App: React.FC = () => {
       }
 
       if (response.success && response.image) {
-        await finalizeImageGeneration(response, activeJob);
+        await finalizeImageGeneration(response, activeJob, queuedStyleImage);
       } else {
         throw new Error(response.message || 'Failed to generate image');
       }
@@ -1646,11 +1714,16 @@ const App: React.FC = () => {
         provider: options.provider,
         prompt: trimmedPrompt,
         workflow: recoverableWorkflow,
+        resolution: options.resolution,
+        aspectRatio: options.aspectRatio,
+        seedreamTier: options.seedreamTier,
+        outputFormat: options.outputFormat,
+        hasStyleImage: recoverableWorkflow === 'composite' && Boolean(styleImage),
         createdAt: Date.now(),
       },
       options: { ...options },
       sourceImage: currentImage,
-      styleImage,
+      styleImage: recoverableWorkflow === 'composite' ? styleImage : null,
       hotspot: editHotspot ? { ...editHotspot } : null,
       nsfwFilterEnabled: settings.nsfwFilterEnabled,
     };
@@ -2220,7 +2293,7 @@ const App: React.FC = () => {
   }, [videoOutputFormat, videoUrl]);
 
   /* ---------------- gallery handlers ---------------- */
-  const handleGallerySelectImage = useCallback((file: File, savedPrompt: string) => {
+  const handleGallerySelectImage = useCallback((file: File, savedPrompt: string, details?: GalleryImageDetails) => {
     if (isVideoEditorRendering) return;
     setIsVideoEditorOpen(false);
     setIncomingEditorVideo(null);
@@ -2229,7 +2302,17 @@ const App: React.FC = () => {
     setHistoryPrompts([savedPrompt]);
     setHistoryIndex(0);
     setImagePrompt(savedPrompt);
-    setStyleImage(null);
+    if (details?.imageProvider) {
+      setSettings(previous => ({
+        ...previous,
+        apiProvider: details.imageProvider ?? previous.apiProvider,
+        resolution: details.imageResolution ?? previous.resolution,
+        imageAspectRatio: details.imageAspectRatio ?? previous.imageAspectRatio,
+        seedreamTier: details.imageSeedreamTier ?? previous.seedreamTier,
+        imageOutputFormat: details.imageOutputFormat ?? previous.imageOutputFormat,
+      }));
+      setStyleImage(details.styleImage);
+    }
     resetImageTools();
     setError(null);
   }, [isVideoEditorRendering, resetImageTools]);
@@ -2322,11 +2405,11 @@ const App: React.FC = () => {
     setIsVideoEditorOpen(false);
   }, [isVideoEditorRendering]);
 
-  const handleGalleryUseImageAsReference = useCallback((file: File, savedPrompt: string) => {
+  const handleGalleryUseImageAsReference = useCallback((file: File, _savedPrompt: string) => {
     if (studioMode === 'image') {
       if (!imageProviderSupportsReferences(imageGenerationOptions.provider)) return;
       if (!currentImage) {
-        handleGallerySelectImage(file, savedPrompt);
+        handleBaseImageSelect(file);
         return;
       }
       setStyleImage(file);
@@ -2340,7 +2423,7 @@ const App: React.FC = () => {
       const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
       setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
     }
-  }, [studioMode, imageGenerationOptions.provider, currentImage, handleGallerySelectImage, videoProvider, referenceVideoFile, referenceVideoUrl]);
+  }, [studioMode, imageGenerationOptions.provider, currentImage, handleBaseImageSelect, videoProvider, referenceVideoFile, referenceVideoUrl]);
 
   const handleGalleryUseVideoAsReference = useCallback((details: GalleryVideoDetails) => {
     setStudioMode('video');

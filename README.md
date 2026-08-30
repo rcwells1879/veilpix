@@ -15,7 +15,7 @@ Current image models are Nano Banana 2, Seedream 5 Lite/Pro, Wan 2.7 Image, and 
 
 ## Media Privacy
 
-The durable Album lives in each browser's IndexedDB and stores real image and video blobs. During the temporary delivery window, another browser signed into the same account can save its own copy; VeilPix does not retain a permanent cloud gallery, so older items do not populate a new browser after the window. Each local Album remains subject to browser site-data cleanup and the 20-item limit.
+The durable Album lives in each browser's IndexedDB and stores real image and video blobs plus replayable prompt, model, settings, and supported reference-image context. During the temporary delivery window, another browser signed into the same account can save its own copy; VeilPix does not retain a permanent cloud gallery, so older items do not populate a new browser after the window. Each local Album remains subject to browser site-data cleanup and the 20-item limit.
 
 VeilPix uses Supabase only as temporary transport storage:
 
