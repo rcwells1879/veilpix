@@ -5,7 +5,7 @@ Authenticated Express backend for VeilPix image/video generation, credit account
 ## Responsibilities
 
 - Validate Clerk sessions and the allowed-email policy.
-- Normalize model-specific input and send generation jobs to Kie.ai.
+- Normalize model-specific input and send generation jobs to Kie.ai or the configured Seedance upstream.
 - Poll jobs independently of the browser request lifecycle and expose recovery status by generation ID.
 - Deduct fractional VeilPix credits and record usage in Supabase.
 - Move successful output through a private, account-scoped 48-hour delivery outbox so each signed-in browser can verify its own local Album copy.
@@ -42,6 +42,8 @@ FRONTEND_URL=http://127.0.0.1:5173
 ```
 
 `KIE_API_KEY` and `KIE_API_BASE_URL` may override the legacy-named Kie credentials for Seedance. Relay base URLs and TTLs have production defaults. Never commit real credentials.
+
+To trial Seedance through OpenRouter, set `SEEDANCE_PROVIDER=openrouter` and `OPENROUTER_API_KEY` in the server environment. `OPENROUTER_API_BASE_URL` defaults to `https://openrouter.ai`. Kie remains the default and continues serving the other Kie-backed routes. The OpenRouter trial deliberately omits `nsfw_checker` because OpenRouter does not document it as a supported Seedance passthrough parameter.
 
 ## Current Routes
 
@@ -82,7 +84,7 @@ Legacy image/video routes receive multipart files, upload temporary objects to `
 
 ### Generated outputs
 
-Kie video routes write the provider task ID and owner-scoped recovery metadata to `usage_logs` as soon as Kie accepts the task, then return `202`. `utils/kieVideoJobRecovery.js` checks those records every 30 seconds for up to 48 hours, including after an API restart. Terminal failures replace the pending marker; successful results continue through the delivery outbox. Image routes enter the same outbox through `db.logUsage()`.
+Video routes write the upstream name, provider task ID, and owner-scoped recovery metadata to `usage_logs` as soon as the provider accepts the task, then return `202`. `utils/kieVideoJobRecovery.js` checks Kie and OpenRouter records every 30 seconds for up to 48 hours, including after an API restart. Older Seedance records without an upstream marker continue recovering through Kie. Terminal failures replace the pending marker; successful results continue through the delivery outbox. Image routes enter the same outbox through `db.logUsage()`.
 
 `utils/mediaDelivery.js` then:
 
@@ -101,7 +103,7 @@ The deletion contract covers VeilPix-owned Supabase objects, not provider-side r
 - Generation routes require authentication, allowed email, sufficient credits, and route-specific rate limits.
 - Credit costs are model/workflow-specific. Use `utils/imageCreditPricing.js`, the video pricing helpers/adapters, and their tests rather than documentation constants.
 - Credit deduction uses the atomic `deduct_user_credits` RPC with hundredth-credit precision.
-- After Dark maps to Kie/model NSFW flags. The frontend keeps the filter enabled for users without a credit purchase; the API does not add a second safety classifier.
+- After Dark maps to Kie/model NSFW flags. During the OpenRouter Seedance trial, that upstream receives no `nsfw_checker` parameter and applies its documented provider behavior. The frontend keeps the setting enabled for users without a credit purchase; the API does not add a second safety classifier.
 
 ## Supabase Setup
 

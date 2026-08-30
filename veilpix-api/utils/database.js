@@ -439,6 +439,7 @@ const db = {
         generationId,
         requestType,
         sourceUrl,
+        sourceHeaders,
         creditsUsed,
         processingTimeMs
     }) {
@@ -448,7 +449,8 @@ const db = {
             generationId,
             artifactType: 'video',
             provider: requestType,
-            sourceUrl
+            sourceUrl,
+            sourceHeaders
         });
         const supabase = getSupabaseClient();
         const { data, error } = await supabase

@@ -5,6 +5,7 @@ const {
     creditsForCompletedVideo,
     normalizeCompletedVideo
 } = require('./kieVideoJobRecovery');
+const { veilpixCreditsFromUsd } = require('./creditEconomics');
 
 test('keeps provider jobs recoverable for 48 hours', () => {
     assert.equal(PENDING_VIDEO_JOB_TTL_MS, 48 * 60 * 60 * 1000);
@@ -22,6 +23,15 @@ test('normalizes completed video results from every Kie video provider', () => {
     }).videoUrl, 'https://example.com/wan3.mp4');
 });
 
+test('normalizes completed OpenRouter Seedance jobs without exposing credentials', () => {
+    const normalized = normalizeCompletedVideo('seedance', {
+        id: 'job-123',
+        unsigned_urls: ['https://cdn.example.com/seedance.mp4']
+    }, 'openrouter');
+    assert.equal(normalized.videoUrl, 'https://cdn.example.com/seedance.mp4');
+    assert.equal(normalized.sourceHeaders, undefined);
+});
+
 test('reconciles every video provider against the settled Kie charge', () => {
     assert.equal(creditsForCompletedVideo({
         provider: 'wan',
@@ -35,4 +45,15 @@ test('reconciles every video provider against the settled Kie charge', () => {
         duration: 5
     }, { creditsConsumed: 100 });
     assert.equal(seedanceCredits, 10.19);
+});
+
+test('reconciles OpenRouter Seedance billing against settled USD cost', () => {
+    const credits = creditsForCompletedVideo({
+        provider: 'seedance',
+        upstreamProvider: 'openrouter',
+        estimatedCredits: 30
+    }, {
+        usage: { cost: 0.1512 }
+    });
+    assert.equal(credits, veilpixCreditsFromUsd(0.1512));
 });

@@ -95,7 +95,7 @@ async function uploadResponseStream(response, bucket, objectPath, mimeType) {
     return contentLength ? Number(contentLength) : null;
 }
 
-async function stageMediaDelivery({ clerkUserId, generationId, artifactType, provider, sourceUrl }) {
+async function stageMediaDelivery({ clerkUserId, generationId, artifactType, provider, sourceUrl, sourceHeaders = undefined }) {
     if (!clerkUserId || !generationId || !artifactType || !sourceUrl) {
         throw new Error('Incomplete media delivery details');
     }
@@ -104,6 +104,7 @@ async function stageMediaDelivery({ clerkUserId, generationId, artifactType, pro
     if (existing) return existing;
 
     const downloadResponse = await fetch(sourceUrl, {
+        headers: sourceHeaders,
         signal: AbortSignal.timeout(5 * 60 * 1000)
     });
     if (!downloadResponse.ok) {

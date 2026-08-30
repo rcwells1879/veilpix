@@ -1,5 +1,5 @@
 const { db } = require('./database');
-const { veilpixCreditsFromKieCredits } = require('./creditEconomics');
+const { veilpixCreditsFromKieCredits, veilpixCreditsFromUsd } = require('./creditEconomics');
 const { deleteTemporaryImage } = require('./imageUpload');
 const { deleteProviderInputs } = require('./providerInput');
 const {
@@ -10,6 +10,12 @@ const {
     normalizeWan3Response
 } = require('./wan3Adapter');
 const { parsePendingVideoGeneration } = require('./videoGenerationJob');
+const {
+    OPENROUTER_ACTIVE_STATES,
+    OPENROUTER_FAILED_STATES,
+    getOpenRouterSeedanceTask,
+    normalizeOpenRouterCompletedVideo
+} = require('./openRouterSeedance');
 
 const PENDING_VIDEO_JOB_TTL_MS = 48 * 60 * 60 * 1000;
 const ACTIVE_KIE_STATES = new Set(['waiting', 'queuing', 'generating']);
@@ -48,8 +54,9 @@ function parsedResultJson(value) {
     return JSON.parse(value);
 }
 
-function normalizeCompletedVideo(provider, taskData) {
+function normalizeCompletedVideo(provider, taskData, upstreamProvider = 'kie') {
     if (provider === 'seedance') {
+        if (upstreamProvider === 'openrouter') return normalizeOpenRouterCompletedVideo(taskData);
         const normalized = normalizeSeedanceResponse(parsedResultJson(taskData.resultJson));
         if (!normalized.success) throw new Error(normalized.error || 'Seedance output was unavailable');
         return normalized;
@@ -65,6 +72,13 @@ function normalizeCompletedVideo(provider, taskData) {
 
 function creditsForCompletedVideo(state, taskData) {
     const estimatedCredits = Math.max(0, Number(state.estimatedCredits) || 0);
+    if (state.provider === 'seedance' && state.upstreamProvider === 'openrouter') {
+        const providerUsd = Number(taskData?.usage?.cost);
+        const settledCredits = Number.isFinite(providerUsd) && providerUsd > 0
+            ? veilpixCreditsFromUsd(providerUsd)
+            : 0;
+        return settledCredits > 0 ? settledCredits : estimatedCredits;
+    }
     const providerKieCredits = Number(taskData.creditsConsumed);
     const hasProviderCredits = Number.isFinite(providerKieCredits) && providerKieCredits > 0;
     if (['seedance', 'wan', 'wan3'].includes(state.provider)) {
@@ -72,6 +86,27 @@ function creditsForCompletedVideo(state, taskData) {
         return providerCredits > 0 ? providerCredits : estimatedCredits;
     }
     return estimatedCredits;
+}
+
+async function getProviderTask(state) {
+    if (state.provider === 'seedance' && state.upstreamProvider === 'openrouter') {
+        return getOpenRouterSeedanceTask(state);
+    }
+    return getKieTask(state.provider, state.providerTaskId);
+}
+
+function providerTaskState(state, taskData) {
+    return String(state.upstreamProvider === 'openrouter' ? taskData.status : taskData.state || '').toLowerCase();
+}
+
+function providerFailureMessage(state, taskData) {
+    if (state.upstreamProvider === 'openrouter') {
+        const providerError = taskData?.error?.message || taskData?.error;
+        return typeof providerError === 'string' && providerError.trim()
+            ? providerError
+            : `OpenRouter video generation ${taskData?.status || 'failed'}.`;
+    }
+    return taskData.failMsg || taskData.failCode || 'The video provider could not complete this generation.';
 }
 
 async function cleanupProviderInputs(record, state) {
@@ -120,17 +155,25 @@ async function recoverPendingKieVideoJob(record) {
         return;
     }
 
-    const taskData = await getKieTask(state.provider, state.providerTaskId);
-    const taskState = String(taskData.state || '').toLowerCase();
-    if (ACTIVE_KIE_STATES.has(taskState)) return;
-    if (taskState === 'fail') {
-        const failMessage = taskData.failMsg || taskData.failCode || 'The video provider could not complete this generation.';
-        await failPendingJob(record, state, failMessage);
+    const taskData = await getProviderTask(state);
+    const taskState = providerTaskState(state, taskData);
+    const isActive = state.upstreamProvider === 'openrouter'
+        ? OPENROUTER_ACTIVE_STATES.has(taskState)
+        : ACTIVE_KIE_STATES.has(taskState);
+    if (isActive) return;
+    const isFailure = state.upstreamProvider === 'openrouter'
+        ? OPENROUTER_FAILED_STATES.has(taskState)
+        : taskState === 'fail';
+    if (isFailure) {
+        await failPendingJob(record, state, providerFailureMessage(state, taskData));
         return;
     }
-    if (taskState !== 'success') return;
+    const isSuccess = state.upstreamProvider === 'openrouter'
+        ? taskState === 'completed'
+        : taskState === 'success';
+    if (!isSuccess) return;
 
-    const normalized = normalizeCompletedVideo(state.provider, taskData);
+    const normalized = normalizeCompletedVideo(state.provider, taskData, state.upstreamProvider);
     const creditsUsed = creditsForCompletedVideo(state, taskData);
     const completion = await db.completePendingVideoGenerationJob({
         jobId: record.id,
@@ -138,6 +181,7 @@ async function recoverPendingKieVideoJob(record) {
         generationId: record.gemini_request_id,
         requestType: record.request_type,
         sourceUrl: normalized.videoUrl,
+        sourceHeaders: normalized.sourceHeaders,
         creditsUsed,
         processingTimeMs: processingTimeMs(record)
     });

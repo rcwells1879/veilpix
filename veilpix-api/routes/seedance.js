@@ -26,11 +26,21 @@ const {
     getVideoGenerationId
 } = require('../utils/videoGenerationJob');
 const { queuePendingKieVideoJob } = require('../utils/kieVideoJobRecovery');
+const {
+    buildOpenRouterSeedanceRequest,
+    createOpenRouterSeedanceTask
+} = require('../utils/openRouterSeedance');
 
 const router = express.Router();
 
 const SEEDANCE_API_KEY = process.env.KIE_API_KEY || process.env.SEEDREAM_API_KEY;
 const SEEDANCE_API_URL = process.env.KIE_API_BASE_URL || process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
+
+function seedanceUpstreamProvider() {
+    return String(process.env.SEEDANCE_PROVIDER || 'kie').trim().toLowerCase() === 'openrouter'
+        ? 'openrouter'
+        : 'kie';
+}
 
 const MAX_REFERENCE_IMAGES = 30;
 const MAX_REFERENCE_VIDEOS = 10;
@@ -138,7 +148,7 @@ function getReferenceVideoDuration(file) {
     return null;
 }
 
-async function createSeedanceTask(payload) {
+async function createKieSeedanceTask(payload) {
     console.log(`Creating Seedance task (${payload.model})`);
 
     const response = await fetch(`${SEEDANCE_API_URL}/api/v1/jobs/createTask`, {
@@ -216,8 +226,12 @@ router.post('/generate-video', upload.fields([
     let pendingJob = null;
 
     try {
-        if (!SEEDANCE_API_KEY) {
-            return res.status(500).json({ error: 'Seedance API key is not configured' });
+        const upstreamProvider = seedanceUpstreamProvider();
+        if (upstreamProvider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
+            return res.status(500).json({ error: 'OpenRouter API key is not configured' });
+        }
+        if (upstreamProvider === 'kie' && !SEEDANCE_API_KEY) {
+            return res.status(500).json({ error: 'Kie Seedance API key is not configured' });
         }
         if (!generationId) {
             return res.status(400).json({ error: 'A valid generation ID is required' });
@@ -251,6 +265,26 @@ router.post('/generate-video', upload.fields([
         }
         const selectedResolution = normalizeResolution(selectedVariant, resolution);
         const selectedDuration = clampDuration(duration, selectedVariant);
+        if (upstreamProvider === 'openrouter') {
+            try {
+                // Validate model-specific OpenRouter capabilities before any
+                // reference upload or paid provider request begins.
+                buildOpenRouterSeedanceRequest(prompt.trim(), {
+                    variant: selectedVariant,
+                    duration: selectedDuration,
+                    resolution: selectedResolution,
+                    aspectRatio
+                });
+            } catch (capabilityError) {
+                if (capabilityError instanceof RangeError) {
+                    return res.status(400).json({
+                        error: 'Unsupported Seedance option',
+                        message: capabilityError.message
+                    });
+                }
+                throw capabilityError;
+            }
+        }
         const imageFiles = req.files?.referenceImages || [];
         const videoFiles = req.files?.referenceVideo || [];
         const audioFiles = req.files?.referenceAudio || [];
@@ -382,7 +416,7 @@ router.post('/generate-video', upload.fields([
             ? await uploadReferenceFile(lastFrameFile, req.user.userId, uploadedFilenames)
             : null;
 
-        const seedancePayload = buildSeedanceRequest(prompt.trim(), {
+        const commonProviderOptions = {
             variant: selectedVariant,
             duration: selectedDuration,
             resolution: selectedResolution,
@@ -397,9 +431,15 @@ router.post('/generate-video', upload.fields([
             returnLastFrame: boolValue(returnLastFrame, false),
             outputFormat,
             nsfwFilterEnabled: boolValue(nsfwFilterEnabled, true)
-        });
+        };
+        const seedancePayload = upstreamProvider === 'openrouter'
+            ? buildOpenRouterSeedanceRequest(prompt.trim(), commonProviderOptions)
+            : buildSeedanceRequest(prompt.trim(), commonProviderOptions);
 
-        providerTaskId = await createSeedanceTask(seedancePayload);
+        const providerTask = upstreamProvider === 'openrouter'
+            ? await createOpenRouterSeedanceTask(seedancePayload)
+            : { taskId: await createKieSeedanceTask(seedancePayload), pollingUrl: null };
+        providerTaskId = providerTask.taskId;
         pendingJob = await db.createPendingVideoGenerationJob({
             userId: req.user.id,
             clerkUserId: req.user.userId,
@@ -407,7 +447,9 @@ router.post('/generate-video', upload.fields([
             generationId,
             providerState: {
                 provider: 'seedance',
+                upstreamProvider,
                 providerTaskId,
+                providerPollingUrl: providerTask.pollingUrl,
                 estimatedCredits,
                 duration: selectedDuration,
                 cleanup: {
@@ -419,6 +461,7 @@ router.post('/generate-video', upload.fields([
         console.log('Seedance job accepted for durable recovery:', {
             generationId,
             providerTaskId,
+            upstreamProvider,
             variant: selectedVariant,
             resolution: selectedResolution,
             outputSeconds: selectedDuration,
@@ -433,7 +476,7 @@ router.post('/generate-video', upload.fields([
             success: true,
             pending: true,
             generationId,
-            outputFormat: selectedVariant === 'v2_5' ? seedancePayload.input.output_format : 'mp4',
+            outputFormat: selectedVariant === 'v2_5' ? outputFormat : 'mp4',
             processingTime: Date.now() - startTime,
             creditsUsed: estimatedCredits,
             creditsRemaining: req.creditsInfo?.remaining ?? credits
