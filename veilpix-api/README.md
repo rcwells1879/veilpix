@@ -43,7 +43,7 @@ FRONTEND_URL=http://127.0.0.1:5173
 
 `KIE_API_KEY` and `KIE_API_BASE_URL` may override the legacy-named Kie credentials for Seedance. Relay base URLs and TTLs have production defaults. Never commit real credentials.
 
-To trial Seedance through OpenRouter, set `SEEDANCE_PROVIDER=openrouter` and `OPENROUTER_API_KEY` in the server environment. `OPENROUTER_API_BASE_URL` defaults to `https://openrouter.ai`. Kie remains the default and continues serving the other Kie-backed routes. The OpenRouter trial deliberately omits `nsfw_checker` because OpenRouter does not document it as a supported Seedance passthrough parameter. Completed jobs settle against OpenRouter's reported USD cost but are capped at the credit estimate displayed when the job started, so a user is never charged more than the visible trial price.
+To trial filtered Seedance workflows through OpenRouter, set `SEEDANCE_PROVIDER=openrouter` and `OPENROUTER_API_KEY` in the server environment. `OPENROUTER_API_BASE_URL` defaults to `https://openrouter.ai`. Requests with the safety filter enabled use OpenRouter's more restrictive Seed/BytePlus path and omit `nsfw_checker`, which OpenRouter does not document as a supported passthrough parameter. After Dark requests always remain on Kie and send `nsfw_checker=false`; the server derives this route from the safety setting rather than trusting a client-supplied provider name. Kie also continues serving the other Kie-backed routes. Completed OpenRouter jobs settle against the reported USD cost but are capped at the credit estimate displayed when the job started, so a user is never charged more than the visible trial price.
 
 ## Current Routes
 
@@ -103,7 +103,7 @@ The deletion contract covers VeilPix-owned Supabase objects, not provider-side r
 - Generation routes require authentication, allowed email, sufficient credits, and route-specific rate limits.
 - Credit costs are model/workflow-specific. Use `utils/imageCreditPricing.js`, the video pricing helpers/adapters, and their tests rather than documentation constants.
 - Credit deduction uses the atomic `deduct_user_credits` RPC with hundredth-credit precision.
-- After Dark maps to Kie/model NSFW flags. During the OpenRouter Seedance trial, that upstream receives no `nsfw_checker` parameter and applies its documented provider behavior. The frontend keeps the setting enabled for users without a credit purchase; the API does not add a second safety classifier.
+- After Dark maps to Kie/model NSFW flags. During the OpenRouter Seedance trial, filtered requests use OpenRouter without an `nsfw_checker` parameter, while After Dark requests stay on Kie with `nsfw_checker=false`. The frontend keeps the setting enabled for users without a credit purchase; the API does not add a second safety classifier.
 
 ## Supabase Setup
 

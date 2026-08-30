@@ -2,8 +2,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     buildOpenRouterSeedanceRequest,
+    selectSeedanceUpstream,
     safeOpenRouterPollingUrl
 } = require('./openRouterSeedance');
+
+test('routes filtered Seedance through the configured provider and After Dark through Kie', () => {
+    assert.equal(selectSeedanceUpstream('openrouter', true), 'openrouter');
+    assert.equal(selectSeedanceUpstream('openrouter', false), 'kie');
+    assert.equal(selectSeedanceUpstream('kie', true), 'kie');
+    assert.equal(selectSeedanceUpstream(undefined, true), 'kie');
+});
 
 test('maps Seedance frames and multimodal references to the OpenRouter video API', () => {
     const framePayload = buildOpenRouterSeedanceRequest('Move between the frames', {

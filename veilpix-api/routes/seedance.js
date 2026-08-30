@@ -28,19 +28,14 @@ const {
 const { queuePendingKieVideoJob } = require('../utils/kieVideoJobRecovery');
 const {
     buildOpenRouterSeedanceRequest,
-    createOpenRouterSeedanceTask
+    createOpenRouterSeedanceTask,
+    selectSeedanceUpstream
 } = require('../utils/openRouterSeedance');
 
 const router = express.Router();
 
 const SEEDANCE_API_KEY = process.env.KIE_API_KEY || process.env.SEEDREAM_API_KEY;
 const SEEDANCE_API_URL = process.env.KIE_API_BASE_URL || process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
-
-function seedanceUpstreamProvider() {
-    return String(process.env.SEEDANCE_PROVIDER || 'kie').trim().toLowerCase() === 'openrouter'
-        ? 'openrouter'
-        : 'kie';
-}
 
 const MAX_REFERENCE_IMAGES = 30;
 const MAX_REFERENCE_VIDEOS = 10;
@@ -226,13 +221,6 @@ router.post('/generate-video', upload.fields([
     let pendingJob = null;
 
     try {
-        const upstreamProvider = seedanceUpstreamProvider();
-        if (upstreamProvider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
-            return res.status(500).json({ error: 'OpenRouter API key is not configured' });
-        }
-        if (upstreamProvider === 'kie' && !SEEDANCE_API_KEY) {
-            return res.status(500).json({ error: 'Kie Seedance API key is not configured' });
-        }
         if (!generationId) {
             return res.status(400).json({ error: 'A valid generation ID is required' });
         }
@@ -253,6 +241,17 @@ router.post('/generate-video', upload.fields([
             outputFormat = 'mp4',
             nsfwFilterEnabled = 'true'
         } = req.body;
+        const safetyFilterEnabled = boolValue(nsfwFilterEnabled, true);
+        const upstreamProvider = selectSeedanceUpstream(
+            process.env.SEEDANCE_PROVIDER,
+            safetyFilterEnabled
+        );
+        if (upstreamProvider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
+            return res.status(500).json({ error: 'OpenRouter API key is not configured' });
+        }
+        if (upstreamProvider === 'kie' && !SEEDANCE_API_KEY) {
+            return res.status(500).json({ error: 'Kie Seedance API key is not configured' });
+        }
 
         if (!prompt || !prompt.trim()) {
             return res.status(400).json({ error: 'No video description provided' });
@@ -430,7 +429,7 @@ router.post('/generate-video', upload.fields([
             webSearch: boolValue(webSearch, false),
             returnLastFrame: boolValue(returnLastFrame, false),
             outputFormat,
-            nsfwFilterEnabled: boolValue(nsfwFilterEnabled, true)
+            nsfwFilterEnabled: safetyFilterEnabled
         };
         const seedancePayload = upstreamProvider === 'openrouter'
             ? buildOpenRouterSeedanceRequest(prompt.trim(), commonProviderOptions)
@@ -462,6 +461,7 @@ router.post('/generate-video', upload.fields([
             generationId,
             providerTaskId,
             upstreamProvider,
+            safetyFilterEnabled,
             variant: selectedVariant,
             resolution: selectedResolution,
             outputSeconds: selectedDuration,

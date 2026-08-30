@@ -21,6 +21,16 @@ function openRouterApiUrl() {
     return String(process.env.OPENROUTER_API_BASE_URL || OPENROUTER_DEFAULT_API_URL).replace(/\/+$/, '');
 }
 
+function selectSeedanceUpstream(configuredProvider, nsfwFilterEnabled = true) {
+    // After Dark keeps the established Kie path because Kie documents and
+    // honors nsfw_checker=false. Filtered workflows may use OpenRouter's more
+    // restrictive direct Seed/BytePlus route during the provider trial.
+    if (nsfwFilterEnabled === false) return 'kie';
+    return String(configuredProvider || 'kie').trim().toLowerCase() === 'openrouter'
+        ? 'openrouter'
+        : 'kie';
+}
+
 function imageReference(url, frameType = null) {
     const reference = {
         type: 'image_url',
@@ -175,5 +185,6 @@ module.exports = {
     createOpenRouterSeedanceTask,
     getOpenRouterSeedanceTask,
     normalizeOpenRouterCompletedVideo,
+    selectSeedanceUpstream,
     safeOpenRouterPollingUrl
 };
