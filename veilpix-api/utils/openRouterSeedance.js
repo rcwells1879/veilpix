@@ -9,6 +9,18 @@ const OPENROUTER_SEEDANCE_MODELS = {
 
 const OPENROUTER_ACTIVE_STATES = new Set(['pending', 'queued', 'processing', 'in_progress']);
 const OPENROUTER_FAILED_STATES = new Set(['failed', 'canceled', 'cancelled', 'expired']);
+const CONTENT_POLICY_ERROR_CODE = 'CONTENT_POLICY_VIOLATION';
+
+const OPENROUTER_CONTENT_POLICY_PATTERNS = [
+    /(?:Input|Output)(?:Text|Image|Video|Audio)SensitiveContentDetected(?:\.[A-Za-z]+)?/i,
+    /(?:Input|Output)(?:Text|Image|Video|Audio)RiskDetection/i,
+    /(?:^|[^A-Za-z])SensitiveContentDetected(?:\.[A-Za-z]+)?/i,
+    /ContentRiskBlocked/i,
+    /content policy violation/i,
+    /request blocked by content filter/i,
+    /may contain sensitive information/i,
+    /\bcontent_filter\b/i
+];
 
 const OPENROUTER_SEEDANCE_RESOLUTIONS = {
     v2_5: new Set(['480p', '720p']),
@@ -19,6 +31,21 @@ const OPENROUTER_SEEDANCE_RESOLUTIONS = {
 
 function openRouterApiUrl() {
     return String(process.env.OPENROUTER_API_BASE_URL || OPENROUTER_DEFAULT_API_URL).replace(/\/+$/, '');
+}
+
+function isOpenRouterContentPolicyError(value, upstreamStatus = 0) {
+    if (Number(upstreamStatus) === 400) return true;
+    let text;
+    if (typeof value === 'string') {
+        text = value;
+    } else {
+        try {
+            text = JSON.stringify(value ?? '');
+        } catch {
+            text = String(value ?? '');
+        }
+    }
+    return OPENROUTER_CONTENT_POLICY_PATTERNS.some(pattern => pattern.test(text));
 }
 
 function selectSeedanceUpstream(configuredProvider, nsfwFilterEnabled = true) {
@@ -136,7 +163,12 @@ async function createOpenRouterSeedanceTask(payload) {
     const result = await response.json().catch(async () => ({ error: await response.text().catch(() => '') }));
     if (!response.ok || !result?.id) {
         const detail = result?.error?.message || result?.error || result?.message || JSON.stringify(result);
-        throw new Error(`OpenRouter Seedance task creation failed (${response.status}): ${detail}`);
+        const error = new Error(`OpenRouter Seedance task creation failed (${response.status}): ${detail}`);
+        error.provider = 'openrouter';
+        error.upstreamStatus = response.status;
+        error.providerCode = result?.error?.code;
+        if (isOpenRouterContentPolicyError(result, response.status)) error.code = CONTENT_POLICY_ERROR_CODE;
+        throw error;
     }
 
     return {
@@ -177,6 +209,7 @@ function normalizeOpenRouterCompletedVideo(taskData) {
 }
 
 module.exports = {
+    CONTENT_POLICY_ERROR_CODE,
     OPENROUTER_ACTIVE_STATES,
     OPENROUTER_FAILED_STATES,
     OPENROUTER_SEEDANCE_MODELS,
@@ -184,6 +217,7 @@ module.exports = {
     buildOpenRouterSeedanceRequest,
     createOpenRouterSeedanceTask,
     getOpenRouterSeedanceTask,
+    isOpenRouterContentPolicyError,
     normalizeOpenRouterCompletedVideo,
     selectSeedanceUpstream,
     safeOpenRouterPollingUrl

@@ -14,6 +14,7 @@ const {
     OPENROUTER_ACTIVE_STATES,
     OPENROUTER_FAILED_STATES,
     getOpenRouterSeedanceTask,
+    isOpenRouterContentPolicyError,
     normalizeOpenRouterCompletedVideo
 } = require('./openRouterSeedance');
 
@@ -100,9 +101,13 @@ function providerTaskState(state, taskData) {
 
 function providerFailureMessage(state, taskData) {
     if (state.upstreamProvider === 'openrouter') {
-        const providerError = taskData?.error?.message || taskData?.error;
-        return typeof providerError === 'string' && providerError.trim()
-            ? providerError
+        const providerError = taskData?.error;
+        if (isOpenRouterContentPolicyError(providerError)) {
+            return 'Content policy violation: this request was flagged by the content moderation provider.';
+        }
+        const providerMessage = providerError?.message || providerError;
+        return typeof providerMessage === 'string' && providerMessage.trim()
+            ? providerMessage
             : `OpenRouter video generation ${taskData?.status || 'failed'}.`;
     }
     return taskData.failMsg || taskData.failCode || 'The video provider could not complete this generation.';
@@ -217,6 +222,7 @@ module.exports = {
     PENDING_VIDEO_JOB_TTL_MS,
     creditsForCompletedVideo,
     normalizeCompletedVideo,
+    providerFailureMessage,
     queuePendingKieVideoJob,
     recoverPendingKieVideoJob,
     recoverPendingKieVideoJobs

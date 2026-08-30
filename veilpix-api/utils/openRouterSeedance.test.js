@@ -2,9 +2,36 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     buildOpenRouterSeedanceRequest,
+    isOpenRouterContentPolicyError,
     selectSeedanceUpstream,
     safeOpenRouterPollingUrl
 } = require('./openRouterSeedance');
+
+test('treats every task-creation 400 as safety and recognizes asynchronous moderation failures', () => {
+    const policyCodes = [
+        'InputTextSensitiveContentDetected',
+        'InputImageSensitiveContentDetected',
+        'InputVideoSensitiveContentDetected',
+        'InputAudioSensitiveContentDetected.PolicyViolation',
+        'OutputTextSensitiveContentDetected',
+        'OutputImageSensitiveContentDetected',
+        'OutputVideoSensitiveContentDetected',
+        'OutputVideoSensitiveContentDetected.PolicyViolation',
+        'SensitiveContentDetected.SevereViolation',
+        'ContentRiskBlocked',
+        'InputTextRiskDetection',
+        'OutputImageRiskDetection'
+    ];
+
+    for (const code of policyCodes) {
+        assert.equal(isOpenRouterContentPolicyError({ error: { code } }), true, code);
+    }
+    assert.equal(isOpenRouterContentPolicyError({ error: 'Content policy violation' }), true);
+    assert.equal(isOpenRouterContentPolicyError({ error: { code: 'InvalidParameter.Duration' } }, 400), true);
+    assert.equal(isOpenRouterContentPolicyError({ error: { code: 'MissingParameter.Prompt' } }, '400'), true);
+    assert.equal(isOpenRouterContentPolicyError({ error: { code: 'InvalidParameter.Duration' } }), false);
+    assert.equal(isOpenRouterContentPolicyError({ error: { code: 'MissingParameter.Prompt' } }), false);
+});
 
 test('routes filtered Seedance through the configured provider and After Dark through Kie', () => {
     assert.equal(selectSeedanceUpstream('openrouter', true), 'openrouter');

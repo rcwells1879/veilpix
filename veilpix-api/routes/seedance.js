@@ -27,6 +27,7 @@ const {
 } = require('../utils/videoGenerationJob');
 const { queuePendingKieVideoJob } = require('../utils/kieVideoJobRecovery');
 const {
+    CONTENT_POLICY_ERROR_CODE,
     buildOpenRouterSeedanceRequest,
     createOpenRouterSeedanceTask,
     selectSeedanceUpstream
@@ -503,10 +504,12 @@ router.post('/generate-video', upload.fields([
             }).catch(() => {});
         }
 
-        const isNsfwError = error.message?.toLowerCase().includes('nsfw') ||
+        const isNsfwError = error.code === CONTENT_POLICY_ERROR_CODE ||
+            error.message?.toLowerCase().includes('nsfw') ||
             error.message?.toLowerCase().includes('review') ||
             error.message?.toLowerCase().includes('content') ||
-            error.message?.toLowerCase().includes('safety');
+            error.message?.toLowerCase().includes('safety') ||
+            error.message?.toLowerCase().includes('sensitive');
         const isTemporaryStorageError = error.code === 'TEMPORARY_STORAGE_UNAVAILABLE';
 
         res.status(isNsfwError ? 400 : isTemporaryStorageError ? 503 : 500).json({
@@ -515,9 +518,12 @@ router.post('/generate-video', upload.fields([
                 : isTemporaryStorageError
                     ? 'Temporary reference upload unavailable'
                     : 'Failed to generate Seedance video',
-            message: isTemporaryStorageError
-                ? 'We could not prepare the attached references. They are still selected, so please try again.'
-                : error.message,
+            code: isNsfwError ? CONTENT_POLICY_ERROR_CODE : undefined,
+            message: isNsfwError
+                ? 'This request was flagged by the content moderation provider.'
+                : isTemporaryStorageError
+                    ? 'We could not prepare the attached references. They are still selected, so please try again.'
+                    : error.message,
             details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }

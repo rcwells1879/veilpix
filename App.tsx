@@ -192,7 +192,8 @@ const isSafetyFilterError = (error: unknown): boolean => {
   const safetyKeywords = [
     'safety', 'blocked', 'flagged', 'inappropriate', 'policy', 'violation',
     'nsfw', 'harmful', 'terms of service', 'content policy', 'not allowed',
-    'not approved', 'moderation provider', 'failed the review'
+    'not approved', 'moderation provider', 'failed the review',
+    'sensitivecontentdetected', 'contentriskblocked'
   ];
 
   const lowerError = getApiErrorMessage(error).toLowerCase();
@@ -822,7 +823,13 @@ const App: React.FC = () => {
 
       if (status.status === 'failed') {
         clearPendingVideoJob(job.id);
-        setVideoError(`Failed to generate video. ${status.message || 'The provider could not complete it.'}`);
+        const failureMessage = status.message || 'The provider could not complete it.';
+        if (isSafetyFilterError(failureMessage)) {
+          setVideoError(null);
+          setError(CONTENT_POLICY_ERROR_MESSAGE);
+        } else {
+          setVideoError(`Failed to generate video. ${failureMessage}`);
+        }
         return;
       }
 
@@ -2306,7 +2313,8 @@ const App: React.FC = () => {
               <p>
                 Your request appears to contain adult content. VeilPix requires an account and age
                 verification before supported consensual adult content can be generated. Age verification is
-                completed when you purchase credits.
+                completed when you purchase credits. After purchasing, open Settings and turn on After Dark by
+                disabling the content filter.
               </p>
             )}
             <p className="text-xs font-medium text-gray-400">

@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const {
     PENDING_VIDEO_JOB_TTL_MS,
     creditsForCompletedVideo,
-    normalizeCompletedVideo
+    normalizeCompletedVideo,
+    providerFailureMessage
 } = require('./kieVideoJobRecovery');
 
 test('keeps provider jobs recoverable for 48 hours', () => {
@@ -29,6 +30,15 @@ test('normalizes completed OpenRouter Seedance jobs without exposing credentials
     }, 'openrouter');
     assert.equal(normalized.videoUrl, 'https://cdn.example.com/seedance.mp4');
     assert.equal(normalized.sourceHeaders, undefined);
+});
+
+test('normalizes asynchronous OpenRouter output moderation failures for the custom warning', () => {
+    const message = providerFailureMessage({ upstreamProvider: 'openrouter' }, {
+        status: 'failed',
+        error: { code: 'OutputVideoSensitiveContentDetected' }
+    });
+    assert.match(message, /Content policy violation/i);
+    assert.match(message, /content moderation provider/i);
 });
 
 test('reconciles every video provider against the settled Kie charge', () => {
