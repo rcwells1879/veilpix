@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
-const rateLimit = require('express-rate-limit');
 const { clerkMiddleware } = require('@clerk/express');
+const { createRateLimiter } = require('./utils/rateLimiter');
 require('dotenv').config();
 
 const app = express();
@@ -37,7 +37,7 @@ app.use(helmet({
 // CORS configuration with environment-based origins
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? ['https://veilstudio.io', 'https://veilpix.vercel.app', 'http://localhost:5173', 'http://127.0.0.1:5173']
-    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'https://veilstudio.io'];
+    : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175', 'https://veilstudio.io'];
 
 app.use(cors({
     origin: function(origin, callback) {
@@ -60,7 +60,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID', 'X-Generation-ID']
 }));
 
 // Clerk middleware for authentication
@@ -68,20 +68,17 @@ app.use(clerkMiddleware());
 
 // Import webhook routes (before other middleware)
 const webhookRoutes = require('./routes/webhooks');
+const providerMediaRoutes = require('./routes/providerMedia');
+const providerInputRoutes = require('./routes/providerInput');
 
 // Webhook routes need raw body parsing - must come before JSON parsing
 app.use('/api/webhooks', express.raw({type: 'application/json'}), webhookRoutes);
 
-// Enhanced rate limiting with different limits for different endpoints
-const createRateLimiter = (windowMs, max, message) => rateLimit({
-    windowMs,
-    max,
-    message: { error: message, retryAfter: Math.ceil(windowMs / 60000) + ' minutes' },
-    standardHeaders: true,
-    legacyHeaders: false,
-    // Skip successful requests to only count errors
-    skip: (req, res) => res.statusCode < 400
-});
+// Kie.ai receives short-lived signed URLs for provider inputs. Mount this
+// streaming relay before shared rate limits so multiple users are not grouped
+// under a provider downloader IP.
+app.use('/api/provider-media', providerMediaRoutes);
+app.use('/api/provider-input', providerInputRoutes);
 
 // Apply different rate limits (exclude webhooks from rate limiting)
 app.use('/api/auth', createRateLimiter(15 * 60 * 1000, 20, 'Too many authentication requests'));
@@ -90,12 +87,15 @@ app.use('/api/seedream', createRateLimiter(15 * 60 * 1000, 50, 'Too many image g
 app.use('/api/nanobananapro', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
 app.use('/api/wan', createRateLimiter(15 * 60 * 1000, 20, 'Too many video generation requests'));
 app.use('/api/seedance', createRateLimiter(15 * 60 * 1000, 20, 'Too many video generation requests'));
+app.use('/api/wan3', createRateLimiter(15 * 60 * 1000, 20, 'Too many video generation requests'));
 app.use('/api/wanimage', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
+app.use('/api/zimage', createRateLimiter(15 * 60 * 1000, 50, 'Too many image generation requests'));
+app.use('/api/media-deliveries', createRateLimiter(15 * 60 * 1000, 120, 'Too many media delivery requests'));
 app.use('/api/', createRateLimiter(15 * 60 * 1000, 100, 'Too many requests from this IP'));
 
 // Body parsing middleware with enhanced security (exclude image generation routes for file uploads)
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path.startsWith('/api/wan') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage')) {
+    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path === '/api/wan' || req.path.startsWith('/api/wan/') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage') || req.path.startsWith('/api/zimage')) {
         return next(); // Skip JSON parsing for image generation routes (they handle multipart data)
     }
     express.json({
@@ -106,7 +106,7 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
-    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path.startsWith('/api/wan') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage')) {
+    if (req.path.startsWith('/api/nanobanana2') || req.path.startsWith('/api/seedream') || req.path.startsWith('/api/nanobananapro') || req.path === '/api/wan' || req.path.startsWith('/api/wan/') || req.path.startsWith('/api/seedance') || req.path.startsWith('/api/wanimage') || req.path.startsWith('/api/zimage')) {
         return next(); // Skip URL encoding for image generation routes
     }
     express.urlencoded({
@@ -143,10 +143,17 @@ const seedreamRoutes = require('./routes/seedream');
 const nanoBananaProRoutes = require('./routes/nanobananapro');
 const wanRoutes = require('./routes/wan');
 const seedanceRoutes = require('./routes/seedance');
+const wan3Routes = require('./routes/wan3');
 const wanImageRoutes = require('./routes/wanimage');
+const zImageRoutes = require('./routes/zimage');
+const videoJobRoutes = require('./routes/videoJobs');
+const imageJobRoutes = require('./routes/imageJobs');
+const mediaDeliveryRoutes = require('./routes/mediaDeliveries');
 const usageRoutes = require('./routes/usage');
 const stripeRoutes = require('./routes/stripe');
 const checkoutRoutes = require('./routes/checkout');
+const { cleanupExpiredDeliveries } = require('./utils/mediaDelivery');
+const { recoverPendingKieVideoJobs } = require('./utils/kieVideoJobRecovery');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -155,7 +162,12 @@ app.use('/api/seedream', seedreamRoutes);
 app.use('/api/nanobananapro', nanoBananaProRoutes);
 app.use('/api/wan', wanRoutes);
 app.use('/api/seedance', seedanceRoutes);
+app.use('/api/wan3', wan3Routes);
 app.use('/api/wanimage', wanImageRoutes);
+app.use('/api/zimage', zImageRoutes);
+app.use('/api/video-jobs', videoJobRoutes);
+app.use('/api/image-jobs', imageJobRoutes);
+app.use('/api/media-deliveries', mediaDeliveryRoutes);
 app.use('/api/usage', usageRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/checkout', checkoutRoutes);
@@ -265,6 +277,29 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📊 Environment: ${process.env.NODE_ENV}`);
     console.log(`🔒 CORS enabled for: ${process.env.NODE_ENV === 'development' ? 'localhost:5173' : 'veilstudio.io'}`);
     console.log(`🌐 Server listening on all interfaces (0.0.0.0:${PORT})`);
+
+    const cleanExpiredDeliveryBatch = async () => {
+        try {
+            const removed = await cleanupExpiredDeliveries();
+            if (removed > 0) console.log(`Removed ${removed} expired media delivery object(s)`);
+        } catch (error) {
+            console.error('Scheduled media delivery cleanup failed:', error);
+        }
+    };
+    void cleanExpiredDeliveryBatch();
+    const deliveryCleanupTimer = setInterval(cleanExpiredDeliveryBatch, 5 * 60 * 1000);
+    deliveryCleanupTimer.unref();
+
+    const reconcilePendingVideoJobs = async () => {
+        try {
+            await recoverPendingKieVideoJobs();
+        } catch (error) {
+            console.error('Scheduled video generation recovery failed:', error);
+        }
+    };
+    void reconcilePendingVideoJobs();
+    const videoRecoveryTimer = setInterval(reconcilePendingVideoJobs, 30 * 1000);
+    videoRecoveryTimer.unref();
 });
 
 module.exports = app;

@@ -215,7 +215,8 @@ const Gallery: React.FC<GalleryProps> = ({
         {images.map((image) => (
           <div
             key={image.id}
-            onDragStartCapture={(event) => {
+            draggable={image.type === 'image' && loadingImageId !== image.id}
+            onDragStart={(event) => {
               if (image.type === 'image') handleImageDragStart(event, image.id);
             }}
             className="relative group aspect-square bg-gray-800 rounded-lg overflow-hidden border border-gray-700/50 hover:border-blue-500/50 transition-colors"
@@ -224,7 +225,7 @@ const Gallery: React.FC<GalleryProps> = ({
             <button
               onClick={() => handleImageClick(image.id, image.type)}
               disabled={loadingImageId === image.id}
-              draggable={image.type === 'image' && loadingImageId !== image.id}
+              draggable={false}
               title={image.type === 'image' ? 'Drag to an image input to use the original' : undefined}
               className="w-full h-full"
             >
@@ -232,7 +233,7 @@ const Gallery: React.FC<GalleryProps> = ({
                 <img
                   src={thumbnailUrls[image.id]}
                   alt={image.name}
-                  draggable={image.type === 'image'}
+                  draggable={false}
                   className="w-full h-full object-cover"
                 />
               )}

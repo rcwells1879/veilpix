@@ -2,78 +2,103 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * VeilPix - AI-Powered Image Editor
- * Main application component managing the entire image editing workflow
+ * VeilPix Studio - single-page AI image & video workspace.
  *
  * Architecture:
- * - State management via React hooks (no external state library)
- * - History-based undo/redo system with File objects
- * - Optimistic UI updates for perceived performance
- * - Authentication-gated features via Clerk
- * - Backend API for all AI operations (Nano Banana 2, Seedream 5, Wan 2.7 Image)
+ * - One screen: result stage above a prompt composer, gallery rail on the right.
+ * - Two modes (image / video); composer dropdowns adapt to the selected model.
+ * - History-based undo/redo with File objects; compare slider; retouch; crop.
+ * - Authentication-gated features via Clerk; all AI calls proxied by the backend.
  */
 
-import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, useOptimistic, startTransition, Suspense, lazy } from 'react';
-import { formatCreditLabel } from './src/utils/creditFormatting';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, Suspense, lazy } from 'react';
 import type { Crop, PixelCrop } from 'react-image-crop';
 import { useUser, useClerk } from '@clerk/clerk-react';
 import {
   useGenerateEditNanoBanana2,
-  useGenerateFilterNanoBanana2,
   useGenerateAdjustNanoBanana2,
   useGenerateCompositeNanoBanana2,
   useGenerateTextToImage,
   useGenerateEditSeeDream,
-  useGenerateFilterSeeDream,
   useGenerateAdjustSeeDream,
   useGenerateCompositeSeeDream,
   useGenerateEditWanImage,
-  useGenerateFilterWanImage,
   useGenerateAdjustWanImage,
   useGenerateCompositeWanImage,
   useGenerateTextToImageSeeDream,
   useGenerateTextToImageWanImage,
+  useGenerateTextToImageZImage,
+  useImageGenerationRecovery,
   useGenerateVideo,
   useGenerateReferenceToVideo,
   useGenerateTextToVideo,
   useGenerateSeedanceVideo,
+  useGenerateWan3Video,
+  useVideoGenerationRecovery,
+  useMediaDeliveryRecovery,
+  type ImageGenerationResponse,
+  type VideoGenerationResponse,
   useUsageStats
 } from './src/hooks/useImageGeneration';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Spinner from './components/Spinner';
-import { UndoIcon, RedoIcon, EyeIcon, SlidersIcon, DownloadIcon, PhotoIcon } from './components/icons';
-import StartScreen from './components/StartScreen';
-import ModeSelector, { type CreativeMode } from './components/ModeSelector';
 import type { SettingsState } from './components/SettingsMenu';
 import {
   getImageCreditCost,
-  ImageModelSelector,
-  ImageModelSettings,
+  imageProviderSupportsReferences,
   normalizeImageGenerationOptions,
   type ImageGenerationOptions,
   type ImageProvider,
+  type ImageWorkflow,
 } from './components/ImageModelControlsPanel';
-import { debouncedSaveWorkflow, saveToGallery, saveVideoToGallery, type GalleryVideoDetails } from './src/utils/workflowStorage';
+import Composer from './components/studio/Composer';
+import ResultStage from './components/studio/ResultStage';
+import GalleryRail, { type GalleryReferenceTarget, type PendingGalleryItem } from './components/studio/GalleryRail';
+import type { StudioMode, StageTool, VideoProvider, SeedanceVariant, SeedanceInputMode, SeedanceOutputFormat, Wan3Variant, Wan3InputMode, VideoGenerateOptions, VideoModelRestoreRequest } from './components/studio/types';
+import {
+  getWanMaxReferenceImages,
+  getSeedanceReferenceLimits,
+  SEEDANCE_MAX_REFERENCE_AUDIOS,
+  SEEDANCE_MAX_REFERENCE_IMAGES,
+  SEEDANCE_MAX_REFERENCE_VIDEOS,
+  WAN3_REFERENCE_LIMITS,
+} from './components/studio/videoPricing';
+import {
+  clearPendingImageStyleImage,
+  clearPendingVideoReferenceImages,
+  debouncedSaveWorkflow,
+  getPendingImageStyleImage,
+  getPendingVideoReferenceImages,
+  hasGalleryArtifact,
+  hasGalleryImageStyleReference,
+  hasGalleryVideoReferences,
+  hasLocalDeliveryReceipt,
+  markLocalDeliveryReceipt,
+  savePendingImageStyleImage,
+  savePendingVideoReferenceImages,
+  saveToGallery,
+  saveVideoToGallery,
+  updateGalleryImageGenerationContext,
+  type GalleryImageDetails,
+  type GalleryVideoDetails,
+} from './src/utils/workflowStorage';
 import { extractLastVideoFrame } from './src/utils/videoFrameExtraction';
 
-type VideoProvider = 'wan' | 'seedance';
-type SeedanceVariant = 'regular' | 'fast' | 'mini';
-type SeedanceInputMode = 'frames' | 'references';
+/* ------------------------------------------------------------------ */
+/* Lazy-loaded chunks                                                   */
+/* ------------------------------------------------------------------ */
+const WebcamCapture = lazy(() => import('./components/WebcamCapture'));
+const SignupPromptModal = lazy(() => import('./components/SignupPromptModal'));
+const PaymentSuccess = lazy(() => import('./components/PaymentSuccess').then(module => ({ default: module.PaymentSuccess })));
+const PaymentCancelled = lazy(() => import('./components/PaymentCancelled').then(module => ({ default: module.PaymentCancelled })));
+const PricingModal = lazy(() => import('./components/PricingModal').then(module => ({ default: module.PricingModal })));
+const VideoEditor = lazy(() => import('./components/studio/VideoEditor'));
+const StudioBelowFold = lazy(() => import('./components/studio/StudioBelowFold'));
 
-interface VideoGenerateOptions {
-  provider: VideoProvider;
-  prompt: string;
-  duration: number;
-  resolution: string;
-  ratio: string;
-  wanAudio?: boolean;
-  wanMultiShots?: boolean;
-  seedanceVariant?: SeedanceVariant;
-  seedanceInputMode?: SeedanceInputMode;
-  seedanceGenerateAudio?: boolean;
-  seedanceWebSearch?: boolean;
-}
+/* ------------------------------------------------------------------ */
+/* Helpers                                                              */
+/* ------------------------------------------------------------------ */
 
 function getVideoDurationSeconds(source: File | string): Promise<number | null> {
   return new Promise((resolve) => {
@@ -94,64 +119,59 @@ function getVideoDurationSeconds(source: File | string): Promise<number | null> 
 
     video.preload = 'metadata';
     video.onloadedmetadata = () => {
-      finish(Number.isFinite(video.duration) ? Math.ceil(video.duration) : null);
+      // Keep the measured duration instead of rounding up. Encoders commonly
+      // add a fraction of a second of container padding, so a nominal 30s clip
+      // must not become 31s before Seedance validation runs.
+      finish(Number.isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : null);
     };
     video.onerror = () => finish(null);
     video.src = objectUrl || (source as string);
   });
 }
 
-// Lazy-loaded components for video and composite-from-editor modes
-const VideoControlsPanel = lazy(() => import('./components/VideoControlsPanel'));
-const CompositeEditorOverlay = lazy(() => import('./components/CompositeEditorOverlay'));
-const AdjustmentPanel = lazy(() => import('./components/AdjustmentPanel'));
-const BeforeAfterSlider = lazy(() => import('./components/BeforeAfterSlider'));
-const CropEditor = lazy(() => import('./components/CropEditor'));
-const CropPanel = lazy(() => import('./components/CropPanel'));
-const FilterPanel = lazy(() => import('./components/FilterPanel'));
-const Gallery = lazy(() => import('./components/Gallery'));
-const SignupPromptModal = lazy(() => import('./components/SignupPromptModal'));
-
-/**
- * Lazy-loaded components for better initial bundle size
- * These components are only loaded when their respective features are accessed
- * - WebcamCapture: Heavy library (react-webcam) only needed for webcam mode
- * - CompositeScreen: Only needed for multi-image composition workflow
- * - Payment/Pricing modals: Rarely used, safe to code-split
- */
-const WebcamCapture = lazy(() => import('./components/WebcamCapture'));
-const CompositeScreen = lazy(() => import('./components/CompositeScreen'));
-const PaymentSuccess = lazy(() => import('./components/PaymentSuccess').then(module => ({ default: module.PaymentSuccess })));
-const PaymentCancelled = lazy(() => import('./components/PaymentCancelled').then(module => ({ default: module.PaymentCancelled })));
-const PricingModal = lazy(() => import('./components/PricingModal').then(module => ({ default: module.PricingModal })));
-// HEIC converter is dynamically imported only when HEIC files are detected (rare on web)
-
-/**
- * Converts a data URL string to a File object
- * Used primarily for crop operations where canvas.toDataURL() produces a data URL
- * that needs to be converted back to a File for consistency with history management
- *
- * @param dataurl - Base64 encoded data URL (format: "data:image/png;base64,...")
- * @param filename - Desired filename for the resulting File object
- * @returns File object suitable for storing in history array
- * @throws Error if data URL format is invalid or MIME type cannot be parsed
- */
-const dataURLtoFile = (dataurl: string, filename: string): File => {
-    const arr = dataurl.split(',');
-    if (arr.length < 2) throw new Error("Invalid data URL");
-    const mimeMatch = arr[0].match(/:(.*?);/);
-    if (!mimeMatch || !mimeMatch[1]) throw new Error("Could not parse MIME type from data URL");
-
-    const mime = mimeMatch[1];
-    const bstr = atob(arr[1]); // Decode base64 string
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    // Convert binary string to byte array (working backwards for efficiency)
-    while(n--){
-        u8arr[n] = bstr.charCodeAt(n);
-    }
-    return new File([u8arr], filename, {type:mime});
+function areSameFiles(left: File[], right: File[]): boolean {
+  return left.length === right.length && left.every((file, index) => {
+    const other = right[index];
+    return file === other || (
+      file.name === other.name
+      && file.size === other.size
+      && file.type === other.type
+      && file.lastModified === other.lastModified
+    );
+  });
 }
+
+function seedanceVariantFromDeliveryProvider(provider: string): SeedanceVariant | undefined {
+  const normalized = provider.toLowerCase();
+  if (normalized.includes('seedance-v2-5')) return 'v2_5';
+  if (normalized.includes('seedance-regular')) return 'regular';
+  if (normalized.includes('seedance-fast')) return 'fast';
+  if (normalized.includes('seedance-mini')) return 'mini';
+  return undefined;
+}
+
+function wan3VariantFromDeliveryProvider(provider: string): Wan3Variant | undefined {
+  const normalized = provider.toLowerCase();
+  if (normalized.includes('wan3-prime')) return 'prime';
+  if (normalized.includes('wan3-standard')) return 'standard';
+  return undefined;
+}
+
+const dataURLtoFile = (dataurl: string, filename: string): File => {
+  const arr = dataurl.split(',');
+  if (arr.length < 2) throw new Error('Invalid data URL');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!mimeMatch || !mimeMatch[1]) throw new Error('Could not parse MIME type from data URL');
+
+  const mime = mimeMatch[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+};
 
 const generatedImageToFile = async (
   image: { data: string; mimeType?: string },
@@ -179,133 +199,242 @@ const generatedImageToFile = async (
   );
 };
 
-/**
- * Detects if an error message indicates a content safety filter violation
- * Google's Gemini API filters content for safety (NSFW, violence, policy violations)
- * This helps provide user-friendly messaging for safety-related failures vs technical errors
- *
- * @param errorMessage - The error message string to analyze
- * @returns true if the error appears to be safety-related, false otherwise
- *
- * Note: Includes '500' and 'internal server error' as safety keywords because
- * Google's API sometimes returns 500 errors for safety violations without clear messaging
- */
+const downloadDeliveryFile = async (downloadUrl: string, fileName: string, mimeType: string): Promise<File> => {
+  const response = await fetch(downloadUrl, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Delivery download returned ${response.status}`);
+  const blob = await response.blob();
+  if (!blob.size) throw new Error('The delivered media file was empty.');
+  return new File([blob], fileName, { type: blob.type || mimeType || 'application/octet-stream' });
+};
+
 const CONTENT_POLICY_ERROR_CODE = 'CONTENT_POLICY_VIOLATION';
 const CONTENT_POLICY_ERROR_MESSAGE = 'Content policy violation: this request was flagged by the content moderation provider.';
 
 const getApiErrorMessage = (error: unknown): string => {
-    if (typeof error === 'string') {
-        return error;
-    }
+  if (typeof error === 'string') return error;
 
-    if (error && typeof error === 'object') {
-        const apiError = error as {
-            message?: string;
-            data?: { message?: string; error?: string };
-        };
+  if (error && typeof error === 'object') {
+    const apiError = error as {
+      message?: string;
+      data?: { message?: string; error?: string };
+    };
 
-        return apiError.data?.message
-            || apiError.data?.error
-            || apiError.message
-            || 'An unknown error occurred.';
-    }
+    return apiError.data?.message
+      || apiError.data?.error
+      || apiError.message
+      || 'An unknown error occurred.';
+  }
 
-    return 'An unknown error occurred.';
+  return 'An unknown error occurred.';
 };
 
-const isSafetyFilterError = (error: unknown, nsfwFilterEnabled: boolean): boolean => {
-    if (error && typeof error === 'object') {
-        const apiError = error as {
-            data?: { code?: string };
-        };
+const isSafetyFilterError = (error: unknown): boolean => {
+  if (error && typeof error === 'object') {
+    const apiError = error as { data?: { code?: string } };
+    if (apiError.data?.code === CONTENT_POLICY_ERROR_CODE) return true;
+  }
 
-        if (apiError.data?.code === CONTENT_POLICY_ERROR_CODE) {
-            return true;
-        }
-    }
+  const safetyKeywords = [
+    'safety', 'blocked', 'flagged', 'inappropriate', 'policy', 'violation',
+    'nsfw', 'harmful', 'terms of service', 'content policy', 'not allowed',
+    'not approved', 'moderation provider', 'failed the review',
+    'sensitivecontentdetected', 'contentriskblocked'
+  ];
 
-    const safetyKeywords = [
-        'safety',
-        'blocked',
-        'flagged',
-        'inappropriate',
-        'policy',
-        'violation',
-        'nsfw',
-        'harmful',
-        'terms of service',
-        'content policy',
-        'not allowed',
-        'not approved',
-        'moderation provider',
-        'failed the review'
-    ];
+  const lowerError = getApiErrorMessage(error).toLowerCase();
+  if (safetyKeywords.some(keyword => lowerError.includes(keyword))) return true;
 
-    const lowerError = getApiErrorMessage(error).toLowerCase();
+  // Kie.ai returns generic "Internal Error" for content-filtered requests.
+  if (lowerError.includes('internal error') || lowerError.includes('500')) return true;
 
-    // Direct safety keyword match
-    if (safetyKeywords.some(keyword => lowerError.includes(keyword))) {
-        return true;
-    }
-
-    // Kie.ai returns generic "Internal Error" for content-filtered requests.
-    // When the NSFW filter is ON: "Internal Error" likely means content was blocked by kie.ai's filter.
-    // When the NSFW filter is OFF (After Dark): "Internal Error" likely means the underlying model
-    // (e.g., SeeDream/ByteDance) has its own content filter that can't be disabled via nsfw_checker.
-    // In both cases, treat as a safety error since normal prompts work fine with the same settings.
-    if (lowerError.includes('internal error') || lowerError.includes('500')) {
-        return true;
-    }
-
-    return false;
-}
-
-const getGenerationErrorMessage = (
-    error: unknown,
-    fallbackPrefix: string,
-    nsfwFilterEnabled: boolean
-): string => {
-    if (isSafetyFilterError(error, nsfwFilterEnabled)) {
-        return CONTENT_POLICY_ERROR_MESSAGE;
-    }
-
-    return `${fallbackPrefix} ${getApiErrorMessage(error)}`;
+  return false;
 };
 
-/**
- * DEPRECATED - Legacy function no longer used in production
- * Previously attempted to parse natural language adjustment prompts into structured values
- * Now replaced by direct prompt-to-API approach where Gemini interprets prompts natively
- *
- * Kept for reference but not actively called in the codebase
- */
-const parseAdjustmentPrompt = (prompt: string) => {
-  const adjustments: any = {};
+const getGenerationErrorMessage = (error: unknown, fallbackPrefix: string): string => {
+  if (isSafetyFilterError(error)) return CONTENT_POLICY_ERROR_MESSAGE;
+  return `${fallbackPrefix} ${getApiErrorMessage(error)}`;
+};
 
-  // Simple parsing logic - in production you might want more sophisticated parsing
-  if (prompt.toLowerCase().includes('bright')) {
-    adjustments.brightness = 0.2; // Default adjustment value
-  }
-  if (prompt.toLowerCase().includes('contrast')) {
-    adjustments.contrast = 0.2;
-  }
-  if (prompt.toLowerCase().includes('saturat')) {
-    adjustments.saturation = 0.2;
-  }
-  if (prompt.toLowerCase().includes('warm') || prompt.toLowerCase().includes('cool')) {
-    adjustments.temperature = prompt.toLowerCase().includes('warm') ? 0.2 : -0.2;
-  }
+/* ------------------------------------------------------------------ */
+/* Settings persistence                                                 */
+/* ------------------------------------------------------------------ */
 
-  return adjustments;
-}
-
-type Tab = 'retouch' | 'adjust' | 'filters' | 'crop';
-type View = 'start' | 'webcam' | 'editor' | 'composite';
-
-// LocalStorage keys for settings persistence
 const SETTINGS_STORAGE_KEY = 'veilpix-settings';
+const PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generations';
+const PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generations';
+const LEGACY_PENDING_IMAGE_STORAGE_KEY = 'veilpix-pending-image-generation';
+const LEGACY_PENDING_VIDEO_STORAGE_KEY = 'veilpix-pending-video-generation';
+const GENERATION_RECOVERY_TIMEOUT_MS = 48 * 60 * 60 * 1000;
+const MAX_CONCURRENT_GENERATIONS = 3;
 
-// Default settings
+type RecoverableImageWorkflow = 'text-to-image' | 'retouch' | 'composite' | 'adjust';
+
+interface PendingImageGeneration {
+  id: string;
+  provider: ImageProvider;
+  prompt: string;
+  workflow: RecoverableImageWorkflow;
+  resolution?: ImageGenerationOptions['resolution'];
+  aspectRatio?: string;
+  seedreamTier?: ImageGenerationOptions['seedreamTier'];
+  outputFormat?: ImageGenerationOptions['outputFormat'];
+  hasStyleImage?: boolean;
+  createdAt: number;
+}
+
+interface PendingVideoGeneration {
+  id: string;
+  provider: VideoProvider;
+  prompt: string;
+  duration: number;
+  resolution: string;
+  ratio: string;
+  seedanceVariant?: SeedanceVariant;
+  seedanceInputMode?: SeedanceInputMode;
+  seedanceOutputFormat?: SeedanceOutputFormat;
+  wan3Variant?: Wan3Variant;
+  wan3InputMode?: Wan3InputMode;
+  createdAt: number;
+}
+
+interface PendingVideoFiles {
+  generationId: string;
+  referenceImages: File[];
+  referenceVideoFiles: File[];
+  referenceVideoUrl: string | null;
+}
+
+interface ImageGenerationSubmission {
+  kind: 'image';
+  job: PendingImageGeneration;
+  options: ImageGenerationOptions;
+  sourceImage: File | null;
+  styleImage: File | null;
+  hotspot: { x: number; y: number } | null;
+  nsfwFilterEnabled: boolean;
+}
+
+interface VideoGenerationSubmission {
+  kind: 'video';
+  job: PendingVideoGeneration;
+  options: VideoGenerateOptions;
+  wanReferenceImages: File[];
+  referenceVideoFile: File | null;
+  referenceVideoUrl: string | null;
+  seedanceFirstFrame: File | null;
+  seedanceLastFrame: File | null;
+  seedanceReferenceImages: File[];
+  seedanceReferenceVideoFiles: File[];
+  seedanceReferenceVideoUrl: string | null;
+  seedanceReferenceVideoDuration: number | null;
+  seedanceReferenceAudioFiles: File[];
+  seedanceReferenceAudioDuration: number | null;
+  wan3FirstFrame: File | null;
+  wan3LastFrame: File | null;
+  wan3ReferenceImages: File[];
+  wan3ReferenceVideoFiles: File[];
+  wan3ReferenceVideoDuration: number | null;
+  wan3ReferenceAudioFiles: File[];
+  wan3ReferenceAudioDuration: number | null;
+  wan3ReferenceFile: File | null;
+  wan3ReferenceLink: string;
+  nsfwFilterEnabled: boolean;
+}
+
+type GenerationSubmission = ImageGenerationSubmission | VideoGenerationSubmission;
+
+function isPendingImageGeneration(value: unknown): value is PendingImageGeneration {
+  if (!value || typeof value !== 'object') return false;
+  const parsed = value as Partial<PendingImageGeneration>;
+  return (
+    typeof parsed.id === 'string' &&
+    ['nanobanana2', 'seedream', 'wanimage', 'zimage'].includes(parsed.provider || '') &&
+    typeof parsed.prompt === 'string' &&
+    ['text-to-image', 'retouch', 'composite', 'adjust'].includes(parsed.workflow || '') &&
+    typeof parsed.createdAt === 'number'
+  );
+}
+
+function storePendingImageGenerations(jobs: PendingImageGeneration[]): void {
+  try {
+    if (jobs.length > 0) localStorage.setItem(PENDING_IMAGE_STORAGE_KEY, JSON.stringify(jobs));
+    else localStorage.removeItem(PENDING_IMAGE_STORAGE_KEY);
+  } catch {
+    // Recovery still works during this page lifetime when storage is unavailable.
+  }
+}
+
+function readPendingImageGenerations(): PendingImageGeneration[] {
+  try {
+    const raw = localStorage.getItem(PENDING_IMAGE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter(isPendingImageGeneration);
+      localStorage.removeItem(PENDING_IMAGE_STORAGE_KEY);
+    }
+
+    const legacyRaw = localStorage.getItem(LEGACY_PENDING_IMAGE_STORAGE_KEY);
+    if (!legacyRaw) return [];
+    const legacy = JSON.parse(legacyRaw) as unknown;
+    localStorage.removeItem(LEGACY_PENDING_IMAGE_STORAGE_KEY);
+    if (!isPendingImageGeneration(legacy)) return [];
+    storePendingImageGenerations([legacy]);
+    return [legacy];
+  } catch {
+    return [];
+  }
+}
+
+function isPendingVideoGeneration(value: unknown): value is PendingVideoGeneration {
+  if (!value || typeof value !== 'object') return false;
+  const parsed = value as Partial<PendingVideoGeneration>;
+  return (
+    typeof parsed.id === 'string' &&
+    (parsed.provider === 'wan' || parsed.provider === 'wan3' || parsed.provider === 'seedance') &&
+    typeof parsed.prompt === 'string' &&
+    typeof parsed.duration === 'number' &&
+    typeof parsed.resolution === 'string' &&
+    typeof parsed.ratio === 'string' &&
+    typeof parsed.createdAt === 'number'
+  );
+}
+
+function storePendingVideoGenerations(jobs: PendingVideoGeneration[]): void {
+  try {
+    if (jobs.length > 0) localStorage.setItem(PENDING_VIDEO_STORAGE_KEY, JSON.stringify(jobs));
+    else localStorage.removeItem(PENDING_VIDEO_STORAGE_KEY);
+  } catch {
+    // Recovery still works during this page lifetime when storage is unavailable.
+  }
+}
+
+function readPendingVideoGenerations(): PendingVideoGeneration[] {
+  try {
+    const raw = localStorage.getItem(PENDING_VIDEO_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter(isPendingVideoGeneration);
+      localStorage.removeItem(PENDING_VIDEO_STORAGE_KEY);
+    }
+
+    const legacyRaw = localStorage.getItem(LEGACY_PENDING_VIDEO_STORAGE_KEY);
+    if (!legacyRaw) return [];
+    const legacy = JSON.parse(legacyRaw) as unknown;
+    localStorage.removeItem(LEGACY_PENDING_VIDEO_STORAGE_KEY);
+    if (!isPendingVideoGeneration(legacy)) return [];
+    storePendingVideoGenerations([legacy]);
+    return [legacy];
+  } catch {
+    return [];
+  }
+}
+
+function shouldRecoverGeneration(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const status = Number((error as { status?: number }).status);
+  return status === 0 || status === 408 || status >= 500;
+}
+
 const DEFAULT_SETTINGS: SettingsState = {
   apiProvider: 'seedream',
   resolution: '2K',
@@ -315,187 +444,133 @@ const DEFAULT_SETTINGS: SettingsState = {
   nsfwFilterEnabled: true
 };
 
+/* ------------------------------------------------------------------ */
+
 const App: React.FC = () => {
   const { isSignedIn, isLoaded } = useUser();
   const clerk = useClerk();
   const openedProfileRef = useRef(false);
   const { data: usageStats } = useUsageStats();
   const hasPurchasedCredits = (usageStats?.totalCreditsPurchased ?? 0) > 0;
-  const [view, setView] = useState<View>('start');
+
+  /* ---------------- studio state ---------------- */
+  const [studioMode, setStudioMode] = useState<StudioMode>('image');
   const [history, setHistory] = useState<File[]>([]);
   const [historyPrompts, setHistoryPrompts] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
-  const [prompt, setPrompt] = useState<string>('');
-  const [restoredVideoPrompt, setRestoredVideoPrompt] = useState<string>('');
-  const [videoPromptRecallKey, setVideoPromptRecallKey] = useState(0);
+  const [imagePrompt, setImagePrompt] = useState<string>('');
+  const [videoPrompt, setVideoPrompt] = useState<string>('');
+  const [styleImage, setStyleImage] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [editHotspot, setEditHotspot] = useState<{ x: number, y: number } | null>(null);
-  const [displayHotspot, setDisplayHotspot] = useState<{ x: number, y: number } | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('adjust');
+  const [activeTool, setActiveTool] = useState<StageTool>('none');
+  const [editHotspot, setEditHotspot] = useState<{ x: number; y: number } | null>(null);
+  const [displayHotspot, setDisplayHotspot] = useState<{ x: number; y: number } | null>(null);
   const [showSignupPrompt, setShowSignupPrompt] = useState<boolean>(false);
+  const [webcamTarget, setWebcamTarget] = useState<'base' | 'style' | null>(null);
+  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
+  const [isVideoEditorOpen, setIsVideoEditorOpen] = useState(false);
+  const [isVideoEditorRendering, setIsVideoEditorRendering] = useState(false);
+  const [incomingEditorVideo, setIncomingEditorVideo] = useState<GalleryVideoDetails | null>(null);
+  const [isProcessingFile] = useState(false);
 
+  /* crop */
+  const [crop, setCrop] = useState<Crop>();
+  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
+  const [aspect, setAspect] = useState<number | undefined>();
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  /* compare */
+  const [isComparing, setIsComparing] = useState<boolean>(false);
+  const [showSlider, setShowSlider] = useState<boolean>(false);
+  const [sliderCompareMode, setSliderCompareMode] = useState<'original' | 'previous'>('original');
+
+  /* Hide the static SEO hero once the app owns the screen */
   useLayoutEffect(() => {
     const startHero = document.getElementById('veilpix-start-hero');
-    if (startHero) startHero.hidden = view !== 'start';
-  }, [view]);
+    if (startHero) startHero.hidden = true;
+  }, []);
 
-  // Settings state with localStorage persistence
+  /* ---------------- settings ---------------- */
   const [settings, setSettings] = useState<SettingsState>(() => {
     try {
       const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        console.log('📋 Loaded settings from localStorage:', parsed);
-        const normalizedImageOptions = normalizeImageGenerationOptions({
-          provider: parsed.apiProvider,
-          resolution: parsed.resolution,
-          aspectRatio: parsed.imageAspectRatio,
-          seedreamTier: parsed.seedreamTier,
-          outputFormat: parsed.imageOutputFormat,
-        });
-        return {
-          ...DEFAULT_SETTINGS,
-          ...parsed,
-          apiProvider: normalizedImageOptions.provider,
-          resolution: normalizedImageOptions.resolution,
-          imageAspectRatio: normalizedImageOptions.aspectRatio,
-          seedreamTier: normalizedImageOptions.seedreamTier,
-          imageOutputFormat: normalizedImageOptions.outputFormat,
-        };
+        // Stored values are kept as-is; provider/workflow clamping happens at
+        // read time so user preferences survive model and workflow switches.
+        return { ...DEFAULT_SETTINGS, ...parsed };
       }
-    } catch (error) {
-      console.error('Failed to load settings from localStorage:', error);
+    } catch (storageError) {
+      console.error('Failed to load settings from localStorage:', storageError);
     }
     return DEFAULT_SETTINGS;
   });
-  const imageGenerationOptions = normalizeImageGenerationOptions({
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch (storageError) {
+      console.error('Failed to save settings to localStorage:', storageError);
+    }
+  }, [settings]);
+
+  // Enforce NSFW filter for confirmed non-purchasers only. While usage stats
+  // are still loading (undefined), do nothing — otherwise every page load
+  // would momentarily see "no purchases" and wipe a purchaser's After Dark
+  // setting before the stats arrive.
+  useEffect(() => {
+    if (usageStats && !hasPurchasedCredits && !settings.nsfwFilterEnabled) {
+      setSettings(prev => ({ ...prev, nsfwFilterEnabled: true }));
+    }
+  }, [usageStats, hasPurchasedCredits, settings.nsfwFilterEnabled]);
+
+  const handleSettingsChange = useCallback((newSettings: SettingsState) => {
+    setSettings(newSettings);
+  }, []);
+
+  const handleImageOptionsChange = useCallback((options: ImageGenerationOptions) => {
+    setSettings(prev => ({
+      ...prev,
+      apiProvider: options.provider,
+      resolution: options.resolution,
+      imageAspectRatio: options.aspectRatio,
+      seedreamTier: options.seedreamTier,
+      imageOutputFormat: options.outputFormat,
+    }));
+  }, []);
+
+  // Raw user preferences — normalization/clamping happens where requests are
+  // built and where options are displayed, never against the stored values.
+  const imageGenerationOptions: ImageGenerationOptions = {
     provider: settings.apiProvider,
     resolution: settings.resolution,
     aspectRatio: settings.imageAspectRatio,
     seedreamTier: settings.seedreamTier,
     outputFormat: settings.imageOutputFormat,
-  });
-  const imageCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'text-to-image', imageGenerationOptions.seedreamTier);
-  const imageEditCreditCost = getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier);
-  const imageEditCreditLabel = formatCreditLabel(imageEditCreditCost);
+  };
 
-  // Persist settings to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-      console.log('💾 Saved settings to localStorage:', settings);
-    } catch (error) {
-      console.error('Failed to save settings to localStorage:', error);
-    }
-  }, [settings]);
+  /* ---------------- clerk / payment plumbing ---------------- */
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
+  const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
+  const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
+  const [showPricingModal, setShowPricingModal] = useState(false);
 
-  // Enforce NSFW filter for non-purchasers: if user hasn't bought credits,
-  // force the filter ON regardless of what's stored in localStorage
-  useEffect(() => {
-    if (!hasPurchasedCredits && !settings.nsfwFilterEnabled) {
-      setSettings(prev => ({ ...prev, nsfwFilterEnabled: true }));
-    }
-  }, [hasPurchasedCredits, settings.nsfwFilterEnabled]);
-
-  // Workflow restoration disabled - app always starts at landing page
-  // Users requested fresh start on every visit instead of session persistence
-  // useEffect(() => {
-  //   const restoreWorkflow = async () => {
-  //     try {
-  //       const savedWorkflow = await loadWorkflow();
-  //       if (savedWorkflow && savedWorkflow.history.length > 0) {
-  //         console.log('🔄 Restoring workflow from IndexedDB:', savedWorkflow.history.length, 'images');
-  //         setHistory(savedWorkflow.history);
-  //         setHistoryIndex(savedWorkflow.historyIndex);
-  //         setView('editor');
-  //       }
-  //     } catch (error) {
-  //       console.error('Failed to restore workflow:', error);
-  //     }
-  //   };
-  //   restoreWorkflow();
-  // }, []);
-
-  // Auto-save workflow to IndexedDB when history changes (debounced)
-  useEffect(() => {
-    if (history.length > 0) {
-      debouncedSaveWorkflow(history, historyIndex, historyPrompts);
-    }
-  }, [history, historyIndex, historyPrompts]);
-
-  const handleSettingsChange = useCallback((newSettings: SettingsState) => {
-    const normalizedImageOptions = normalizeImageGenerationOptions({
-      provider: newSettings.apiProvider,
-      resolution: newSettings.resolution,
-      aspectRatio: newSettings.imageAspectRatio,
-      seedreamTier: newSettings.seedreamTier,
-      outputFormat: newSettings.imageOutputFormat,
-    });
-    const normalizedSettings = {
-      ...newSettings,
-      apiProvider: normalizedImageOptions.provider,
-      resolution: normalizedImageOptions.resolution,
-      imageAspectRatio: normalizedImageOptions.aspectRatio,
-      seedreamTier: normalizedImageOptions.seedreamTier,
-      imageOutputFormat: normalizedImageOptions.outputFormat,
-    };
-    setSettings(normalizedSettings);
-    console.log('⚙️ Settings updated:', newSettings);
-  }, []);
-
-  const handleImageOptionsChange = useCallback((options: ImageGenerationOptions) => {
-    const normalizedImageOptions = normalizeImageGenerationOptions(options);
-    setSettings(prev => ({
-      ...prev,
-      apiProvider: normalizedImageOptions.provider,
-      resolution: normalizedImageOptions.resolution,
-      imageAspectRatio: normalizedImageOptions.aspectRatio,
-      seedreamTier: normalizedImageOptions.seedreamTier,
-      imageOutputFormat: normalizedImageOptions.outputFormat,
-    }));
-  }, []);
-
-  // Smart preloading for lazy components
-  useEffect(() => {
-    // Preload CompositeScreen when user first uploads an image
-    if (history.length > 0) {
-      import('./components/CompositeScreen');
-    }
-  }, [history.length]);
-
-  // Debug: Log auth state on every load to diagnose OAuth redirects
-  useEffect(() => {
-    console.log('🔍 Auth debug:', {
-      url: window.location.href,
-      search: window.location.search,
-      hash: window.location.hash,
-      isSignedIn,
-      isLoaded,
-      clerkLoaded: clerk.loaded
-    });
-  }, [isSignedIn, isLoaded, clerk.loaded]);
-
-  // Handle SSO callback from OAuth providers (Google, GitHub, etc.)
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const isSSOCallback = window.location.hash.includes('/sso-callback') ||
-                          window.location.pathname.includes('/sso-callback') ||
-                          searchParams.has('__clerk_status') ||
-                          searchParams.has('__clerk_created_session') ||
-                          searchParams.has('__clerk_ticket');
-
-    console.log('🔄 SSO check:', { isSSOCallback, clerkLoaded: clerk.loaded });
+      window.location.pathname.includes('/sso-callback') ||
+      searchParams.has('__clerk_status') ||
+      searchParams.has('__clerk_created_session') ||
+      searchParams.has('__clerk_ticket');
 
     if (isSSOCallback && clerk.loaded) {
-      console.log('🔄 Handling SSO callback...');
       clerk.handleRedirectCallback({
         signInForceRedirectUrl: '/veilpix/',
         signUpForceRedirectUrl: '/veilpix/',
       }).then(() => {
-        console.log('✅ SSO callback handled successfully');
         window.history.replaceState({}, '', window.location.pathname);
       }).catch((err) => {
-        console.error('❌ SSO callback error:', err);
+        console.error('SSO callback error:', err);
       });
     }
   }, [clerk.loaded]);
@@ -515,22 +590,25 @@ const App: React.FC = () => {
     }
   }, [clerk, isLoaded, isSignedIn]);
 
-  // Payment flow state
-  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false);
-  const [showPaymentCancelled, setShowPaymentCancelled] = useState(false);
-  const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
-  const [showPricingModal, setShowPricingModal] = useState(false);
-  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionId = urlParams.get('session_id');
+    const cancelled = urlParams.get('cancelled');
 
-  // TanStack Query mutations — call ALL hooks unconditionally (Rules of Hooks compliant),
-  // then select the active one based on the chosen provider
+    if (sessionId) {
+      setPaymentSessionId(sessionId);
+      setShowPaymentSuccess(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (cancelled === 'true') {
+      setShowPaymentCancelled(true);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  /* ---------------- mutations ---------------- */
   const editNB2 = useGenerateEditNanoBanana2();
   const editSeeDream = useGenerateEditSeeDream();
   const editWan = useGenerateEditWanImage();
-
-  const filterNB2 = useGenerateFilterNanoBanana2();
-  const filterSeeDream = useGenerateFilterSeeDream();
-  const filterWan = useGenerateFilterWanImage();
 
   const adjustNB2 = useGenerateAdjustNanoBanana2();
   const adjustSeeDream = useGenerateAdjustSeeDream();
@@ -543,55 +621,76 @@ const App: React.FC = () => {
   const textToImageNB2 = useGenerateTextToImage();
   const textToImageSeeDream = useGenerateTextToImageSeeDream();
   const textToImageWan = useGenerateTextToImageWanImage();
+  const textToImageZImage = useGenerateTextToImageZImage();
 
-  const imageMutationsByProvider = {
-    nanobanana2: {
-      edit: editNB2,
-      filter: filterNB2,
-      adjust: adjustNB2,
-      composite: compositeNB2,
-      textToImage: textToImageNB2,
-    },
-    seedream: {
-      edit: editSeeDream,
-      filter: filterSeeDream,
-      adjust: adjustSeeDream,
-      composite: compositeSeeDream,
-      textToImage: textToImageSeeDream,
-    },
-    wanimage: {
-      edit: editWan,
-      filter: filterWan,
-      adjust: adjustWan,
-      composite: compositeWan,
-      textToImage: textToImageWan,
-    },
-  } satisfies Record<ImageProvider, {
+  const editableImageMutationsByProvider = {
+    nanobanana2: { edit: editNB2, adjust: adjustNB2, composite: compositeNB2 },
+    seedream: { edit: editSeeDream, adjust: adjustSeeDream, composite: compositeSeeDream },
+    wanimage: { edit: editWan, adjust: adjustWan, composite: compositeWan },
+  } satisfies Record<Exclude<ImageProvider, 'zimage'>, {
     edit: typeof editNB2;
-    filter: typeof filterNB2;
     adjust: typeof adjustNB2;
     composite: typeof compositeNB2;
-    textToImage: typeof textToImageNB2;
   }>;
 
-  // Select active mutation based on provider
-  const activeImageMutations = imageMutationsByProvider[imageGenerationOptions.provider] ?? imageMutationsByProvider.seedream;
-  const editMutation = activeImageMutations.edit;
-  const filterMutation = activeImageMutations.filter;
-  const adjustMutation = activeImageMutations.adjust;
-  const compositeMutation = activeImageMutations.composite;
+  const textToImageMutationsByProvider = {
+    nanobanana2: textToImageNB2,
+    seedream: textToImageSeeDream,
+    wanimage: textToImageWan,
+    zimage: textToImageZImage,
+  } satisfies Record<ImageProvider, {
+    mutateAsync: typeof textToImageNB2.mutateAsync;
+  }>;
+
+  const getImageGenerationStatus = useImageGenerationRecovery();
 
   const videoMutation = useGenerateVideo();
   const referenceVideoMutation = useGenerateReferenceToVideo();
   const textToVideoMutation = useGenerateTextToVideo();
   const seedanceVideoMutation = useGenerateSeedanceVideo();
+  const wan3VideoMutation = useGenerateWan3Video();
+  const getVideoGenerationStatus = useVideoGenerationRecovery();
+  const mediaDeliveryRecovery = useMediaDeliveryRecovery();
 
-  // Video generation state
-  const [videoProvider, setVideoProvider] = useState<VideoProvider>('wan');
+  /* ---------------- video state ---------------- */
+  const [videoProvider, setVideoProvider] = useState<VideoProvider>(() => {
+    try {
+      const stored = localStorage.getItem('veilpix-video-provider');
+      if (stored === 'wan' || stored === 'wan3' || stored === 'seedance') return stored;
+    } catch { /* storage unavailable */ }
+    return 'seedance';
+  });
+  const [videoModelRestoreRequest, setVideoModelRestoreRequest] = useState<VideoModelRestoreRequest | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('veilpix-video-provider', videoProvider);
+    } catch { /* storage unavailable */ }
+  }, [videoProvider]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoOutputFormat, setVideoOutputFormat] = useState<SeedanceOutputFormat>('mp4');
+  const [videoLastFrameUrl, setVideoLastFrameUrl] = useState<string | null>(null);
   const [galleryVideoFile, setGalleryVideoFile] = useState<File | null>(null);
   const galleryVideoObjectUrlRef = useRef<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [pendingImageGenerations, setPendingImageGenerations] = useState<PendingImageGeneration[]>(
+    () => readPendingImageGenerations()
+  );
+  const pendingImageGenerationsRef = useRef(pendingImageGenerations);
+  const finalizingImageJobsRef = useRef(new Set<string>());
+  const imageRecoveryRequestInFlightRef = useRef(new Set<string>());
+  const [pendingVideoGenerations, setPendingVideoGenerations] = useState<PendingVideoGeneration[]>(
+    () => readPendingVideoGenerations()
+  );
+  const pendingVideoGenerationsRef = useRef(pendingVideoGenerations);
+  const activeGenerationIdsRef = useRef(new Set([
+    ...pendingImageGenerations.map(job => job.id),
+    ...pendingVideoGenerations.map(job => job.id),
+  ]));
+  const pendingVideoFilesRef = useRef(new Map<string, PendingVideoFiles>());
+  const finalizingVideoJobsRef = useRef(new Set<string>());
+  const recoveryRequestInFlightRef = useRef(new Set<string>());
+  const deliveryRecoveryInFlightRef = useRef(false);
   const [isExtractingLastFrame, setIsExtractingLastFrame] = useState(false);
   const [referenceVideoFile, setReferenceVideoFile] = useState<File | null>(null);
   const [referenceVideoUrl, setReferenceVideoUrl] = useState<string | null>(null);
@@ -601,47 +700,98 @@ const App: React.FC = () => {
   const [seedanceFirstFrame, setSeedanceFirstFrame] = useState<File | null>(null);
   const [seedanceLastFrame, setSeedanceLastFrame] = useState<File | null>(null);
   const [seedanceReferenceImages, setSeedanceReferenceImages] = useState<File[]>([]);
-  const [seedanceReferenceVideoFile, setSeedanceReferenceVideoFile] = useState<File | null>(null);
+  const [seedanceReferenceVideoFiles, setSeedanceReferenceVideoFiles] = useState<File[]>([]);
   const [seedanceReferenceVideoUrl, setSeedanceReferenceVideoUrl] = useState<string | null>(null);
   const [seedanceReferenceVideoDuration, setSeedanceReferenceVideoDuration] = useState<number | null>(null);
-  const [seedanceReferenceAudioFile, setSeedanceReferenceAudioFile] = useState<File | null>(null);
+  const [seedanceReferenceAudioFiles, setSeedanceReferenceAudioFiles] = useState<File[]>([]);
+  const [seedanceReferenceAudioDuration, setSeedanceReferenceAudioDuration] = useState<number | null>(null);
+  const [wan3InputMode, setWan3InputMode] = useState<Wan3InputMode>('references');
+  const [wan3FirstFrame, setWan3FirstFrame] = useState<File | null>(null);
+  const [wan3LastFrame, setWan3LastFrame] = useState<File | null>(null);
+  const [wan3ReferenceImages, setWan3ReferenceImages] = useState<File[]>([]);
+  const [wan3ReferenceVideoFiles, setWan3ReferenceVideoFiles] = useState<File[]>([]);
+  const [wan3ReferenceVideoDuration, setWan3ReferenceVideoDuration] = useState<number | null>(null);
+  const [wan3ReferenceAudioFiles, setWan3ReferenceAudioFiles] = useState<File[]>([]);
+  const [wan3ReferenceAudioDuration, setWan3ReferenceAudioDuration] = useState<number | null>(null);
+  const [wan3ReferenceFile, setWan3ReferenceFile] = useState<File | null>(null);
+  const [wan3ReferenceLink, setWan3ReferenceLink] = useState('');
 
-  // React 19 optimistic state for immediate UI feedback
-  const [optimisticHistory, setOptimisticHistory] = useOptimistic(
-    history,
-    (currentHistory, newImage: File) => [...currentHistory, newImage]
+  const activeGenerationCount = pendingImageGenerations.length + pendingVideoGenerations.length;
+  const displayedActiveGenerationCount = Math.min(
+    MAX_CONCURRENT_GENERATIONS,
+    activeGenerationCount,
   );
+  const pendingGalleryItems: PendingGalleryItem[] = [
+    ...pendingImageGenerations.map(job => ({
+      id: job.id,
+      type: 'image' as const,
+      status: 'generating' as const,
+    })),
+    ...pendingVideoGenerations.map(job => ({
+      id: job.id,
+      type: 'video' as const,
+      status: 'generating' as const,
+    })),
+  ];
 
-  // Combined loading state from mutations and file processing
-  const isLoading = editMutation.isPending || filterMutation.isPending || adjustMutation.isPending || compositeMutation.isPending || textToImageNB2.isPending || textToImageSeeDream.isPending || textToImageWan.isPending || videoMutation.isPending || referenceVideoMutation.isPending || textToVideoMutation.isPending || seedanceVideoMutation.isPending || isProcessingFile;
-
-  const [sourceImage1, setSourceImage1] = useState<File | null>(null);
-  const [sourceImage2, setSourceImage2] = useState<File | null>(null);
-  const [isWebcamForComposite, setIsWebcamForComposite] = useState(false);
-  const [isWebcamForCompositeSecond, setIsWebcamForCompositeSecond] = useState(false);
-  const [creativeMode, setCreativeMode] = useState<CreativeMode>('single');
-  const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
-  
-  const [crop, setCrop] = useState<Crop>();
-  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
-  const [aspect, setAspect] = useState<number | undefined>();
-  const [isComparing, setIsComparing] = useState<boolean>(false);
-  const [showSlider, setShowSlider] = useState<boolean>(false);
-  const [sliderCompareMode, setSliderCompareMode] = useState<'original' | 'previous'>('original');
-  const imgRef = useRef<HTMLImageElement>(null);
-
-  // Optimistic history is display-only. Provider requests use canonical history.
-  const displayHistory = optimisticHistory.length > history.length ? optimisticHistory : history;
+  /* ---------------- derived image state ---------------- */
   const currentImage = history[historyIndex] ?? null;
-  const displayedImage = displayHistory[historyIndex] ?? currentImage;
   const originalImage = history[0] ?? null;
+  const previousImage = historyIndex > 0 ? history[historyIndex - 1] : null;
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
+  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
+  const [previousImageUrl, setPreviousImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    if (currentImage) {
+      const url = URL.createObjectURL(currentImage);
+      setCurrentImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setCurrentImageUrl(null);
+  }, [currentImage]);
+
+  useEffect(() => {
+    if (originalImage) {
+      const url = URL.createObjectURL(originalImage);
+      setOriginalImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setOriginalImageUrl(null);
+  }, [originalImage]);
+
+  useEffect(() => {
+    if (previousImage) {
+      const url = URL.createObjectURL(previousImage);
+      setPreviousImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setPreviousImageUrl(null);
+  }, [previousImage]);
+
+  // Auto-close slider when history changes
+  useEffect(() => {
+    setShowSlider(false);
+  }, [historyIndex]);
+
+  // Recall the prompt that produced the displayed image on undo/redo
+  useEffect(() => {
     if (historyIndex >= 0) {
-      setPrompt(historyPrompts[historyIndex] ?? '');
+      setImagePrompt(historyPrompts[historyIndex] ?? '');
     }
   }, [historyIndex, historyPrompts]);
 
+  // Persist workflow locally
+  useEffect(() => {
+    if (history.length > 0) {
+      debouncedSaveWorkflow(history, historyIndex, historyPrompts);
+    }
+  }, [history, historyIndex, historyPrompts]);
+
+  /* ---------------- video result helpers ---------------- */
   const revokeGalleryVideoObjectUrl = useCallback(() => {
     if (galleryVideoObjectUrlRef.current) {
       URL.revokeObjectURL(galleryVideoObjectUrlRef.current);
@@ -653,6 +803,7 @@ const App: React.FC = () => {
     revokeGalleryVideoObjectUrl();
     setGalleryVideoFile(null);
     setVideoUrl(null);
+    setVideoLastFrameUrl(null);
   }, [revokeGalleryVideoObjectUrl]);
 
   const showRemoteVideoResult = useCallback((url: string) => {
@@ -669,667 +820,1395 @@ const App: React.FC = () => {
     setVideoUrl(objectUrl);
   }, [revokeGalleryVideoObjectUrl]);
 
+  const clearPendingVideoJob = useCallback((generationId: string) => {
+    const next = pendingVideoGenerationsRef.current.filter(job => job.id !== generationId);
+    pendingVideoGenerationsRef.current = next;
+    setPendingVideoGenerations(next);
+    storePendingVideoGenerations(next);
+    activeGenerationIdsRef.current.delete(generationId);
+    pendingVideoFilesRef.current.delete(generationId);
+    void clearPendingVideoReferenceImages(generationId).catch((storageError) => {
+      console.warn('Could not clear completed video reference images from local storage:', storageError);
+    });
+  }, []);
+
+  const finalizeVideoGeneration = useCallback(async (
+    response: VideoGenerationResponse,
+    job: PendingVideoGeneration,
+    suppliedFiles?: PendingVideoFiles | null,
+  ) => {
+    if (!response.success || !response.videoUrl || finalizingVideoJobsRef.current.has(job.id)) return;
+    finalizingVideoJobsRef.current.add(job.id);
+
+    const files = suppliedFiles?.generationId === job.id
+      ? suppliedFiles
+      : pendingVideoFilesRef.current.get(job.id) ?? null;
+    let referenceImages = files?.referenceImages ?? [];
+    if (referenceImages.length === 0) {
+      try {
+        referenceImages = await getPendingVideoReferenceImages(job.id);
+      } catch (storageError) {
+        console.warn('Could not restore pending video reference images:', storageError);
+      }
+    }
+
+    setVideoError(null);
+    const finalizedVideoDuration = job.duration === -1
+      ? await getVideoDurationSeconds(response.videoUrl) ?? 30
+      : job.duration;
+
+    const savedLocally = await saveVideoToGallery({
+      videoUrl: response.videoUrl,
+      generationId: job.id,
+      provider: job.provider,
+      referenceImage: referenceImages[0] ?? null,
+      referenceImages,
+      referenceVideoFile: files?.referenceVideoFiles[0] ?? null,
+      referenceVideoUrl: files?.referenceVideoUrl ?? null,
+      videoDuration: finalizedVideoDuration,
+      wan3InputMode: job.provider === 'wan3' ? job.wan3InputMode : undefined,
+      wan3Variant: job.provider === 'wan3' ? job.wan3Variant : undefined,
+      seedanceInputMode: job.provider === 'seedance' ? job.seedanceInputMode : undefined,
+      seedanceVariant: job.provider === 'seedance' ? job.seedanceVariant : undefined,
+      videoOutputFormat: job.provider === 'seedance' ? job.seedanceOutputFormat : 'mp4',
+      prompt: job.prompt,
+    });
+    if (
+      !savedLocally
+      || !await hasGalleryArtifact(job.id, 'video')
+      || !await hasGalleryVideoReferences(job.id, referenceImages.length)
+    ) {
+      finalizingVideoJobsRef.current.delete(job.id);
+      throw new Error('The video finished, but VeilPix could not verify its video and references in this browser\'s Album.');
+    }
+    markLocalDeliveryReceipt(job.id);
+    try {
+      await mediaDeliveryRecovery.acknowledgeGeneration(job.id);
+    } catch {
+      // The private delivery copy remains available and will be acknowledged
+      // during the next startup recovery pass.
+    }
+    setGalleryRefreshTrigger(count => count + 1);
+    clearPendingVideoJob(job.id);
+  }, [clearPendingVideoJob, mediaDeliveryRecovery]);
+
+  const recoverPendingVideo = useCallback(async (job: PendingVideoGeneration) => {
+    if (recoveryRequestInFlightRef.current.has(job.id) || finalizingVideoJobsRef.current.has(job.id)) return;
+    recoveryRequestInFlightRef.current.add(job.id);
+
+    try {
+      if (hasLocalDeliveryReceipt(job.id) || await hasGalleryArtifact(job.id, 'video')) {
+        markLocalDeliveryReceipt(job.id);
+        clearPendingVideoJob(job.id);
+        return;
+      }
+      const status = await getVideoGenerationStatus(job.id);
+      if (status.status === 'succeeded' && status.videoUrl) {
+        await finalizeVideoGeneration({
+          success: true,
+          videoUrl: status.videoUrl,
+          creditsUsed: status.creditsUsed,
+          processingTime: status.processingTime,
+        }, job);
+        return;
+      }
+
+      if (status.status === 'failed') {
+        clearPendingVideoJob(job.id);
+        const failureMessage = status.message || 'The provider could not complete it.';
+        if (isSafetyFilterError(failureMessage)) {
+          setVideoError(null);
+          setError(CONTENT_POLICY_ERROR_MESSAGE);
+        } else {
+          setVideoError(`Failed to generate video. ${failureMessage}`);
+        }
+        return;
+      }
+
+      if (status.delivered) {
+        clearPendingVideoJob(job.id);
+        setVideoError('This video was delivered to another browser before multi-browser delivery was enabled. It remains in that browser\'s Album.');
+        return;
+      }
+
+      if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
+        clearPendingVideoJob(job.id);
+        setVideoError('We could not recover that video within 48 hours. Please contact support so the generation and credit charge can be reviewed.');
+      }
+    } catch {
+      // A status check can also be suspended on mobile. Keep the durable job
+      // and try again when the page becomes visible or the timer fires.
+    } finally {
+      recoveryRequestInFlightRef.current.delete(job.id);
+    }
+  }, [clearPendingVideoJob, finalizeVideoGeneration, getVideoGenerationStatus]);
+
+  useEffect(() => {
+    if (pendingVideoGenerations.length === 0 || !isLoaded || !isSignedIn) return;
+
+    let timer: number | null = null;
+    let disposed = false;
+
+    const scheduleCheck = () => {
+      if (disposed) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await Promise.allSettled(pendingVideoGenerations.map(recoverPendingVideo));
+        }
+        scheduleCheck();
+      }, 5000);
+    };
+
+    const checkNow = () => {
+      if (document.visibilityState === 'visible') {
+        for (const job of pendingVideoGenerations) void recoverPendingVideo(job);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkNow();
+    };
+
+    checkNow();
+    scheduleCheck();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', checkNow);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pageshow', checkNow);
+    };
+  }, [isLoaded, isSignedIn, pendingVideoGenerations, recoverPendingVideo]);
+
   useEffect(() => {
     return () => revokeGalleryVideoObjectUrl();
   }, [revokeGalleryVideoObjectUrl]);
 
-  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
-  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
-
-  // Effect to create and revoke object URLs safely for the current image
-  useEffect(() => {
-    if (displayedImage) {
-      const url = URL.createObjectURL(displayedImage);
-      setCurrentImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setCurrentImageUrl(null);
+  /* ---------------- shared helpers ---------------- */
+  const requireAuth = useCallback((): boolean => {
+    if (isLoaded && !isSignedIn) {
+      setShowSignupPrompt(true);
+      return false;
     }
-  }, [displayedImage]);
-  
-  // Effect to create and revoke object URLs safely for the original image
-  useEffect(() => {
-    if (originalImage) {
-      const url = URL.createObjectURL(originalImage);
-      setOriginalImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setOriginalImageUrl(null);
-    }
-  }, [originalImage]);
+    return true;
+  }, [isLoaded, isSignedIn]);
 
-  // Previous image for slider comparison (one step back in history)
-  const previousImage = historyIndex > 0 ? history[historyIndex - 1] : null;
-  const [previousImageUrl, setPreviousImageUrl] = useState<string | null>(null);
-
-  // Effect to create and revoke object URLs safely for the previous image
-  useEffect(() => {
-    if (previousImage) {
-      const url = URL.createObjectURL(previousImage);
-      setPreviousImageUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setPreviousImageUrl(null);
-    }
-  }, [previousImage]);
-
-  // Auto-close slider when history changes (new edit made)
-  useEffect(() => {
-    setShowSlider(false);
-  }, [historyIndex]);
-
-  // Effect to handle URL parameters for payment success/cancel
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sessionId = urlParams.get('session_id');
-    const cancelled = urlParams.get('cancelled');
-    
-    if (sessionId) {
-      setPaymentSessionId(sessionId);
-      setShowPaymentSuccess(true);
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (cancelled === 'true') {
-      setShowPaymentCancelled(true);
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
+  const resetImageTools = useCallback(() => {
+    setActiveTool('none');
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    setCrop(undefined);
+    setCompletedCrop(undefined);
   }, []);
 
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < history.length - 1;
+  useEffect(() => {
+    if (!imageProviderSupportsReferences(imageGenerationOptions.provider) && activeTool === 'retouch') {
+      resetImageTools();
+    }
+  }, [activeTool, imageGenerationOptions.provider, resetImageTools]);
 
-  const addImageToHistory = useCallback((newImageFile: File, imagePrompt = historyPrompts[historyIndex] ?? '') => {
+  const addImageToHistory = useCallback((
+    newImageFile: File,
+    prompt = historyPrompts[historyIndex] ?? '',
+    generationId?: string,
+  ) => {
     const newHistory = history.slice(0, historyIndex + 1);
     const newHistoryPrompts = historyPrompts.slice(0, historyIndex + 1);
     newHistory.push(newImageFile);
-    newHistoryPrompts.push(imagePrompt);
+    newHistoryPrompts.push(prompt);
     setHistory(newHistory);
     setHistoryPrompts(newHistoryPrompts);
     setHistoryIndex(newHistory.length - 1);
-    // Reset transient states after an action
     setCrop(undefined);
     setCompletedCrop(undefined);
-    // Save AI-generated image to gallery
-    saveToGallery(newImageFile, imagePrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
+    saveToGallery(newImageFile, prompt, generationId).then(() => setGalleryRefreshTrigger(n => n + 1));
   }, [history, historyIndex, historyPrompts]);
 
-  const handleImageUpload = useCallback(async (file: File) => {
-    setError(null);
-
-    // Dynamically import HEIC converter when needed
-    const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-
-    // Check if it's a HEIC file
-    const isHeicFile = await isHEIC(file);
-
-    if (isHeicFile) {
-      setIsProcessingFile(true);
-      try {
-        // Process file (convert HEIC to WebP)
-        const processedFile = await processFileForUpload(file);
-
-        setHistory([processedFile]);
-        setHistoryPrompts(['']);
-        setHistoryIndex(0);
-        setPrompt('');
-        setEditHotspot(null);
-        setDisplayHotspot(null);
-        setActiveTab('adjust');
-        setCrop(undefined);
-        setCompletedCrop(undefined);
-        setView('editor');
-        // Save to gallery
-        saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-      } catch (error) {
-        console.error('Failed to process HEIC file:', error);
-        setError(`Failed to process HEIC image: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
-        setIsProcessingFile(false);
-      }
-    } else {
-      // For non-HEIC files, use directly
-      setHistory([file]);
-      setHistoryPrompts(['']);
-      setHistoryIndex(0);
-      setPrompt('');
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setActiveTab('adjust');
-      setCrop(undefined);
-      setCompletedCrop(undefined);
-      setView('editor');
-      // Save to gallery
-      saveToGallery(file).then(() => setGalleryRefreshTrigger(n => n + 1));
-    }
+  const clearPendingImageJob = useCallback((generationId: string) => {
+    const next = pendingImageGenerationsRef.current.filter(job => job.id !== generationId);
+    pendingImageGenerationsRef.current = next;
+    setPendingImageGenerations(next);
+    storePendingImageGenerations(next);
+    activeGenerationIdsRef.current.delete(generationId);
+    void clearPendingImageStyleImage(generationId).catch((storageError) => {
+      console.warn('Could not clear completed image style reference from local storage:', storageError);
+    });
   }, []);
 
-  // Handle selecting an image from the gallery
-  const handleSelectGalleryImage = useCallback((file: File, savedPrompt: string) => {
-    clearVideoResult();
-    setCreativeMode('single');
-    setHistory([file]);
-    setHistoryPrompts([savedPrompt]);
-    setHistoryIndex(0);
-    setPrompt(savedPrompt);
-    setEditHotspot(null);
-    setDisplayHotspot(null);
-    setActiveTab('adjust');
-    setCrop(undefined);
-    setCompletedCrop(undefined);
-    setView('editor');
-  }, [clearVideoResult]);
+  const finalizeImageGeneration = useCallback(async (
+    response: ImageGenerationResponse,
+    job: PendingImageGeneration,
+    suppliedStyleImage?: File | null,
+  ) => {
+    if (!response.success || !response.image || finalizingImageJobsRef.current.has(job.id)) return;
+    finalizingImageJobsRef.current.add(job.id);
 
-  const handleMakeGalleryImageReference = useCallback((file: File, savedPrompt: string) => {
-    setPrompt(savedPrompt);
-    setRestoredVideoPrompt(savedPrompt);
-    setVideoPromptRecallKey(key => key + 1);
-    if (creativeMode === 'single') {
-      clearVideoResult();
-      setHistory([file]);
-      setHistoryPrompts([savedPrompt]);
-      setHistoryIndex(0);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setActiveTab('adjust');
-      setCrop(undefined);
-      setCompletedCrop(undefined);
-      setView('editor');
-      return;
+    try {
+      let restoredStyleImage = suppliedStyleImage ?? null;
+      if (!restoredStyleImage && job.hasStyleImage) {
+        try {
+          restoredStyleImage = await getPendingImageStyleImage(job.id);
+        } catch (storageError) {
+          console.warn('Could not restore pending image style reference:', storageError);
+        }
+      }
+      const newImageFile = await generatedImageToFile(response.image, job.workflow);
+      const savedLocally = await saveToGallery(newImageFile, job.prompt, job.id, {
+        imageProvider: job.provider,
+        imageResolution: job.resolution,
+        imageAspectRatio: job.aspectRatio,
+        imageSeedreamTier: job.seedreamTier,
+        imageOutputFormat: job.outputFormat,
+        styleImage: restoredStyleImage,
+      });
+      if (
+        !savedLocally
+        || !await hasGalleryArtifact(job.id, 'image')
+        || !await hasGalleryImageStyleReference(job.id, Boolean(job.hasStyleImage))
+      ) {
+        throw new Error('The image finished, but VeilPix could not verify it and its references in this browser\'s Album.');
+      }
+      markLocalDeliveryReceipt(job.id);
+      try {
+        await mediaDeliveryRecovery.acknowledgeGeneration(job.id);
+      } catch {
+        // Startup recovery will retry the acknowledgement without duplicating
+        // the already-saved local Album item.
+      }
+      setGalleryRefreshTrigger(count => count + 1);
+
+      setError(null);
+      clearPendingImageJob(job.id);
+    } catch (finalizeError) {
+      finalizingImageJobsRef.current.delete(job.id);
+      setError(getGenerationErrorMessage(finalizeError, 'The image finished, but VeilPix could not save it.'));
     }
+  }, [clearPendingImageJob, mediaDeliveryRecovery]);
 
-    if (creativeMode === 'composite') {
-      const baseImage = sourceImage1 ?? currentImage;
-      if (!baseImage) {
-        setSourceImage1(file);
-        setView('start');
+  const recoverPendingImage = useCallback(async (job: PendingImageGeneration) => {
+    if (imageRecoveryRequestInFlightRef.current.has(job.id) || finalizingImageJobsRef.current.has(job.id)) return;
+    imageRecoveryRequestInFlightRef.current.add(job.id);
+
+    try {
+      const alreadyStored = await hasGalleryArtifact(job.id, 'image');
+      const storedWithStyle = await hasGalleryImageStyleReference(job.id, Boolean(job.hasStyleImage));
+      if (hasLocalDeliveryReceipt(job.id) || (alreadyStored && storedWithStyle)) {
+        markLocalDeliveryReceipt(job.id);
+        clearPendingImageJob(job.id);
         return;
       }
-      setSourceImage1(baseImage);
-      setSourceImage2(file);
-      setView('composite');
-      return;
-    }
+      const status = await getImageGenerationStatus(job.id);
+      if (status.status === 'succeeded' && status.image) {
+        await finalizeImageGeneration({
+          success: true,
+          image: status.image,
+          creditsUsed: status.creditsUsed,
+          processingTime: status.processingTime,
+        }, job);
+        return;
+      }
 
-    setCreativeMode('video');
-    if (videoProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceImages(prev => [...prev, file].slice(0, 9));
-    } else {
-      const maxImages = referenceVideoFile || referenceVideoUrl ? 4 : 5;
-      setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
-    }
-    clearVideoResult();
-    setVideoError(null);
-    setView('editor');
-  }, [clearVideoResult, creativeMode, currentImage, referenceVideoFile, referenceVideoUrl, sourceImage1, videoProvider]);
+      if (status.status === 'failed') {
+        clearPendingImageJob(job.id);
+        setError(`Failed to generate the image. ${status.message || 'The provider could not complete it.'}`);
+        return;
+      }
 
-  // Handle selecting a generated video from the gallery for viewing/reuse
-  const handleSelectGalleryVideo = useCallback((details: GalleryVideoDetails) => {
-    const selectedProvider = details.provider ?? videoProvider;
-    const referenceImages = details.referenceImages.length > 0
-      ? details.referenceImages
-      : details.referenceImage
-        ? [details.referenceImage]
-        : [];
+      if (status.delivered) {
+        clearPendingImageJob(job.id);
+        setError('This image was delivered to another browser before multi-browser delivery was enabled. It remains in that browser\'s Album.');
+        return;
+      }
 
-    setHistory([]);
-    setHistoryPrompts([]);
-    setHistoryIndex(-1);
-    setRestoredVideoPrompt(details.prompt);
-    setVideoPromptRecallKey(key => key + 1);
-    setEditHotspot(null);
-    setDisplayHotspot(null);
-    setCreativeMode('video');
-    setVideoProvider(selectedProvider);
-    setReferenceVideoFile(null);
-    setReferenceVideoUrl(null);
-    setReferenceVideoDuration(null);
-    setSeedanceReferenceVideoFile(null);
-    setSeedanceReferenceVideoUrl(null);
-    setSeedanceReferenceVideoDuration(null);
-    setSeedanceReferenceAudioFile(null);
-    setSeedanceFirstFrame(null);
-    setSeedanceLastFrame(null);
-    if (selectedProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceImages(referenceImages.slice(0, 9));
-      setWanReferenceImages([]);
-    } else {
-      setWanReferenceImages(referenceImages.slice(0, 5));
-      setSeedanceReferenceImages([]);
+      if (Date.now() - job.createdAt > GENERATION_RECOVERY_TIMEOUT_MS) {
+        clearPendingImageJob(job.id);
+        setError('We could not recover that image within 48 hours. Please contact support so the generation and credit charge can be reviewed.');
+      }
+    } catch {
+      // Mobile browsers can suspend this status request too. Keep the job and
+      // check it again when the page becomes visible or the timer fires.
+    } finally {
+      imageRecoveryRequestInFlightRef.current.delete(job.id);
     }
-    if (details.videoFile) {
-      showGalleryVideoResult(details.videoFile);
-    } else {
-      showRemoteVideoResult(details.videoUrl);
-    }
-    setVideoError(null);
-    setView('editor');
-  }, [showGalleryVideoResult, showRemoteVideoResult, videoProvider]);
+  }, [clearPendingImageJob, finalizeImageGeneration, getImageGenerationStatus]);
 
-  // Start a new reference-to-video flow from an existing gallery video
-  const handleMakeGalleryVideoReference = useCallback((details: GalleryVideoDetails) => {
-    setEditHotspot(null);
-    setDisplayHotspot(null);
-    setCreativeMode('video');
-    setRestoredVideoPrompt(details.prompt);
-    setVideoPromptRecallKey(key => key + 1);
-    if (videoProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceVideoFile(details.videoFile);
-      setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
-      setSeedanceReferenceVideoDuration(details.videoDuration ?? null);
+  useEffect(() => {
+    if (pendingImageGenerations.length === 0 || !isLoaded || !isSignedIn) return;
+
+    let timer: number | null = null;
+    let disposed = false;
+
+    const scheduleCheck = () => {
+      if (disposed) return;
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await Promise.allSettled(pendingImageGenerations.map(recoverPendingImage));
+        }
+        scheduleCheck();
+      }, 5000);
+    };
+
+    const checkNow = () => {
+      if (document.visibilityState === 'visible') {
+        for (const job of pendingImageGenerations) void recoverPendingImage(job);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') checkNow();
+    };
+
+    checkNow();
+    scheduleCheck();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', checkNow);
+
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pageshow', checkNow);
+    };
+  }, [isLoaded, isSignedIn, pendingImageGenerations, recoverPendingImage]);
+
+  const restorePendingMediaDeliveries = useCallback(async () => {
+    if (deliveryRecoveryInFlightRef.current || !isLoaded || !isSignedIn) return;
+    deliveryRecoveryInFlightRef.current = true;
+    let restoredCount = 0;
+
+    try {
+      const deliveries = await mediaDeliveryRecovery.list();
+      for (const delivery of deliveries) {
+        if (delivery.artifactType !== 'image' && delivery.artifactType !== 'video') continue;
+
+        if (hasLocalDeliveryReceipt(delivery.generationId)) {
+          if (pendingImageGenerations.some(job => job.id === delivery.generationId)) {
+            clearPendingImageJob(delivery.generationId);
+          }
+          if (pendingVideoGenerations.some(job => job.id === delivery.generationId)) {
+            clearPendingVideoJob(delivery.generationId);
+          }
+          continue;
+        }
+
+        let storedLocally = await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
+        let expectedVideoReferenceCount = 0;
+        let expectedImageStyleReference = false;
+        if (delivery.artifactType === 'image') {
+          const pendingJob = pendingImageGenerations.find(job => job.id === delivery.generationId) ?? null;
+          expectedImageStyleReference = Boolean(pendingJob?.hasStyleImage);
+          let restoredStyleImage: File | null = null;
+          if (pendingJob?.hasStyleImage) {
+            try {
+              restoredStyleImage = await getPendingImageStyleImage(delivery.generationId);
+            } catch (storageError) {
+              console.warn('Could not restore delivered image style reference:', storageError);
+            }
+          }
+          if (pendingJob?.hasStyleImage && !restoredStyleImage) continue;
+          const imageContext = {
+            imageProvider: pendingJob?.provider,
+            imageResolution: pendingJob?.resolution,
+            imageAspectRatio: pendingJob?.aspectRatio,
+            imageSeedreamTier: pendingJob?.seedreamTier,
+            imageOutputFormat: pendingJob?.outputFormat,
+            styleImage: restoredStyleImage,
+          };
+          if (!storedLocally) {
+            const file = await downloadDeliveryFile(
+              delivery.downloadUrl,
+              delivery.fileName,
+              delivery.mimeType,
+            );
+            storedLocally = await saveToGallery(file, pendingJob?.prompt ?? '', delivery.generationId, imageContext);
+          } else if (pendingJob) {
+            storedLocally = await updateGalleryImageGenerationContext(
+              delivery.generationId,
+              pendingJob.prompt,
+              imageContext,
+            );
+          }
+        } else {
+          const pendingJob = pendingVideoGenerations.find(job => job.id === delivery.generationId) ?? null;
+          const provider = pendingJob?.provider ?? (delivery.provider.includes('seedance')
+            ? 'seedance'
+            : delivery.provider.includes('wan3') || delivery.provider.includes('wan-3')
+              ? 'wan3'
+              : 'wan');
+          const deliveredSeedanceVariant = seedanceVariantFromDeliveryProvider(delivery.provider);
+          const deliveredWan3Variant = wan3VariantFromDeliveryProvider(delivery.provider);
+          let referenceImages: File[] = [];
+          try {
+            referenceImages = await getPendingVideoReferenceImages(delivery.generationId);
+          } catch (storageError) {
+            console.warn('Could not restore delivered video reference images:', storageError);
+          }
+          expectedVideoReferenceCount = referenceImages.length;
+          const file = storedLocally
+            ? null
+            : await downloadDeliveryFile(
+              delivery.downloadUrl,
+              delivery.fileName,
+              delivery.mimeType,
+            );
+
+          // Always call the video saver. If another recovery path already put
+          // the output in the Album, this merges the reusable prompt/reference
+          // context into that record without downloading the video again.
+          storedLocally = await saveVideoToGallery({
+            videoUrl: delivery.downloadUrl,
+            videoFile: file,
+            generationId: delivery.generationId,
+            provider,
+            referenceImage: referenceImages[0] ?? null,
+            referenceImages,
+            videoDuration: pendingJob && pendingJob.duration !== -1 ? pendingJob.duration : undefined,
+            wan3InputMode: provider === 'wan3' ? pendingJob?.wan3InputMode : undefined,
+            wan3Variant: provider === 'wan3' ? pendingJob?.wan3Variant ?? deliveredWan3Variant : undefined,
+            seedanceInputMode: provider === 'seedance' ? pendingJob?.seedanceInputMode : undefined,
+            seedanceVariant: provider === 'seedance' ? pendingJob?.seedanceVariant ?? deliveredSeedanceVariant : undefined,
+            videoOutputFormat: provider === 'seedance' ? pendingJob?.seedanceOutputFormat : 'mp4',
+            prompt: pendingJob?.prompt ?? '',
+          });
+        }
+
+        const verified = storedLocally
+          && await hasGalleryArtifact(delivery.generationId, delivery.artifactType)
+          && (delivery.artifactType === 'video'
+            ? await hasGalleryVideoReferences(delivery.generationId, expectedVideoReferenceCount)
+            : await hasGalleryImageStyleReference(delivery.generationId, expectedImageStyleReference));
+        if (!verified) continue;
+
+        markLocalDeliveryReceipt(delivery.generationId, delivery.expiresAt);
+        await mediaDeliveryRecovery.acknowledge(delivery.id);
+        if (pendingImageGenerations.some(job => job.id === delivery.generationId)) {
+          clearPendingImageJob(delivery.generationId);
+        }
+        if (pendingVideoGenerations.some(job => job.id === delivery.generationId)) {
+          clearPendingVideoJob(delivery.generationId);
+        }
+        restoredCount += 1;
+      }
+
+      if (restoredCount > 0) setGalleryRefreshTrigger(count => count + 1);
+    } catch (deliveryError) {
+      console.warn('Pending media delivery recovery will retry later:', deliveryError);
+    } finally {
+      deliveryRecoveryInFlightRef.current = false;
+    }
+  }, [
+    clearPendingImageJob,
+    clearPendingVideoJob,
+    isLoaded,
+    isSignedIn,
+    mediaDeliveryRecovery,
+    pendingImageGenerations,
+    pendingVideoGenerations,
+  ]);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    let timer: number | null = null;
+    let disposed = false;
+
+    const check = () => {
+      if (!disposed && document.visibilityState === 'visible') {
+        void restorePendingMediaDeliveries();
+      }
+    };
+    const schedule = () => {
+      if (disposed) return;
+      timer = window.setTimeout(() => {
+        check();
+        schedule();
+      }, 30_000);
+    };
+
+    check();
+    schedule();
+    window.addEventListener('pageshow', check);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      window.removeEventListener('pageshow', check);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [isLoaded, isSignedIn, restorePendingMediaDeliveries]);
+
+  /* ---------------- image reference handlers ---------------- */
+  const handleBaseImageSelect = useCallback((file: File | null) => {
+    if (file && !requireAuth()) return;
+
+    if (file) {
+      setHistory([file]);
+      setHistoryPrompts([imagePrompt]);
+      setHistoryIndex(0);
+      saveToGallery(file).then(() => setGalleryRefreshTrigger(n => n + 1));
     } else {
       setHistory([]);
       setHistoryPrompts([]);
       setHistoryIndex(-1);
-      setReferenceVideoFile(details.videoFile);
-      setReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
-      setReferenceVideoDuration(details.videoDuration ?? null);
+    }
+    resetImageTools();
+    setError(null);
+  }, [imagePrompt, requireAuth, resetImageTools]);
+
+  const handleStyleImageSelect = useCallback((file: File | null) => {
+    if (file && !requireAuth()) return;
+    setStyleImage(file);
+  }, [requireAuth]);
+
+  const handleOpenWebcam = useCallback((target: 'base' | 'style') => {
+    if (!requireAuth()) return;
+    setWebcamTarget(target);
+  }, [requireAuth]);
+
+  const handleWebcamCapture = useCallback((file: File) => {
+    if (webcamTarget === 'style') {
+      setStyleImage(file);
+    } else {
+      handleBaseImageSelect(file);
+    }
+    setWebcamTarget(null);
+  }, [webcamTarget, handleBaseImageSelect]);
+
+  /* ---------------- concurrent generation registration ---------------- */
+  const registerGeneration = useCallback((generation: GenerationSubmission): boolean => {
+    if (activeGenerationIdsRef.current.size >= MAX_CONCURRENT_GENERATIONS) {
+      const message = `You can have up to ${MAX_CONCURRENT_GENERATIONS} generations active at once.`;
+      if (generation.kind === 'video') setVideoError(message);
+      else setError(message);
+      return false;
+    }
+
+    if (activeGenerationIdsRef.current.has(generation.job.id)) return false;
+    activeGenerationIdsRef.current.add(generation.job.id);
+
+    if (generation.kind === 'video') {
+      const next = [...pendingVideoGenerationsRef.current, generation.job];
+      pendingVideoGenerationsRef.current = next;
+      setPendingVideoGenerations(next);
+      storePendingVideoGenerations(next);
+      setVideoError(null);
+    } else {
+      const next = [...pendingImageGenerationsRef.current, generation.job];
+      pendingImageGenerationsRef.current = next;
+      setPendingImageGenerations(next);
+      storePendingImageGenerations(next);
+      setError(null);
+    }
+    return true;
+  }, []);
+
+  const executeImageGeneration = useCallback(async (queued: ImageGenerationSubmission) => {
+    const activeJob = queued.job;
+    const { options, sourceImage, styleImage: queuedStyleImage, hotspot } = queued;
+    const requestBase = {
+      generationId: activeJob.id,
+      resolution: options.resolution,
+      aspectRatio: options.aspectRatio,
+      seedreamTier: options.seedreamTier,
+      outputFormat: options.outputFormat,
+      nsfwFilterEnabled: queued.nsfwFilterEnabled,
+    };
+    const textMutation = textToImageMutationsByProvider[options.provider];
+    const editableMutations = options.provider === 'zimage'
+      ? null
+      : editableImageMutationsByProvider[options.provider];
+
+    try {
+      await savePendingImageStyleImage(activeJob.id, queuedStyleImage);
+    } catch (storageError) {
+      // The in-memory style reference still covers this page load. Keeping the
+      // provider request available is preferable to failing the generation.
+      console.warn('Could not persist pending image style reference:', storageError);
+    }
+
+    try {
+      let response: ImageGenerationResponse;
+
+      if (activeJob.workflow === 'text-to-image') {
+        response = await textMutation.mutateAsync({
+          prompt: activeJob.prompt,
+          ...requestBase,
+        });
+      } else if (activeJob.workflow === 'retouch' && sourceImage && hotspot && editableMutations) {
+        response = await editableMutations.edit.mutateAsync({
+          image: sourceImage,
+          prompt: activeJob.prompt,
+          x: hotspot.x,
+          y: hotspot.y,
+          ...requestBase,
+        });
+      } else if (activeJob.workflow === 'composite' && sourceImage && queuedStyleImage && editableMutations) {
+        response = await editableMutations.composite.mutateAsync({
+          image1: sourceImage,
+          image2: queuedStyleImage,
+          prompt: activeJob.prompt,
+          ...requestBase,
+        });
+      } else if (sourceImage && editableMutations) {
+        response = await editableMutations.adjust.mutateAsync({
+          image: sourceImage,
+          prompt: activeJob.prompt,
+          ...requestBase,
+        });
+      } else {
+        throw new Error('The selected image was unavailable.');
+      }
+
+      if (response.success && response.image) {
+        await finalizeImageGeneration(response, activeJob, queuedStyleImage);
+      } else {
+        throw new Error(response.message || 'Failed to generate image');
+      }
+    } catch (err) {
+      if (shouldRecoverGeneration(err)) {
+        setError(null);
+        void recoverPendingImage(activeJob);
+        console.warn('Image response was interrupted; recovery will continue in the background.', err);
+        return;
+      }
+
+      clearPendingImageJob(activeJob.id);
+      setError(getGenerationErrorMessage(err, 'Failed to generate the image.'));
+      console.error(err);
+    }
+  }, [
+    editableImageMutationsByProvider,
+    textToImageMutationsByProvider,
+    clearPendingImageJob,
+    finalizeImageGeneration,
+    recoverPendingImage,
+  ]);
+
+  const executeVideoGeneration = useCallback(async (queued: VideoGenerationSubmission) => {
+    const {
+      provider,
+      prompt,
+      duration,
+      resolution,
+      ratio,
+      wanAudio = true,
+      wanMultiShots = false,
+      wan3Variant = 'standard',
+      wan3InputMode: selectedWan3InputMode = 'references',
+      wan3Audio = true,
+      wan3Seed = null,
+      seedanceVariant = 'regular',
+      seedanceInputMode: selectedSeedanceInputMode = 'references',
+      seedanceGenerateAudio = false,
+      seedanceWebSearch = false,
+      seedanceReturnLastFrame = false,
+      seedanceOutputFormat = 'mp4',
+    } = queued.options;
+    const activeJob = queued.job;
+    const wanHasReferenceVideo = Boolean(queued.referenceVideoFile || queued.referenceVideoUrl);
+    const wanReferenceImagesForRequest = queued.wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
+    const usesSeedanceFrameMode = selectedSeedanceInputMode === 'frames';
+    const seedanceReferenceLimits = getSeedanceReferenceLimits(seedanceVariant);
+    const selectedSeedanceReferenceImages = queued.seedanceReferenceImages.slice(0, seedanceReferenceLimits.images);
+    const maxUploadedSeedanceVideos = Math.max(0, seedanceReferenceLimits.videos - (queued.seedanceReferenceVideoUrl ? 1 : 0));
+    const selectedSeedanceReferenceVideos = queued.seedanceReferenceVideoFiles.slice(0, maxUploadedSeedanceVideos);
+    const selectedSeedanceReferenceAudios = queued.seedanceReferenceAudioFiles.slice(0, seedanceReferenceLimits.audios);
+    const selectedWan3ReferenceImages = queued.wan3ReferenceImages.slice(0, WAN3_REFERENCE_LIMITS.images);
+    const selectedWan3ReferenceVideos = queued.wan3ReferenceVideoFiles.slice(0, WAN3_REFERENCE_LIMITS.videos);
+    const selectedWan3ReferenceAudios = queued.wan3ReferenceAudioFiles.slice(0, WAN3_REFERENCE_LIMITS.audios);
+    const pendingFiles: PendingVideoFiles = {
+      generationId: activeJob.id,
+      referenceImages: provider === 'seedance'
+        ? usesSeedanceFrameMode
+          ? [queued.seedanceFirstFrame, queued.seedanceLastFrame].filter((file): file is File => Boolean(file))
+          : selectedSeedanceReferenceImages
+        : provider === 'wan3'
+          ? selectedWan3InputMode === 'frames'
+            ? [queued.wan3FirstFrame, queued.wan3LastFrame].filter((file): file is File => Boolean(file))
+            : selectedWan3ReferenceImages
+        : wanReferenceImagesForRequest,
+      referenceVideoFiles: provider === 'seedance'
+        ? usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos
+        : provider === 'wan3'
+          ? selectedWan3InputMode === 'references' ? selectedWan3ReferenceVideos : []
+        : queued.referenceVideoFile ? [queued.referenceVideoFile] : [],
+      referenceVideoUrl: provider === 'seedance'
+        ? usesSeedanceFrameMode ? null : queued.seedanceReferenceVideoUrl
+        : provider === 'wan3'
+          ? null
+        : queued.referenceVideoUrl,
+    };
+
+    try {
+      await savePendingVideoReferenceImages(activeJob.id, pendingFiles.referenceImages);
+    } catch (storageError) {
+      // Do not block a paid generation if browser storage is unavailable. The
+      // in-memory path can still preserve the references for this page load.
+      console.warn('Could not persist pending video reference images:', storageError);
+    }
+
+    setVideoError(null);
+    setError(null);
+    pendingVideoFilesRef.current.set(activeJob.id, pendingFiles);
+
+    try {
+      let response: VideoGenerationResponse;
+
+      if (provider === 'wan3') {
+        response = await wan3VideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          prompt,
+          variant: wan3Variant,
+          inputMode: selectedWan3InputMode,
+          duration,
+          resolution,
+          aspectRatio: ratio,
+          firstFrame: selectedWan3InputMode === 'frames' ? queued.wan3FirstFrame : null,
+          lastFrame: selectedWan3InputMode === 'frames' ? queued.wan3LastFrame : null,
+          referenceImages: selectedWan3InputMode === 'references' ? selectedWan3ReferenceImages : [],
+          referenceVideos: selectedWan3InputMode === 'references' ? selectedWan3ReferenceVideos : [],
+          referenceVideoDuration: selectedWan3InputMode === 'references' ? queued.wan3ReferenceVideoDuration : null,
+          referenceAudios: selectedWan3InputMode === 'references' ? selectedWan3ReferenceAudios : [],
+          referenceAudioDuration: selectedWan3InputMode === 'references' ? queued.wan3ReferenceAudioDuration : null,
+          referenceFile: selectedWan3InputMode === 'file' ? queued.wan3ReferenceFile : null,
+          referenceLink: selectedWan3InputMode === 'link' ? queued.wan3ReferenceLink : '',
+          audio: wan3Audio,
+          seed: wan3Seed,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else if (provider === 'seedance') {
+        response = await seedanceVideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          firstFrame: usesSeedanceFrameMode ? queued.seedanceFirstFrame : null,
+          lastFrame: usesSeedanceFrameMode ? queued.seedanceLastFrame : null,
+          referenceImages: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceImages,
+          referenceVideos: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceVideos,
+          referenceVideoUrl: usesSeedanceFrameMode ? null : queued.seedanceReferenceVideoUrl,
+          referenceVideoDuration: usesSeedanceFrameMode ? null : queued.seedanceReferenceVideoDuration,
+          referenceAudios: usesSeedanceFrameMode ? [] : selectedSeedanceReferenceAudios,
+          referenceAudioDuration: usesSeedanceFrameMode ? null : queued.seedanceReferenceAudioDuration,
+          prompt,
+          variant: seedanceVariant,
+          inputMode: selectedSeedanceInputMode,
+          duration,
+          resolution,
+          aspectRatio: ratio,
+          generateAudio: seedanceGenerateAudio,
+          webSearch: seedanceWebSearch,
+          returnLastFrame: seedanceReturnLastFrame,
+          outputFormat: seedanceOutputFormat,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
+        response = await textToVideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          prompt,
+          duration,
+          resolution,
+          ratio,
+          multiShots: wanMultiShots,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else if (wanReferenceImagesForRequest.length === 1 && !wanHasReferenceVideo) {
+        response = await videoMutation.mutateAsync({
+          generationId: activeJob.id,
+          image: wanReferenceImagesForRequest[0],
+          prompt,
+          duration,
+          resolution,
+          audio: wanAudio,
+          multiShots: wanMultiShots,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      } else {
+        response = await referenceVideoMutation.mutateAsync({
+          generationId: activeJob.id,
+          images: wanReferenceImagesForRequest,
+          video: queued.referenceVideoFile,
+          referenceVideoUrl: queued.referenceVideoUrl,
+          prompt,
+          duration,
+          resolution,
+          ratio,
+          nsfwFilterEnabled: queued.nsfwFilterEnabled,
+        });
+      }
+
+      if (response.pending) {
+        setVideoError(null);
+        void recoverPendingVideo(activeJob);
+      } else if (response.success && response.videoUrl) {
+        await finalizeVideoGeneration(response, activeJob, pendingFiles);
+      } else {
+        throw new Error(response.message || 'Failed to generate video');
+      }
+    } catch (err) {
+      if (shouldRecoverGeneration(err)) {
+        setVideoError(null);
+        void recoverPendingVideo(activeJob);
+        console.warn('Video response was interrupted; recovery will continue in the background.', err);
+        return;
+      }
+
+      clearPendingVideoJob(activeJob.id);
+      const errorMessage = getApiErrorMessage(err);
+      if (isSafetyFilterError(err)) {
+        setError(CONTENT_POLICY_ERROR_MESSAGE);
+      } else {
+        setVideoError(`Failed to generate video. ${errorMessage}`);
+      }
+      console.error('Video generation error:', err);
+    }
+  }, [
+    clearPendingVideoJob,
+    finalizeVideoGeneration,
+    recoverPendingVideo,
+    videoMutation,
+    referenceVideoMutation,
+    textToVideoMutation,
+    seedanceVideoMutation,
+    wan3VideoMutation,
+  ]);
+
+  /* ---------------- image generation ---------------- */
+  const handleGenerateImage = useCallback((submittedPrompt: string) => {
+    if (!requireAuth()) return;
+
+    const trimmedPrompt = submittedPrompt.trim();
+    if (!trimmedPrompt) {
+      setError('Describe what you want to create.');
+      return;
+    }
+
+    const supportsReferences = imageProviderSupportsReferences(imageGenerationOptions.provider);
+    const workflow: ImageWorkflow = supportsReferences && currentImage ? 'image-to-image' : 'text-to-image';
+    const options = normalizeImageGenerationOptions(imageGenerationOptions, workflow);
+    if (options.provider === 'zimage' && (trimmedPrompt.length < 3 || trimmedPrompt.length > 1000)) {
+      setError('Z-Image prompts must be between 3 and 1000 characters.');
+      return;
+    }
+
+    let recoverableWorkflow: RecoverableImageWorkflow;
+    if (!supportsReferences || !currentImage) {
+      recoverableWorkflow = 'text-to-image';
+    } else if (activeTool === 'retouch') {
+      if (!editHotspot) {
+        setError('Tap a point on the image to select an area to edit.');
+        return;
+      }
+      recoverableWorkflow = 'retouch';
+    } else if (styleImage) {
+      recoverableWorkflow = 'composite';
+    } else {
+      recoverableWorkflow = 'adjust';
+    }
+
+    const generationId = crypto.randomUUID();
+    const generation: ImageGenerationSubmission = {
+      kind: 'image',
+      job: {
+        id: generationId,
+        provider: options.provider,
+        prompt: trimmedPrompt,
+        workflow: recoverableWorkflow,
+        resolution: options.resolution,
+        aspectRatio: options.aspectRatio,
+        seedreamTier: options.seedreamTier,
+        outputFormat: options.outputFormat,
+        hasStyleImage: recoverableWorkflow === 'composite' && Boolean(styleImage),
+        createdAt: Date.now(),
+      },
+      options: { ...options },
+      sourceImage: currentImage,
+      styleImage: recoverableWorkflow === 'composite' ? styleImage : null,
+      hotspot: editHotspot ? { ...editHotspot } : null,
+      nsfwFilterEnabled: settings.nsfwFilterEnabled,
+    };
+    if (registerGeneration(generation)) void executeImageGeneration(generation);
+  }, [
+    requireAuth,
+    imageGenerationOptions,
+    currentImage,
+    activeTool,
+    editHotspot,
+    styleImage,
+    settings.nsfwFilterEnabled,
+    registerGeneration,
+    executeImageGeneration,
+  ]);
+
+  /* ---------------- video generation ---------------- */
+  const handleGenerateVideo = useCallback((options: VideoGenerateOptions) => {
+    if (!requireAuth()) return;
+
+    const generationId = crypto.randomUUID();
+    const selectedSeedanceInputMode = options.seedanceInputMode ?? 'references';
+    const generation: VideoGenerationSubmission = {
+      kind: 'video',
+      job: {
+        id: generationId,
+        provider: options.provider,
+        prompt: options.prompt,
+        duration: options.duration,
+        resolution: options.resolution,
+        ratio: options.ratio,
+        seedanceVariant: options.provider === 'seedance' ? options.seedanceVariant ?? 'regular' : undefined,
+        seedanceInputMode: options.provider === 'seedance' ? selectedSeedanceInputMode : undefined,
+        seedanceOutputFormat: options.provider === 'seedance' ? options.seedanceOutputFormat ?? 'mp4' : undefined,
+        wan3Variant: options.provider === 'wan3' ? options.wan3Variant ?? 'standard' : undefined,
+        wan3InputMode: options.provider === 'wan3' ? options.wan3InputMode ?? 'references' : undefined,
+        createdAt: Date.now(),
+      },
+      options: { ...options },
+      wanReferenceImages: [...wanReferenceImages],
+      referenceVideoFile,
+      referenceVideoUrl,
+      seedanceFirstFrame,
+      seedanceLastFrame,
+      seedanceReferenceImages: [...seedanceReferenceImages],
+      seedanceReferenceVideoFiles: [...seedanceReferenceVideoFiles],
+      seedanceReferenceVideoUrl,
+      seedanceReferenceVideoDuration,
+      seedanceReferenceAudioFiles: [...seedanceReferenceAudioFiles],
+      seedanceReferenceAudioDuration,
+      wan3FirstFrame,
+      wan3LastFrame,
+      wan3ReferenceImages: [...wan3ReferenceImages],
+      wan3ReferenceVideoFiles: [...wan3ReferenceVideoFiles],
+      wan3ReferenceVideoDuration,
+      wan3ReferenceAudioFiles: [...wan3ReferenceAudioFiles],
+      wan3ReferenceAudioDuration,
+      wan3ReferenceFile,
+      wan3ReferenceLink,
+      nsfwFilterEnabled: settings.nsfwFilterEnabled,
+    };
+    if (registerGeneration(generation)) void executeVideoGeneration(generation);
+  }, [
+    requireAuth,
+    registerGeneration,
+    executeVideoGeneration,
+    wanReferenceImages,
+    referenceVideoFile,
+    referenceVideoUrl,
+    seedanceFirstFrame,
+    seedanceLastFrame,
+    seedanceReferenceImages,
+    seedanceReferenceVideoFiles,
+    seedanceReferenceVideoUrl,
+    seedanceReferenceVideoDuration,
+    seedanceReferenceAudioFiles,
+    seedanceReferenceAudioDuration,
+    wan3FirstFrame,
+    wan3LastFrame,
+    wan3ReferenceImages,
+    wan3ReferenceVideoFiles,
+    wan3ReferenceVideoDuration,
+    wan3ReferenceAudioFiles,
+    wan3ReferenceAudioDuration,
+    wan3ReferenceFile,
+    wan3ReferenceLink,
+    settings.nsfwFilterEnabled,
+  ]);
+
+  /* ---------------- video reference handlers ---------------- */
+  const handleWanReferenceImagesChange = useCallback((images: File[]) => {
+    const hasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
+    setWanReferenceImages(images.slice(0, getWanMaxReferenceImages(hasReferenceVideo)));
+    setVideoError(null);
+  }, [referenceVideoFile, referenceVideoUrl]);
+
+  const handleReferenceVideoSelect = useCallback(async (file: File | null) => {
+    setReferenceVideoFile(file);
+    setReferenceVideoUrl(null);
+    setReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
+    if (file) {
+      setWanReferenceImages(prev => prev.slice(0, 4));
+    }
+    setVideoError(null);
+  }, []);
+
+  const handleSeedanceInputModeChange = useCallback((mode: SeedanceInputMode) => {
+    setSeedanceInputMode(mode);
+    if (mode === 'frames') {
+      setSeedanceReferenceImages([]);
+      setSeedanceReferenceVideoFiles([]);
+      setSeedanceReferenceVideoUrl(null);
+      setSeedanceReferenceVideoDuration(null);
+      setSeedanceReferenceAudioFiles([]);
+      setSeedanceReferenceAudioDuration(null);
+    } else {
+      setSeedanceFirstFrame(null);
+      setSeedanceLastFrame(null);
+    }
+    setVideoError(null);
+  }, []);
+
+  const handleSeedanceFirstFrameSelect = useCallback((file: File | null) => {
+    setSeedanceFirstFrame(file);
+    if (!file) setSeedanceLastFrame(null);
+    setVideoError(null);
+  }, []);
+
+  const handleSeedanceLastFrameSelect = useCallback((file: File | null) => {
+    setSeedanceLastFrame(file);
+    setVideoError(null);
+  }, []);
+
+  const handleSeedanceReferenceImagesChange = useCallback((images: File[]) => {
+    setSeedanceReferenceImages(images.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+    setVideoError(null);
+  }, []);
+
+  const handleSeedanceReferenceVideosChange = useCallback(async (files: File[]) => {
+    setSeedanceInputMode('references');
+    const selectedFiles = files.slice(0, 10);
+    setSeedanceReferenceVideoFiles(selectedFiles);
+    setSeedanceReferenceVideoUrl(null);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    setSeedanceReferenceVideoDuration(
+      durations.length > 0 && durations.every((duration): duration is number => duration !== null)
+        ? durations.reduce((total, duration) => total + duration, 0)
+        : null
+    );
+    setVideoError(null);
+  }, []);
+
+  const handleSeedanceReferenceVideoUrlRemove = useCallback(() => {
+    setSeedanceReferenceVideoUrl(null);
+    if (seedanceReferenceVideoFiles.length === 0) setSeedanceReferenceVideoDuration(null);
+    setVideoError(null);
+  }, [seedanceReferenceVideoFiles.length]);
+
+  const handleSeedanceReferenceAudiosChange = useCallback(async (files: File[]) => {
+    setSeedanceInputMode('references');
+    const selectedFiles = files.slice(0, 10);
+    setSeedanceReferenceAudioFiles(selectedFiles);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    setSeedanceReferenceAudioDuration(
+      durations.length > 0 && durations.every((duration): duration is number => duration !== null)
+        ? durations.reduce((total, duration) => total + duration, 0)
+        : null
+    );
+    setVideoError(null);
+  }, []);
+
+  const handleWan3InputModeChange = useCallback((mode: Wan3InputMode) => {
+    setWan3InputMode(mode);
+    if (mode !== 'frames') { setWan3FirstFrame(null); setWan3LastFrame(null); }
+    if (mode !== 'references') {
+      setWan3ReferenceImages([]);
+      setWan3ReferenceVideoFiles([]);
+      setWan3ReferenceVideoDuration(null);
+      setWan3ReferenceAudioFiles([]);
+      setWan3ReferenceAudioDuration(null);
+    }
+    if (mode !== 'file') setWan3ReferenceFile(null);
+    if (mode !== 'link') setWan3ReferenceLink('');
+    setVideoError(null);
+  }, []);
+
+  const handleWan3FirstFrameSelect = useCallback((file: File | null) => {
+    setWan3FirstFrame(file);
+    if (!file) setWan3LastFrame(null);
+    setVideoError(null);
+  }, []);
+
+  const handleWan3ReferenceVideosChange = useCallback(async (files: File[]) => {
+    const selectedFiles = files.slice(0, WAN3_REFERENCE_LIMITS.videos);
+    setWan3ReferenceVideoFiles(selectedFiles);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    if (durations.some((value) => value !== null && (value < 1 || value > 15.25))) {
+      setVideoError('Each Wan 3.0 reference video must be between 1 and 15 seconds.');
+    }
+    setWan3ReferenceVideoDuration(durations.length > 0 && durations.every((value): value is number => value !== null)
+      ? durations.reduce((total, value) => total + value, 0)
+      : null);
+    if (!durations.some((value) => value !== null && (value < 1 || value > 15.25))) setVideoError(null);
+  }, []);
+
+  const handleWan3ReferenceAudiosChange = useCallback(async (files: File[]) => {
+    const selectedFiles = files.slice(0, WAN3_REFERENCE_LIMITS.audios);
+    setWan3ReferenceAudioFiles(selectedFiles);
+    const durations = await Promise.all(selectedFiles.map(getVideoDurationSeconds));
+    if (durations.some((value) => value !== null && (value < 1 || value > 15.25))) {
+      setVideoError('Each Wan 3.0 reference audio file must be between 1 and 15 seconds.');
+    }
+    setWan3ReferenceAudioDuration(durations.length > 0 && durations.every((value): value is number => value !== null)
+      ? durations.reduce((total, value) => total + value, 0)
+      : null);
+    if (!durations.some((value) => value !== null && (value < 1 || value > 15.25))) setVideoError(null);
+  }, []);
+
+  const handleVideoProviderChange = useCallback((nextProvider: VideoProvider) => {
+    // A manual model choice supersedes any one-shot Album restoration request.
+    setVideoModelRestoreRequest(null);
+    if (nextProvider === videoProvider) return;
+
+    if (videoProvider === 'seedance' && nextProvider === 'wan3') {
+      if (seedanceInputMode === 'frames') {
+        setWan3InputMode('frames');
+        setWan3FirstFrame(seedanceFirstFrame);
+        setWan3LastFrame(seedanceLastFrame);
+      } else {
+        setWan3InputMode('references');
+        setWan3ReferenceImages(seedanceReferenceImages.slice(0, WAN3_REFERENCE_LIMITS.images));
+        setWan3ReferenceVideoFiles(seedanceReferenceVideoFiles.slice(0, WAN3_REFERENCE_LIMITS.videos));
+        setWan3ReferenceVideoDuration(seedanceReferenceVideoDuration);
+        setWan3ReferenceAudioFiles(seedanceReferenceAudioFiles.slice(0, WAN3_REFERENCE_LIMITS.audios));
+        setWan3ReferenceAudioDuration(seedanceReferenceAudioDuration);
+      }
+    } else if (videoProvider === 'wan3' && nextProvider === 'seedance') {
+      if (wan3InputMode === 'frames') {
+        setSeedanceInputMode('frames');
+        setSeedanceFirstFrame(wan3FirstFrame);
+        setSeedanceLastFrame(wan3LastFrame);
+      } else if (wan3InputMode === 'references') {
+        setSeedanceInputMode('references');
+        const seedanceImagesWereCopiedToWan3 = areSameFiles(
+          wan3ReferenceImages,
+          seedanceReferenceImages.slice(0, WAN3_REFERENCE_LIMITS.images),
+        );
+        const seedanceVideosWereCopiedToWan3 = areSameFiles(
+          wan3ReferenceVideoFiles,
+          seedanceReferenceVideoFiles.slice(0, WAN3_REFERENCE_LIMITS.videos),
+        );
+        const seedanceAudiosWereCopiedToWan3 = areSameFiles(
+          wan3ReferenceAudioFiles,
+          seedanceReferenceAudioFiles.slice(0, WAN3_REFERENCE_LIMITS.audios),
+        );
+        if (!seedanceImagesWereCopiedToWan3) {
+          setSeedanceReferenceImages(wan3ReferenceImages.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+        }
+        if (!seedanceVideosWereCopiedToWan3) {
+          setSeedanceReferenceVideoFiles(wan3ReferenceVideoFiles.slice(0, SEEDANCE_MAX_REFERENCE_VIDEOS));
+          setSeedanceReferenceVideoUrl(null);
+        }
+        setSeedanceReferenceVideoDuration(wan3ReferenceVideoDuration);
+        if (!seedanceAudiosWereCopiedToWan3) {
+          setSeedanceReferenceAudioFiles(wan3ReferenceAudioFiles.slice(0, SEEDANCE_MAX_REFERENCE_AUDIOS));
+        }
+        setSeedanceReferenceAudioDuration(wan3ReferenceAudioDuration);
+      }
+    }
+
+    setVideoProvider(nextProvider);
+    setVideoError(null);
+  }, [
+    seedanceFirstFrame,
+    seedanceInputMode,
+    seedanceLastFrame,
+    seedanceReferenceAudioDuration,
+    seedanceReferenceAudioFiles,
+    seedanceReferenceImages,
+    seedanceReferenceVideoDuration,
+    seedanceReferenceVideoFiles,
+    videoProvider,
+    wan3FirstFrame,
+    wan3InputMode,
+    wan3LastFrame,
+    wan3ReferenceAudioDuration,
+    wan3ReferenceAudioFiles,
+    wan3ReferenceImages,
+    wan3ReferenceVideoDuration,
+    wan3ReferenceVideoFiles,
+  ]);
+
+  const handleUseGeneratedVideoAsReference = useCallback(() => {
+    if (!videoUrl) return;
+    if (videoProvider === 'wan3') {
+      setWan3InputMode('references');
+      setWan3ReferenceVideoFiles(galleryVideoFile ? [galleryVideoFile] : []);
+      setWan3ReferenceVideoDuration(null);
+    } else if (videoProvider === 'seedance') {
+      setSeedanceInputMode('references');
+      setSeedanceReferenceVideoFiles(galleryVideoFile ? [galleryVideoFile] : []);
+      setSeedanceReferenceVideoUrl(galleryVideoFile ? null : videoUrl);
+      setSeedanceReferenceVideoDuration(null);
+    } else {
+      setReferenceVideoFile(galleryVideoFile);
+      setReferenceVideoUrl(galleryVideoFile ? null : videoUrl);
+      setReferenceVideoDuration(null);
       setWanReferenceImages(prev => prev.slice(0, 4));
     }
     clearVideoResult();
     setVideoError(null);
-    setView('editor');
-  }, [clearVideoResult, videoProvider]);
+  }, [clearVideoResult, galleryVideoFile, videoProvider, videoUrl]);
 
-  const generateCompositeFromFiles = useCallback(async (
-    image1: File | null,
-    image2: File | null,
-    compositePrompt: string,
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    console.log('ðŸŽ¯ generateCompositeFromFiles called with prompt:', compositePrompt);
-    console.log('ðŸ–¼ï¸ Source image 1:', image1?.name, image1?.size);
-    console.log('ðŸ–¼ï¸ Source image 2:', image2?.name, image2?.size);
+  const handleContinueFromLastFrame = useCallback(async () => {
+    const videoSource = galleryVideoFile || videoUrl;
+    if (!videoLastFrameUrl && !videoSource) return;
 
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
-
-    if (!image1 || !image2) {
-        setError('Two source images are required to generate a composite.');
-        return;
-    }
-
-    const normalizedImageOptions = normalizeImageGenerationOptions(options, 'image-to-image');
-    const selectedCompositeMutation = imageMutationsByProvider[normalizedImageOptions.provider].composite;
-
-    setError(null);
+    setIsExtractingLastFrame(true);
+    setVideoError(null);
 
     try {
-        console.log('ðŸš€ About to call composite mutation...');
-        const response = await selectedCompositeMutation.mutateAsync({
-            image1,
-            image2,
-            prompt: compositePrompt,
-            resolution: normalizedImageOptions.resolution,
-            aspectRatio: normalizedImageOptions.aspectRatio,
-            seedreamTier: normalizedImageOptions.seedreamTier,
-            outputFormat: normalizedImageOptions.outputFormat,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-        console.log('âœ… composite mutation returned:', response);
+      let frameFile: File | null = null;
 
-        if (response.success && response.image) {
-            const newImageFile = await generatedImageToFile(response.image, 'composite');
-
-            setHistory([newImageFile]);
-            setHistoryPrompts([compositePrompt]);
-            setHistoryIndex(0);
-            setPrompt(compositePrompt);
-            setCreativeMode('single');
-            setView('editor');
-            setSourceImage1(null);
-            setSourceImage2(null);
-            saveToGallery(newImageFile, compositePrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } else {
-            throw new Error(response.message || 'Failed to generate composite image');
+      if (videoLastFrameUrl) {
+        try {
+          const response = await fetch(videoLastFrameUrl);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          if (blob.type && !blob.type.startsWith('image/')) {
+            throw new Error(`unexpected content type ${blob.type}`);
+          }
+          const mimeType = blob.type || 'image/png';
+          const extension = mimeType === 'image/jpeg'
+            ? 'jpg'
+            : mimeType === 'image/webp'
+              ? 'webp'
+              : 'png';
+          const timestamp = Date.now();
+          frameFile = new File([blob], `seedance-last-frame-${timestamp}.${extension}`, {
+            type: mimeType,
+            lastModified: timestamp,
+          });
+        } catch (providerFrameError) {
+          console.warn('Could not download the provider-returned last frame; extracting it from the video instead.', providerFrameError);
         }
-    } catch (err: any) {
-        setError(getGenerationErrorMessage(
-          err,
-          'Failed to generate the composite image.',
-          settings.nsfwFilterEnabled
-        ));
-        console.error(err);
-    }
-  }, [imageGenerationOptions, imageMutationsByProvider, isLoaded, isSignedIn, settings.nsfwFilterEnabled]);
+      }
 
-  const handleCompositeSelect = useCallback(async (
-    file1: File,
-    file2: File,
-    compositePrompt = '',
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    // Check if user is authenticated, if not show signup prompt
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
+      if (!frameFile) {
+        if (!videoSource) throw new Error('The video is unavailable for fallback frame extraction.');
+        frameFile = await extractLastVideoFrame(videoSource);
+      }
 
+      await saveToGallery(frameFile, videoPrompt);
+      setGalleryRefreshTrigger(count => count + 1);
+      setVideoProvider('seedance');
+      setSeedanceInputMode('frames');
+      setSeedanceFirstFrame(frameFile);
+      setSeedanceLastFrame(null);
+      clearVideoResult();
+    } catch (extractError) {
+      const details = extractError instanceof Error ? extractError.message : 'Please try again.';
+      setVideoError(`Could not extract the last frame. ${details}`);
+    } finally {
+      setIsExtractingLastFrame(false);
+    }
+  }, [clearVideoResult, galleryVideoFile, videoLastFrameUrl, videoPrompt, videoUrl]);
+
+  /* ---------------- mode + session ---------------- */
+  const handleModeChange = useCallback((mode: StudioMode) => {
+    setStudioMode(mode);
     setError(null);
 
-    // Dynamically import HEIC converter when needed
-    const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-
-    const needsProcessing = await isHEIC(file1) || await isHEIC(file2);
-
-    if (needsProcessing) {
-      setIsProcessingFile(true);
-      try {
-        // Process both files (convert HEIC to WebP if needed)
-        const [processedFile1, processedFile2] = await Promise.all([
-          processFileForUpload(file1),
-          processFileForUpload(file2)
-        ]);
-
-        setSourceImage1(processedFile1);
-        setSourceImage2(processedFile2);
-        setHistory([]);
-        setHistoryPrompts([]);
-        setHistoryIndex(-1);
-        if (compositePrompt.trim()) {
-          await generateCompositeFromFiles(processedFile1, processedFile2, compositePrompt.trim(), options);
-        } else {
-          setView('composite');
+    // Flow the current image into the video workflow as the start-image reference
+    if (mode === 'video' && currentImage) {
+      if (videoProvider === 'wan3') {
+        const wan3HasInputs = Boolean(wan3FirstFrame)
+          || wan3ReferenceImages.length > 0
+          || wan3ReferenceVideoFiles.length > 0
+          || Boolean(wan3ReferenceFile)
+          || Boolean(wan3ReferenceLink);
+        if (!wan3HasInputs) {
+          setWan3InputMode('frames');
+          setWan3FirstFrame(currentImage);
         }
-      } catch (error) {
-        console.error('Failed to process composite files:', error);
-        setError(`Failed to process images: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
-        setIsProcessingFile(false);
-      }
-    } else {
-      // No processing needed for non-HEIC files
-      setSourceImage1(file1);
-      setSourceImage2(file2);
-      setHistory([]);
-      setHistoryPrompts([]);
-      setHistoryIndex(-1);
-      if (compositePrompt.trim()) {
-        await generateCompositeFromFiles(file1, file2, compositePrompt.trim(), options);
-      } else {
-        setView('composite');
-      }
-    }
-  }, [generateCompositeFromFiles, imageGenerationOptions, isLoaded, isSignedIn]);
-
-  const handleWebcamCapture = useCallback((file: File) => {
-    if (isWebcamForCompositeSecond) {
-      // Webcam capture for composite second image from editor overlay
-      setIsWebcamForCompositeSecond(false);
-      if (currentImage) {
-        setSourceImage1(currentImage);
-        setSourceImage2(file);
-        setView('composite');
-      }
-    } else if (isWebcamForComposite) {
-      setSourceImage1(file);
-      setIsWebcamForComposite(false);
-      setView('start'); // This will show the start screen but with composite tab active and sourceImage1 set
-    } else {
-      handleImageUpload(file);
-    }
-  }, [isWebcamForComposite, isWebcamForCompositeSecond, currentImage, handleImageUpload]);
-
-  const handleUseWebcamClick = useCallback(() => {
-    // Debug authentication state
-    console.log('🔍 Webcam Debug:', { isLoaded, isSignedIn, showSignupPrompt });
-
-    // Check if user is authenticated, if not show signup prompt
-    if (isLoaded && !isSignedIn) {
-      console.log('🚨 User not authenticated, showing signup prompt for webcam');
-      setShowSignupPrompt(true);
-      return;
-    }
-    console.log('✅ User authenticated, opening webcam');
-    setView('webcam');
-  }, [isLoaded, isSignedIn]);
-
-  const handleUseWebcamForCompositeClick = useCallback(() => {
-    // Check if user is authenticated, if not show signup prompt
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
-    setIsWebcamForComposite(true);
-    setCreativeMode('composite');
-    setView('webcam');
-  }, [isLoaded, isSignedIn]);
-
-  const handleGenerate = useCallback(async () => {
-    if (!currentImage) {
-      setError('No image loaded to edit.');
-      return;
-    }
-    
-    if (!prompt.trim()) {
-        setError('Please enter a description for your edit.');
-        return;
-    }
-
-    if (!editHotspot) {
-        setError('Please click on the image to select an area to edit.');
-        return;
-    }
-
-    setError(null);
-    
-    // Create optimistic preview file
-    const optimisticFile = new File([currentImage], `optimistic-${Date.now()}.png`, { type: currentImage.type });
-    
-    startTransition(() => {
-      // Add optimistic update immediately for UI feedback
-      setOptimisticHistory(optimisticFile);
-    });
-
-    try {
-      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
-      const response = await editMutation.mutateAsync({
-        image: currentImage,
-        prompt,
-        x: editHotspot.x,
-        y: editHotspot.y,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'edited');
-        addImageToHistory(newImageFile, prompt);
-        setEditHotspot(null);
-        setDisplayHotspot(null);
-      } else {
-        throw new Error(response.message || 'Failed to generate image');
-      }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to generate the image.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error(err);
-    }
-  }, [currentImage, prompt, editHotspot, addImageToHistory, editMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
-
-  const handleGenerateComposite = useCallback(async (
-    compositePrompt: string,
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    await generateCompositeFromFiles(sourceImage1, sourceImage2, compositePrompt, options);
-  }, [generateCompositeFromFiles, imageGenerationOptions, sourceImage1, sourceImage2]);
-  
-  const handleApplyFilter = useCallback(async (filterPrompt: string) => {
-    if (!currentImage) {
-      setError('No image loaded to apply a filter to.');
-      return;
-    }
-    
-    setError(null);
-    
-    // Add optimistic update for immediate feedback
-    const optimisticFile = new File([currentImage], `optimistic-filtered-${Date.now()}.png`, { type: currentImage.type });
-    startTransition(() => {
-      setOptimisticHistory(optimisticFile);
-    });
-
-    try {
-      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
-      const response = await filterMutation.mutateAsync({
-        image: currentImage,
-        filterType: filterPrompt,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'filtered');
-        addImageToHistory(newImageFile, filterPrompt);
-      } else {
-        throw new Error(response.message || 'Failed to apply filter');
-      }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to apply the filter.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error(err);
-    }
-  }, [currentImage, addImageToHistory, filterMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
-  
-  const handleApplyAdjustment = useCallback(async (adjustmentPrompt: string) => {
-    if (!currentImage) {
-      setError('No image loaded to apply an adjustment to.');
-      return;
-    }
-
-    setError(null);
-
-    // Add optimistic update for immediate feedback
-    const optimisticFile = new File([currentImage], `optimistic-adjusted-${Date.now()}.png`, { type: currentImage.type });
-    startTransition(() => {
-      setOptimisticHistory(optimisticFile);
-    });
-
-    try {
-      const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, 'image-to-image');
-      // Send the prompt directly to the API
-      const response = await adjustMutation.mutateAsync({
-        image: currentImage,
-        prompt: adjustmentPrompt,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'adjusted');
-        addImageToHistory(newImageFile, adjustmentPrompt);
-      } else {
-        throw new Error(response.message || 'Failed to apply adjustment');
-      }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to apply the adjustment.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error(err);
-    }
-  }, [currentImage, addImageToHistory, adjustMutation, setOptimisticHistory, imageGenerationOptions, settings.nsfwFilterEnabled]);
-
-  const handleTextToImageGenerate = useCallback(async (
-    textPrompt: string,
-    onSuccess?: (file: File) => void,
-    options: ImageGenerationOptions = imageGenerationOptions
-  ) => {
-    const normalizedImageOptions = normalizeImageGenerationOptions(options, 'text-to-image');
-    const selectedTextToImageMutation = imageMutationsByProvider[normalizedImageOptions.provider].textToImage;
-
-    console.log('🎨 Starting text-to-image generation with provider:', normalizedImageOptions.provider, 'prompt:', textPrompt);
-
-    setError(null);
-
-    // Add optimistic update for immediate feedback (only if not using callback)
-    if (!onSuccess) {
-      const optimisticFile = new File([new Blob()], `optimistic-text-to-image-${Date.now()}.png`, { type: 'image/png' });
-      startTransition(() => {
-        setOptimisticHistory(optimisticFile);
-      });
-    }
-
-    try {
-      const response = await selectedTextToImageMutation.mutateAsync({
-        prompt: textPrompt,
-        resolution: normalizedImageOptions.resolution,
-        aspectRatio: normalizedImageOptions.aspectRatio,
-        seedreamTier: normalizedImageOptions.seedreamTier,
-        outputFormat: normalizedImageOptions.outputFormat,
-        nsfwFilterEnabled: settings.nsfwFilterEnabled
-      });
-
-      if (response.success && response.image) {
-        const newImageFile = await generatedImageToFile(response.image, 'text-to-image');
-
-        if (onSuccess) {
-          // Callback mode: Pass the file to the callback (for composite mode)
-          onSuccess(newImageFile);
-          console.log('✅ Text-to-image generation successful, file passed to callback');
-        } else {
-          // Default mode: Start a new editing session with the generated image (for single photo mode)
-          setHistory([newImageFile]);
-          setHistoryPrompts([textPrompt]);
-          setHistoryIndex(0);
-          setPrompt(textPrompt);
-          setActiveTab('adjust');
-          setView('editor');
-          // Save text-to-image result to gallery
-          saveToGallery(newImageFile, textPrompt).then(() => setGalleryRefreshTrigger(n => n + 1));
-          console.log('✅ Text-to-image generation successful, image added to history');
+      } else if (videoProvider === 'seedance') {
+        const seedanceHasInputs = Boolean(seedanceFirstFrame)
+          || seedanceReferenceImages.length > 0
+          || Boolean(seedanceReferenceVideoFiles.length > 0 || seedanceReferenceVideoUrl);
+        if (!seedanceHasInputs) {
+          setSeedanceInputMode('frames');
+          setSeedanceFirstFrame(currentImage);
         }
-      } else {
-        throw new Error(response.message || 'Failed to generate image from text');
+      } else if (wanReferenceImages.length === 0 && !referenceVideoFile && !referenceVideoUrl) {
+        setWanReferenceImages([currentImage]);
       }
-    } catch (err: any) {
-      setError(getGenerationErrorMessage(
-        err,
-        'Failed to generate image from text.',
-        settings.nsfwFilterEnabled
-      ));
-      console.error('💥 Text-to-image generation failed:', err);
     }
-  }, [imageGenerationOptions, imageMutationsByProvider, setOptimisticHistory, settings.nsfwFilterEnabled]);
+  }, [
+    videoProvider, currentImage, wanReferenceImages.length, referenceVideoFile, referenceVideoUrl,
+    seedanceFirstFrame, seedanceReferenceImages.length, seedanceReferenceVideoFiles.length, seedanceReferenceVideoUrl,
+    wan3FirstFrame, wan3ReferenceImages.length, wan3ReferenceVideoFiles.length, wan3ReferenceFile, wan3ReferenceLink,
+  ]);
+
+  const handleNewSession = useCallback(() => {
+    setHistory([]);
+    setHistoryPrompts([]);
+    setHistoryIndex(-1);
+    setImagePrompt('');
+    setVideoPrompt('');
+    setStyleImage(null);
+    setError(null);
+    setVideoError(null);
+    resetImageTools();
+    clearVideoResult();
+    setWanReferenceImages([]);
+    setReferenceVideoFile(null);
+    setReferenceVideoUrl(null);
+    setReferenceVideoDuration(null);
+    setSeedanceInputMode('references');
+    setSeedanceFirstFrame(null);
+    setSeedanceLastFrame(null);
+    setSeedanceReferenceImages([]);
+    setSeedanceReferenceVideoFiles([]);
+    setSeedanceReferenceVideoUrl(null);
+    setSeedanceReferenceVideoDuration(null);
+    setSeedanceReferenceAudioFiles([]);
+    setSeedanceReferenceAudioDuration(null);
+    setWan3InputMode('references');
+    setWan3FirstFrame(null);
+    setWan3LastFrame(null);
+    setWan3ReferenceImages([]);
+    setWan3ReferenceVideoFiles([]);
+    setWan3ReferenceVideoDuration(null);
+    setWan3ReferenceAudioFiles([]);
+    setWan3ReferenceAudioDuration(null);
+    setWan3ReferenceFile(null);
+    setWan3ReferenceLink('');
+  }, [clearVideoResult, resetImageTools]);
+
+  /* ---------------- stage tools ---------------- */
+  const handleToolChange = useCallback((tool: StageTool) => {
+    if (tool === 'retouch' && !imageProviderSupportsReferences(imageGenerationOptions.provider)) {
+      return;
+    }
+    setActiveTool(tool);
+    setEditHotspot(null);
+    setDisplayHotspot(null);
+    if (tool !== 'crop') {
+      setCrop(undefined);
+      setCompletedCrop(undefined);
+    }
+    if (tool !== 'none') setShowSlider(false);
+  }, [imageGenerationOptions.provider]);
+
+  const handleImageClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
+    if (activeTool !== 'retouch') return;
+
+    const img = e.currentTarget;
+    const rect = img.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+
+    setDisplayHotspot({ x: offsetX, y: offsetY });
+
+    const { naturalWidth, naturalHeight, clientWidth, clientHeight } = img;
+    const scaleX = naturalWidth / clientWidth;
+    const scaleY = naturalHeight / clientHeight;
+
+    setEditHotspot({ x: Math.round(offsetX * scaleX), y: Math.round(offsetY * scaleY) });
+  }, [activeTool]);
 
   const handleApplyCrop = useCallback(() => {
     if (!completedCrop || !imgRef.current) {
-        setError('Please select an area to crop.');
-        return;
+      setError('Select an area to crop first.');
+      return;
     }
 
     const image = imgRef.current;
     const canvas = document.createElement('canvas');
     const scaleX = image.naturalWidth / image.width;
     const scaleY = image.naturalHeight / image.height;
-    
-    canvas.width = completedCrop.width;
-    canvas.height = completedCrop.height;
-    const ctx = canvas.getContext('2d');
 
+    const ctx = canvas.getContext('2d');
     if (!ctx) {
-        setError('Could not process the crop.');
-        return;
+      setError('Could not process the crop.');
+      return;
     }
 
     const pixelRatio = window.devicePixelRatio || 1;
@@ -1349,11 +2228,11 @@ const App: React.FC = () => {
       completedCrop.width,
       completedCrop.height,
     );
-    
+
     const croppedImageUrl = canvas.toDataURL('image/png');
     const newImageFile = dataURLtoFile(croppedImageUrl, `cropped-${Date.now()}.png`);
     addImageToHistory(newImageFile);
-
+    setActiveTool('none');
   }, [completedCrop, addImageToHistory]);
 
   const handleUndo = useCallback(() => {
@@ -1363,7 +2242,7 @@ const App: React.FC = () => {
       setDisplayHotspot(null);
     }
   }, [canUndo, historyIndex]);
-  
+
   const handleRedo = useCallback(() => {
     if (canRedo) {
       setHistoryIndex(historyIndex + 1);
@@ -1371,10 +2250,6 @@ const App: React.FC = () => {
       setDisplayHotspot(null);
     }
   }, [canRedo, historyIndex]);
-
-  const handleToggleSlider = useCallback(() => {
-    setShowSlider(prev => !prev);
-  }, []);
 
   const handleReset = useCallback(() => {
     if (history.length > 0) {
@@ -1385,46 +2260,16 @@ const App: React.FC = () => {
     }
   }, [history]);
 
-  const handleUploadNew = useCallback(() => {
-      setHistory([]);
-      setHistoryPrompts([]);
-      setHistoryIndex(-1);
-      setError(null);
-      setPrompt('');
-      setRestoredVideoPrompt('');
-      setVideoPromptRecallKey(key => key + 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setSourceImage1(null);
-      setSourceImage2(null);
-      setCreativeMode('single');
-      clearVideoResult();
-      setVideoError(null);
-      setWanReferenceImages([]);
-      setReferenceVideoFile(null);
-      setReferenceVideoUrl(null);
-      setReferenceVideoDuration(null);
-      setSeedanceInputMode('references');
-      setSeedanceFirstFrame(null);
-      setSeedanceLastFrame(null);
-      setSeedanceReferenceImages([]);
-      setSeedanceReferenceVideoFile(null);
-      setSeedanceReferenceVideoUrl(null);
-      setSeedanceReferenceVideoDuration(null);
-      setSeedanceReferenceAudioFile(null);
-      setView('start');
-  }, [clearVideoResult]);
-
   const handleDownload = useCallback(() => {
-      if (currentImage) {
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(currentImage);
-          link.download = `edited-${currentImage.name}`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(link.href);
-      }
+    if (currentImage) {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(currentImage);
+      link.download = `edited-${currentImage.name}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    }
   }, [currentImage]);
 
   const handleVideoDownload = useCallback(async () => {
@@ -1437,7 +2282,7 @@ const App: React.FC = () => {
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = `veilpix-video-${Date.now()}.mp4`;
+      link.download = `veilpix-video-${Date.now()}.${videoOutputFormat}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1445,1028 +2290,508 @@ const App: React.FC = () => {
     } catch {
       window.open(videoUrl, '_blank', 'noopener,noreferrer');
     }
-  }, [videoUrl]);
+  }, [videoOutputFormat, videoUrl]);
 
-  const handleContinueFromLastFrame = useCallback(async () => {
-    const source = galleryVideoFile || videoUrl;
-    if (!source) return;
-
-    setIsExtractingLastFrame(true);
-    setVideoError(null);
-
-    try {
-      const frameFile = await extractLastVideoFrame(source);
-      setVideoProvider('seedance');
-      setSeedanceInputMode('frames');
-      setSeedanceFirstFrame(frameFile);
-      setSeedanceLastFrame(null);
-      clearVideoResult();
-    } catch (error) {
-      const details = error instanceof Error ? error.message : 'Please try again.';
-      setVideoError(`Could not extract the last frame. ${details}`);
-    } finally {
-      setIsExtractingLastFrame(false);
+  /* ---------------- gallery handlers ---------------- */
+  const handleGallerySelectImage = useCallback((file: File, savedPrompt: string, details?: GalleryImageDetails) => {
+    if (isVideoEditorRendering) return;
+    setIsVideoEditorOpen(false);
+    setIncomingEditorVideo(null);
+    setStudioMode('image');
+    setHistory([file]);
+    setHistoryPrompts([savedPrompt]);
+    setHistoryIndex(0);
+    setImagePrompt(savedPrompt);
+    if (details?.imageProvider) {
+      setSettings(previous => ({
+        ...previous,
+        apiProvider: details.imageProvider ?? previous.apiProvider,
+        resolution: details.imageResolution ?? previous.resolution,
+        imageAspectRatio: details.imageAspectRatio ?? previous.imageAspectRatio,
+        seedreamTier: details.imageSeedreamTier ?? previous.seedreamTier,
+        imageOutputFormat: details.imageOutputFormat ?? previous.imageOutputFormat,
+      }));
+      setStyleImage(details.styleImage);
     }
-  }, [clearVideoResult, galleryVideoFile, videoUrl]);
+    resetImageTools();
+    setError(null);
+  }, [isVideoEditorRendering, resetImageTools]);
 
-  // Handle creative mode switching (single/composite/video)
-  const handleModeChange = useCallback((newMode: CreativeMode) => {
-    setCreativeMode(newMode);
+  const handleGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
+    const selectedProvider = details.provider ?? videoProvider;
+    const referenceImages = details.referenceImages.length > 0
+      ? details.referenceImages
+      : details.referenceImage
+        ? [details.referenceImage]
+        : [];
 
-    // Clear video state when leaving video mode
-    if (newMode !== 'video') {
-      clearVideoResult();
-      setVideoError(null);
-      setReferenceVideoFile(null);
-      setReferenceVideoUrl(null);
-      setReferenceVideoDuration(null);
-      setSeedanceInputMode('references');
-      setSeedanceFirstFrame(null);
-      setSeedanceLastFrame(null);
-      setSeedanceReferenceImages([]);
-      setSeedanceReferenceVideoFile(null);
-      setSeedanceReferenceVideoUrl(null);
-      setSeedanceReferenceVideoDuration(null);
-      setSeedanceReferenceAudioFile(null);
-    }
-
-    if (view === 'editor' && currentImage) {
-      if (newMode === 'composite') {
-        // Current image becomes base image for composite
-        setSourceImage1(currentImage);
-        setSourceImage2(null);
-      }
-      // For 'single' and 'video' — just switch the panel, no state changes
-    }
-
-    if (newMode === 'video' && view === 'editor' && currentImage && videoProvider === 'wan') {
-      setWanReferenceImages(prev => prev.length > 0 ? prev : [currentImage]);
-    }
-
-    if (newMode === 'video' && view === 'editor' && currentImage) {
-      setRestoredVideoPrompt(historyPrompts[historyIndex] ?? '');
-      setVideoPromptRecallKey(key => key + 1);
-    }
-  }, [clearVideoResult, view, currentImage, videoProvider, historyIndex, historyPrompts]);
-
-  // Handle combining from the editor overlay
-  const handleCompositeFromEditor = useCallback((file2: File) => {
-    if (currentImage) {
-      setSourceImage1(currentImage);
-      setSourceImage2(file2);
-      setView('composite');
-    }
-  }, [currentImage]);
-
-  // Handle webcam for composite second image (from editor overlay)
-  const handleWebcamForCompositeSecond = useCallback(() => {
-    if (isLoaded && !isSignedIn) {
-      setShowSignupPrompt(true);
-      return;
-    }
-    setIsWebcamForCompositeSecond(true);
-    setView('webcam');
-  }, [isLoaded, isSignedIn]);
-
-  // Handle video generation
-  const handleGenerateVideo = useCallback(async (options: VideoGenerateOptions) => {
-    const {
-      provider,
-      prompt,
-      duration,
-      resolution,
-      ratio,
-      wanAudio = true,
-      wanMultiShots = false,
-      seedanceVariant = 'regular',
-      seedanceInputMode: selectedSeedanceInputMode = 'references',
-      seedanceGenerateAudio = false,
-      seedanceWebSearch = false
-    } = options;
-
-    setVideoError(null);
-    setRestoredVideoPrompt(prompt);
-    setVideoPromptRecallKey(key => key + 1);
-    clearVideoResult();
-
-    try {
-      const wanHasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
-      const wanReferenceImagesForRequest = wanReferenceImages.slice(0, wanHasReferenceVideo ? 4 : 5);
-      let response: any;
-
-      if (provider === 'seedance') {
-        const usesFrameMode = selectedSeedanceInputMode === 'frames';
-        response = await seedanceVideoMutation.mutateAsync({
-            firstFrame: usesFrameMode ? seedanceFirstFrame : null,
-            lastFrame: usesFrameMode ? seedanceLastFrame : null,
-            referenceImages: usesFrameMode ? [] : seedanceReferenceImages,
-            referenceVideo: usesFrameMode ? null : seedanceReferenceVideoFile,
-            referenceVideoUrl: usesFrameMode ? null : seedanceReferenceVideoUrl,
-            referenceVideoDuration: usesFrameMode ? null : seedanceReferenceVideoDuration,
-            referenceAudio: usesFrameMode ? null : seedanceReferenceAudioFile,
-            prompt,
-            variant: seedanceVariant,
-            duration,
-            resolution,
-            aspectRatio: ratio,
-            generateAudio: seedanceGenerateAudio,
-            webSearch: seedanceWebSearch,
-            nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      } else if (wanReferenceImagesForRequest.length === 0 && !wanHasReferenceVideo) {
-        response = await textToVideoMutation.mutateAsync({
-          prompt,
-          duration,
-          resolution,
-          ratio,
-          multiShots: wanMultiShots,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      } else if (wanReferenceImagesForRequest.length === 1 && !wanHasReferenceVideo) {
-        response = await videoMutation.mutateAsync({
-          image: wanReferenceImagesForRequest[0],
-          prompt,
-          duration,
-          resolution,
-          audio: wanAudio,
-          multiShots: wanMultiShots,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      } else {
-        response = await referenceVideoMutation.mutateAsync({
-          images: wanReferenceImagesForRequest,
-          video: referenceVideoFile,
-          referenceVideoUrl,
-          prompt,
-          duration,
-          resolution,
-          ratio,
-          nsfwFilterEnabled: settings.nsfwFilterEnabled
-        });
-      }
-
-      if (response.success && response.videoUrl) {
-        showRemoteVideoResult(response.videoUrl);
-        saveVideoToGallery({
-          videoUrl: response.videoUrl,
-          provider,
-          referenceImage: provider === 'seedance'
-            ? (selectedSeedanceInputMode === 'frames' ? seedanceFirstFrame : seedanceReferenceImages[0]) ?? null
-            : wanReferenceImagesForRequest[0] ?? null,
-          referenceImages: provider === 'seedance'
-            ? selectedSeedanceInputMode === 'frames'
-              ? [seedanceFirstFrame, seedanceLastFrame].filter((file): file is File => Boolean(file))
-              : seedanceReferenceImages
-            : wanReferenceImagesForRequest,
-          referenceVideoFile: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoFile : provider === 'wan' ? referenceVideoFile : null,
-          referenceVideoUrl: provider === 'seedance' && selectedSeedanceInputMode === 'references' ? seedanceReferenceVideoUrl : provider === 'wan' ? referenceVideoUrl : null,
-          videoDuration: duration,
-          prompt
-        }).then(() => setGalleryRefreshTrigger(n => n + 1));
-      } else {
-        throw new Error(response.message || 'Failed to generate video');
-      }
-    } catch (err: any) {
-      const errorMessage = getApiErrorMessage(err);
-      if (isSafetyFilterError(err, settings.nsfwFilterEnabled)) {
-        setError(CONTENT_POLICY_ERROR_MESSAGE);
-      } else {
-        setVideoError(`Failed to generate video. ${errorMessage}`);
-      }
-      console.error('Video generation error:', err);
-    }
-  }, [
-    currentImage,
-    referenceVideoFile,
-    referenceVideoUrl,
-    wanReferenceImages,
-    seedanceReferenceAudioFile,
-    seedanceFirstFrame,
-    seedanceLastFrame,
-    seedanceReferenceImages,
-    seedanceReferenceVideoDuration,
-    seedanceReferenceVideoFile,
-    seedanceReferenceVideoUrl,
-    clearVideoResult,
-    showRemoteVideoResult,
-    videoMutation,
-    referenceVideoMutation,
-    textToVideoMutation,
-    seedanceVideoMutation,
-    settings.nsfwFilterEnabled
-  ]);
-
-  const handleStartScreenVideoGenerate = useCallback((options: VideoGenerateOptions) => {
-    setCreativeMode('video');
-    setView('editor');
-    handleGenerateVideo(options);
-  }, [handleGenerateVideo]);
-
-  const handleReferenceImageSelect = useCallback((file: File | null) => {
-    if (file) {
-      setHistory([file]);
-      setHistoryPrompts(['']);
-      setHistoryIndex(0);
-      setPrompt('');
-      setRestoredVideoPrompt('');
-      setVideoPromptRecallKey(key => key + 1);
-      setEditHotspot(null);
-      setDisplayHotspot(null);
-      setCrop(undefined);
-      setCompletedCrop(undefined);
-    } else {
-      setHistory([]);
-      setHistoryPrompts([]);
-      setHistoryIndex(0);
-    }
-  }, []);
-
-  const handleWanReferenceImagesChange = useCallback((images: File[]) => {
-    const hasReferenceVideo = Boolean(referenceVideoFile || referenceVideoUrl);
-    setWanReferenceImages(images.slice(0, hasReferenceVideo ? 4 : 5));
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult, referenceVideoFile, referenceVideoUrl]);
-
-  const handleReferenceVideoSelect = useCallback(async (file: File | null) => {
-    setReferenceVideoFile(file);
+    setStudioMode('video');
+    setVideoProvider(selectedProvider);
+    setVideoModelRestoreRequest(current => ({
+      revision: (current?.revision ?? 0) + 1,
+      provider: selectedProvider,
+      seedanceVariant: selectedProvider === 'seedance' ? details.seedanceVariant : undefined,
+      wan3Variant: selectedProvider === 'wan3' ? details.wan3Variant : undefined,
+    }));
+    setVideoPrompt(details.prompt);
+    setVideoOutputFormat(details.videoOutputFormat ?? 'mp4');
+    setVideoLastFrameUrl(null);
+    setReferenceVideoFile(null);
     setReferenceVideoUrl(null);
-    setReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
-    if (file) {
-      setWanReferenceImages(prev => prev.slice(0, 4));
-    }
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleSeedanceInputModeChange = useCallback((mode: SeedanceInputMode) => {
-    setSeedanceInputMode(mode);
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleSeedanceFirstFrameSelect = useCallback((file: File | null) => {
-    setSeedanceFirstFrame(file);
-    if (!file) setSeedanceLastFrame(null);
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleSeedanceLastFrameSelect = useCallback((file: File | null) => {
-    setSeedanceLastFrame(file);
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleSeedanceReferenceImagesChange = useCallback((images: File[]) => {
-    setSeedanceReferenceImages(images.slice(0, 9));
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleSeedanceReferenceVideoSelect = useCallback(async (file: File | null) => {
-    setSeedanceInputMode('references');
-    setSeedanceReferenceVideoFile(file);
-    setSeedanceReferenceVideoUrl(null);
-    setSeedanceReferenceVideoDuration(file ? await getVideoDurationSeconds(file) : null);
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleSeedanceReferenceVideoUrlRemove = useCallback(() => {
-    setSeedanceReferenceVideoFile(null);
+    setReferenceVideoDuration(null);
+    setWanReferenceImages([]);
+    setWan3ReferenceImages([]);
+    setWan3ReferenceVideoFiles([]);
+    setWan3ReferenceVideoDuration(null);
+    setWan3ReferenceAudioFiles([]);
+    setWan3ReferenceAudioDuration(null);
+    setWan3ReferenceFile(null);
+    setWan3ReferenceLink('');
+    setWan3FirstFrame(null);
+    setWan3LastFrame(null);
+    setSeedanceReferenceImages([]);
+    setSeedanceReferenceVideoFiles([]);
     setSeedanceReferenceVideoUrl(null);
     setSeedanceReferenceVideoDuration(null);
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleSeedanceReferenceAudioSelect = useCallback((file: File | null) => {
-    setSeedanceInputMode('references');
-    setSeedanceReferenceAudioFile(file);
-    clearVideoResult();
-    setVideoError(null);
-  }, [clearVideoResult]);
-
-  const handleUseGeneratedVideoAsReference = useCallback(() => {
-    if (!videoUrl) return;
-    if (videoProvider === 'seedance') {
-      setSeedanceInputMode('references');
-      setSeedanceReferenceVideoFile(galleryVideoFile);
-      setSeedanceReferenceVideoUrl(galleryVideoFile ? null : videoUrl);
-      setSeedanceReferenceVideoDuration(null);
+    setSeedanceReferenceAudioFiles([]);
+    setSeedanceReferenceAudioDuration(null);
+    if (selectedProvider === 'wan3') {
+      const restoredInputMode = details.wan3InputMode ?? 'references';
+      setWan3InputMode(restoredInputMode);
+      setWan3FirstFrame(restoredInputMode === 'frames' ? referenceImages[0] ?? null : null);
+      setWan3LastFrame(restoredInputMode === 'frames' ? referenceImages[1] ?? null : null);
+      setWan3ReferenceImages(
+        restoredInputMode === 'references'
+          ? referenceImages.slice(0, WAN3_REFERENCE_LIMITS.images)
+          : []
+      );
+    } else if (selectedProvider === 'seedance') {
+      const restoredInputMode = details.seedanceInputMode ?? 'references';
+      setSeedanceInputMode(restoredInputMode);
+      setSeedanceFirstFrame(restoredInputMode === 'frames' ? referenceImages[0] ?? null : null);
+      setSeedanceLastFrame(restoredInputMode === 'frames' ? referenceImages[1] ?? null : null);
+      setSeedanceReferenceImages(
+        restoredInputMode === 'references'
+          ? referenceImages.slice(0, SEEDANCE_MAX_REFERENCE_IMAGES)
+          : []
+      );
     } else {
-      setReferenceVideoFile(galleryVideoFile);
-      setReferenceVideoUrl(galleryVideoFile ? null : videoUrl);
-      setReferenceVideoDuration(null);
+      setSeedanceFirstFrame(null);
+      setSeedanceLastFrame(null);
+      setWanReferenceImages(referenceImages.slice(0, 5));
+    }
+    if (details.videoFile) {
+      showGalleryVideoResult(details.videoFile);
+    } else {
+      showRemoteVideoResult(details.videoUrl);
+    }
+    setVideoError(null);
+  }, [showGalleryVideoResult, showRemoteVideoResult, videoProvider]);
+
+  const handleEditorGallerySelectVideo = useCallback((details: GalleryVideoDetails) => {
+    if (isVideoEditorRendering) return;
+    setIncomingEditorVideo(details);
+  }, [isVideoEditorRendering]);
+
+  const handleOpenVideoEditor = useCallback(() => {
+    setIncomingEditorVideo(null);
+    setIsVideoEditorRendering(false);
+    setIsVideoEditorOpen(true);
+  }, []);
+
+  const handleCloseVideoEditor = useCallback(() => {
+    if (isVideoEditorRendering) return;
+    setIncomingEditorVideo(null);
+    setIsVideoEditorOpen(false);
+  }, [isVideoEditorRendering]);
+
+  const handleGalleryUseImageAsReference = useCallback((file: File, _savedPrompt: string) => {
+    if (studioMode === 'image') {
+      if (!imageProviderSupportsReferences(imageGenerationOptions.provider)) return;
+      if (!currentImage) {
+        handleBaseImageSelect(file);
+        return;
+      }
+      setStyleImage(file);
+    } else if (videoProvider === 'wan3') {
+      setWan3InputMode('references');
+      setWan3ReferenceImages(prev => [...prev, file].slice(0, WAN3_REFERENCE_LIMITS.images));
+    } else if (videoProvider === 'seedance') {
+      setSeedanceInputMode('references');
+      setSeedanceReferenceImages(prev => [...prev, file].slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+    } else {
+      const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
+      setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
+    }
+  }, [studioMode, imageGenerationOptions.provider, currentImage, handleBaseImageSelect, videoProvider, referenceVideoFile, referenceVideoUrl]);
+
+  const handleGalleryUseVideoAsReference = useCallback((details: GalleryVideoDetails) => {
+    setStudioMode('video');
+    setVideoPrompt(details.prompt);
+    if (videoProvider === 'wan3') {
+      setWan3InputMode('references');
+      setWan3ReferenceVideoFiles(details.videoFile ? [details.videoFile] : []);
+      setWan3ReferenceVideoDuration(details.videoDuration ?? null);
+    } else if (videoProvider === 'seedance') {
+      setSeedanceInputMode('references');
+      setSeedanceReferenceVideoFiles(details.videoFile ? [details.videoFile] : []);
+      setSeedanceReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
+      setSeedanceReferenceVideoDuration(details.videoDuration ?? null);
+    } else {
+      setReferenceVideoFile(details.videoFile);
+      setReferenceVideoUrl(details.videoFile ? null : details.videoUrl);
+      setReferenceVideoDuration(details.videoDuration ?? null);
       setWanReferenceImages(prev => prev.slice(0, 4));
     }
     clearVideoResult();
     setVideoError(null);
-  }, [clearVideoResult, galleryVideoFile, videoProvider, videoUrl]);
+  }, [clearVideoResult, videoProvider]);
 
-  const handleFileSelect = async (files: FileList | null) => {
-    if (files && files[0]) {
-      // Debug authentication state
-      console.log('🔍 Authentication Debug:', { isLoaded, isSignedIn, showSignupPrompt });
+  /* Right-click "send to" targets — adapt to the active mode, model, and settings */
+  const galleryImageReferenceTargets: GalleryReferenceTarget[] = isVideoEditorOpen
+    ? []
+    : studioMode === 'image' && imageProviderSupportsReferences(imageGenerationOptions.provider)
+    ? [
+        { id: 'image-base', label: 'Use as base image' },
+        ...(currentImage ? [{ id: 'image-style', label: 'Use as style reference' }] : []),
+      ]
+    : videoProvider === 'wan3'
+      ? [
+          { id: 'wan3-first', label: 'Use as first frame' },
+          ...(wan3FirstFrame ? [{ id: 'wan3-last', label: 'Use as last frame' }] : []),
+          { id: 'wan3-ref', label: 'Add as reference image' },
+        ]
+    : videoProvider === 'seedance'
+      ? [
+          { id: 'seedance-first', label: 'Use as first frame' },
+          ...(seedanceFirstFrame ? [{ id: 'seedance-last', label: 'Use as last frame' }] : []),
+          { id: 'seedance-ref', label: 'Add as reference image' },
+        ]
+      : [{ id: 'wan-ref', label: 'Add as reference image' }];
 
-      // Check if user is authenticated, if not show signup prompt
-      if (isLoaded && !isSignedIn) {
-        console.log('🚨 User not authenticated, showing signup prompt');
-        setShowSignupPrompt(true);
-        return;
+  const galleryVideoReferenceTargets: GalleryReferenceTarget[] = isVideoEditorOpen
+    ? [{ id: 'video-editor-add', label: 'Add to Video Editor' }]
+    : studioMode === 'video'
+      ? [{ id: 'video-ref', label: 'Use as reference video' }]
+      : [];
+
+  const handleGalleryImageReferenceAction = useCallback((targetId: string, file: File, _prompt: string) => {
+    switch (targetId) {
+      case 'image-base':
+        handleBaseImageSelect(file);
+        break;
+      case 'image-style':
+        handleStyleImageSelect(file);
+        break;
+      case 'wan-ref': {
+        const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
+        setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
+        setVideoError(null);
+        break;
       }
-      console.log('✅ User authenticated, proceeding with upload');
-      if (creativeMode === 'video' && videoProvider === 'seedance') {
-        const file = files[0];
-        setIsProcessingFile(true);
-        try {
-          const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-          const processedFile = await isHEIC(file) ? await processFileForUpload(file) : file;
-          setSeedanceInputMode('references');
-          setSeedanceReferenceImages(prev => [...prev, processedFile].slice(0, 9));
-          clearVideoResult();
-          setVideoError(null);
-          setView('editor');
-          saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } catch (error) {
-          console.error('Failed to process Seedance reference image:', error);
-          setError(`Failed to process reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        } finally {
-          setIsProcessingFile(false);
-        }
-        return;
-      }
-
-      if (creativeMode === 'video' && videoProvider === 'wan') {
-        const file = files[0];
-        setIsProcessingFile(true);
-        try {
-          const { isHEIC, processFileForUpload } = await import('./src/utils/heicConverter');
-          const processedFile = await isHEIC(file) ? await processFileForUpload(file) : file;
-          const maxImages = referenceVideoFile || referenceVideoUrl ? 4 : 5;
-          setWanReferenceImages(prev => [...prev, processedFile].slice(0, maxImages));
-          clearVideoResult();
-          setVideoError(null);
-          saveToGallery(processedFile).then(() => setGalleryRefreshTrigger(n => n + 1));
-        } catch (error) {
-          console.error('Failed to process Wan reference image:', error);
-          setError(`Failed to process reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        } finally {
-          setIsProcessingFile(false);
-        }
-        return;
-      }
-
-      await handleImageUpload(files[0]);
+      case 'wan3-first':
+        setWan3InputMode('frames');
+        setWan3FirstFrame(file);
+        setVideoError(null);
+        break;
+      case 'wan3-last':
+        setWan3InputMode('frames');
+        setWan3LastFrame(file);
+        setVideoError(null);
+        break;
+      case 'wan3-ref':
+        setWan3InputMode('references');
+        setWan3ReferenceImages(prev => [...prev, file].slice(0, WAN3_REFERENCE_LIMITS.images));
+        setVideoError(null);
+        break;
+      case 'seedance-first':
+        setSeedanceInputMode('frames');
+        setSeedanceFirstFrame(file);
+        setVideoError(null);
+        break;
+      case 'seedance-last':
+        setSeedanceInputMode('frames');
+        setSeedanceLastFrame(file);
+        setVideoError(null);
+        break;
+      case 'seedance-ref':
+        setSeedanceInputMode('references');
+        setSeedanceReferenceImages(prev => [...prev, file].slice(0, SEEDANCE_MAX_REFERENCE_IMAGES));
+        setVideoError(null);
+        break;
     }
-  };
+  }, [handleBaseImageSelect, handleStyleImageSelect, referenceVideoFile, referenceVideoUrl]);
 
-  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (activeTab !== 'retouch') return;
-    
-    const img = e.currentTarget;
-    const rect = img.getBoundingClientRect();
+  const handleGalleryVideoReferenceAction = useCallback((targetId: string, details: GalleryVideoDetails) => {
+    if (targetId === 'video-editor-add') {
+      handleEditorGallerySelectVideo(details);
+      return;
+    }
+    handleGalleryUseVideoAsReference(details);
+  }, [handleEditorGallerySelectVideo, handleGalleryUseVideoAsReference]);
 
-    const offsetX = e.clientX - rect.left;
-    const offsetY = e.clientY - rect.top;
-    
-    setDisplayHotspot({ x: offsetX, y: offsetY });
+  /* ---------------- credit costs ---------------- */
+  const imageWorkflow: ImageWorkflow = imageProviderSupportsReferences(imageGenerationOptions.provider) && currentImage
+    ? 'image-to-image'
+    : 'text-to-image';
+  const normalizedImageOptions = normalizeImageGenerationOptions(imageGenerationOptions, imageWorkflow);
+  const imageActionCreditCost = getImageCreditCost(
+    normalizedImageOptions.provider,
+    normalizedImageOptions.resolution,
+    imageWorkflow,
+    normalizedImageOptions.seedreamTier,
+    currentImage && styleImage ? 2 : 0
+  );
 
-    const { naturalWidth, naturalHeight, clientWidth, clientHeight } = img;
-    const scaleX = naturalWidth / clientWidth;
-    const scaleY = naturalHeight / clientHeight;
+  /* ---------------- error banner ---------------- */
+  const activeError = error || videoError;
+  const isSafetyIssue = Boolean(error) && error === CONTENT_POLICY_ERROR_MESSAGE;
 
-    const originalX = Math.round(offsetX * scaleX);
-    const originalY = Math.round(offsetY * scaleY);
+  const errorBanner = activeError ? (
+    <div className={`glass-panel edge mx-auto mb-3 w-full max-w-3xl shrink-0 rounded-2xl p-4 animate-fade-in ${isSafetyIssue ? '' : ''}`} role="alert">
+      <div className="flex flex-col gap-2.5">
+        <p className={`text-sm font-semibold ${isSafetyIssue ? 'text-amber-200' : 'text-red-300'}`}>
+          {isSafetyIssue
+            ? (hasPurchasedCredits ? 'Content warning' : 'Age verification required')
+            : 'Something went wrong'}
+        </p>
 
-    setEditHotspot({ x: originalX, y: originalY });
-};
-
-  const renderContent = () => {
-    if (error) {
-       const isSafetyIssue = isSafetyFilterError(error, settings.nsfwFilterEnabled);
-
-       return (
-           <div className={`text-center animate-fade-in p-8 rounded-lg max-w-2xl mx-auto flex flex-col items-center gap-4 ${
-             isSafetyIssue
-               ? 'bg-yellow-500/10 border border-yellow-500/20'
-               : 'bg-red-500/10 border border-red-500/20'
-            }`}>
-            <h2 className={`text-2xl font-bold ${isSafetyIssue ? 'text-yellow-300' : 'text-red-300'}`}>
-              {isSafetyIssue
-                ? (hasPurchasedCredits ? 'Content Warning' : 'Age Verification Required')
-                : 'An Error Occurred'}
-            </h2>
-
-            {isSafetyIssue ? (
-              <div className="flex flex-col gap-3 text-md text-yellow-200">
-                {hasPurchasedCredits && !settings.nsfwFilterEnabled ? (
-                  <>
-                    <p>
-                      Your request was blocked by the AI provider's built-in content filter. Although VeilStudio's content filter is disabled, the underlying model may enforce its own restrictions that cannot be overridden.
-                    </p>
-                    <p className="text-sm text-yellow-300/80">
-                      Try rephrasing your prompt, or switch to a different AI provider in the Settings menu. Different models have different content policies.
-                    </p>
-                  </>
-                ) : hasPurchasedCredits ? (
-                  <>
-                    <p>
-                      Your request was flagged while the content filter is enabled. For supported consensual adult content, you can turn on After Dark by disabling the content filter in Settings.
-                    </p>
-                    <p className="text-sm text-yellow-300/80">
-                      Individual AI providers may still enforce restrictions that VeilPix cannot override.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      Your request appears to contain adult content. VeilPix requires an account and age verification before supported consensual adult content can be generated.
-                    </p>
-                    <p className="text-sm text-yellow-300/80">
-                      Age verification is completed when you purchase credits. After verification, you can control the content filter from the Settings menu.
-                    </p>
-                  </>
-                )}
-                <p className="text-sm font-medium text-yellow-100">
-                  VeilPix strictly prohibits child sexual abuse material (CSAM) and non-consensual intimate imagery under all circumstances.
-                </p>
-              </div>
+        {isSafetyIssue ? (
+          <div className="flex flex-col gap-2 text-[13px] leading-relaxed text-gray-300">
+            {hasPurchasedCredits && !settings.nsfwFilterEnabled ? (
+              <p>
+                Your request was blocked by the AI provider's built-in content filter. Although VeilStudio's
+                content filter is disabled, the underlying model may enforce restrictions that cannot be
+                overridden. Try rephrasing your prompt or switching models.
+              </p>
+            ) : hasPurchasedCredits ? (
+              <p>
+                Your request was flagged while the content filter is enabled. For supported consensual adult
+                content, you can turn on After Dark by disabling the content filter in Settings. Individual
+                providers may still enforce their own restrictions.
+              </p>
             ) : (
-              <p className="text-md text-red-400">{error}</p>
+              <p>
+                Your request appears to contain adult content. VeilPix requires an account and age
+                verification before supported consensual adult content can be generated. Age verification is
+                completed when you purchase credits. After purchasing, open Settings and turn on After Dark by
+                disabling the content filter.
+              </p>
             )}
-
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                  onClick={() => {
-                    setError(null);
-                    if (!currentImage) {
-                      handleUploadNew();
-                    }
-                  }}
-                  className={`font-bold py-2 px-6 rounded-lg text-md transition-colors ${
-                    isSafetyIssue
-                      ? 'bg-yellow-500 hover:bg-yellow-600 text-gray-900'
-                      : 'bg-red-500 hover:bg-red-600 text-white'
-                  }`}
-                >
-                  Try Again
-              </button>
-              {isSafetyIssue && !hasPurchasedCredits && (
-                <button
-                  onClick={() => {
-                    setError(null);
-                    setShowPricingModal(true);
-                  }}
-                  className="font-bold py-2 px-6 rounded-lg text-md transition-all bg-gradient-to-br from-purple-600 to-pink-600 text-white hover:shadow-lg hover:-translate-y-px active:scale-95"
-                >
-                  Verify Age &amp; Purchase Credits
-                </button>
-              )}
-            </div>
+            <p className="text-xs font-medium text-gray-400">
+              VeilPix strictly prohibits child sexual abuse material (CSAM) and non-consensual intimate
+              imagery under all circumstances.
+            </p>
           </div>
-        );
-    }
-    
-    if (view === 'start') {
-      return <StartScreen
-        onFileSelect={handleFileSelect}
-        onCompositeSelect={handleCompositeSelect}
-        onUseWebcamClick={handleUseWebcamClick}
-        onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
-        onTextToImageGenerate={handleTextToImageGenerate}
-        imageOptions={imageGenerationOptions}
-        onImageOptionsChange={handleImageOptionsChange}
-        onVideoGenerate={handleStartScreenVideoGenerate}
-        onReferenceVideoSelect={handleReferenceVideoSelect}
-        onWanReferenceImagesChange={handleWanReferenceImagesChange}
-        wanReferenceImages={wanReferenceImages}
-        referenceVideoFile={referenceVideoFile}
-        referenceVideoUrl={referenceVideoUrl}
-        referenceVideoDuration={referenceVideoDuration}
-        onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
-        seedanceInputMode={seedanceInputMode}
-        seedanceFirstFrame={seedanceFirstFrame}
-        seedanceLastFrame={seedanceLastFrame}
-        seedanceReferenceImages={seedanceReferenceImages}
-        seedanceReferenceVideoFile={seedanceReferenceVideoFile}
-        seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
-        seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
-        seedanceReferenceAudioFile={seedanceReferenceAudioFile}
-        onSeedanceInputModeChange={handleSeedanceInputModeChange}
-        onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
-        onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
-        onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
-        onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
-        onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
-        videoProvider={videoProvider}
-        onVideoProviderChange={setVideoProvider}
-        activeMode={creativeMode}
-        onModeChange={handleModeChange}
-        compositeFile1={sourceImage1}
-        isAuthenticated={isLoaded && isSignedIn}
-        onShowSignupPrompt={() => setShowSignupPrompt(true)}
-        isGeneratingImage={isLoading}
-        imageCreditCost={getImageCreditCost(
-          imageGenerationOptions.provider,
-          imageGenerationOptions.resolution,
-          creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
-          imageGenerationOptions.seedreamTier,
-          creativeMode === 'composite' ? 2 : 0
+        ) : (
+          <p className="text-[13px] leading-relaxed text-gray-300">{activeError}</p>
         )}
-        onSelectGalleryImage={handleSelectGalleryImage}
-        onSelectGalleryVideo={handleSelectGalleryVideo}
-        onMakeGalleryImageReference={handleMakeGalleryImageReference}
-        onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
-        galleryRefreshTrigger={galleryRefreshTrigger}
-        videoError={videoError}
-      />;
-    }
 
-    if (view === 'webcam') {
-        return (
-          <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Spinner /></div>}>
-            <WebcamCapture onCapture={handleWebcamCapture} onBack={handleUploadNew} />
-          </Suspense>
-        );
-    }
-
-    if (view === 'composite' && sourceImage1 && sourceImage2) {
-      return (
-        <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Spinner /></div>}>
-          <CompositeScreen
-            sourceImage1={sourceImage1}
-            sourceImage2={sourceImage2}
-            imageOptions={imageGenerationOptions}
-            onImageOptionsChange={handleImageOptionsChange}
-            imageCreditCost={getImageCreditCost(imageGenerationOptions.provider, imageGenerationOptions.resolution, 'image-to-image', imageGenerationOptions.seedreamTier, 2)}
-            onGenerate={handleGenerateComposite}
-            isLoading={isLoading}
-            onBack={handleUploadNew}
-          />
-        </Suspense>
-      );
-    }
-
-    if (view === 'editor' && (currentImageUrl || creativeMode === 'video')) {
-      // Determine which "before" image to show in slider based on compare mode
-      const sliderBeforeImage = sliderCompareMode === 'original' ? originalImageUrl : previousImageUrl;
-      const sliderBeforeLabel = sliderCompareMode === 'original' ? 'Original' : 'Previous';
-      const hasGeneratedVideoPreview = creativeMode === 'video' && Boolean(videoUrl);
-
-      const imageDisplay = currentImageUrl && showSlider && canUndo && activeTab !== 'crop' && sliderBeforeImage ? (
-        <Suspense fallback={<div className="min-h-[20rem] w-full rounded-xl bg-black/20" />}>
-          <BeforeAfterSlider
-            beforeImage={sliderBeforeImage}
-            afterImage={currentImageUrl}
-            beforeLabel={sliderBeforeLabel}
-            afterLabel="Current"
-          />
-        </Suspense>
-      ) : currentImageUrl ? (
-        <div className="relative">
-          {/* Base image is the original, only shown when comparing and current image exists */}
-          {originalImageUrl && isComparing && canUndo && (
-              <img
-                  key={originalImageUrl}
-                  src={originalImageUrl}
-                  alt="Original"
-                  className="w-full h-auto object-contain max-h-[60vh] rounded-xl pointer-events-none"
-              />
-          )}
-          {/* The current image */}
-          <img
-              ref={imgRef}
-              key={currentImageUrl}
-              src={currentImageUrl}
-              alt="Current"
-              onClick={handleImageClick}
-              className={`${originalImageUrl && isComparing && canUndo ? 'absolute top-0 left-0' : ''} w-full h-auto object-contain max-h-[60vh] rounded-xl transition-opacity duration-200 ease-in-out ${isComparing && canUndo ? 'opacity-0' : 'opacity-100'} ${activeTab === 'retouch' ? 'cursor-crosshair' : ''}`}
-          />
-        </div>
-      ) : null;
-      
-      return (
-        <div className="w-full max-w-4xl mx-auto flex flex-col items-center gap-6 animate-fade-in">
-          {/* Persistent Mode Selector */}
-          <div className="w-full bg-gray-800/50 border border-gray-700/80 rounded-xl p-2 backdrop-blur-sm">
-            <ModeSelector activeMode={creativeMode} onModeChange={handleModeChange} />
-          </div>
-
-          {hasGeneratedVideoPreview ? (
-            <div className="relative w-full overflow-hidden rounded-xl bg-black/30 shadow-2xl">
-              <video
-                src={videoUrl || undefined}
-                controls
-                playsInline
-                className="max-h-[70vh] w-full bg-black object-contain"
-              />
-              <div className="absolute left-3 top-3 rounded-md bg-black/60 px-3 py-1 text-sm text-gray-200 backdrop-blur-sm">
-                Generated Video
-              </div>
-              <div className="absolute bottom-3 right-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2">
-                <button
-                  onClick={handleContinueFromLastFrame}
-                  disabled={isExtractingLastFrame || isLoading}
-                  className="flex min-w-0 items-center gap-2 rounded-md border border-white bg-black/60 px-3 py-2 text-sm font-semibold text-white backdrop-blur-sm transition-all duration-200 ease-in-out hover:bg-black/75 active:scale-95 disabled:cursor-wait disabled:opacity-70"
-                  aria-label="Use the last frame as the start frame for a new video"
-                >
-                  {isExtractingLastFrame ? (
-                    <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />
-                  ) : (
-                    <PhotoIcon className="h-4 w-4 shrink-0 text-white" />
-                  )}
-                  <span className="truncate">{isExtractingLastFrame ? 'Extracting...' : 'Continue from Last Frame'}</span>
-                </button>
-                <button
-                  onClick={handleVideoDownload}
-                  className="shrink-0 rounded-md border border-white bg-black/60 p-2 backdrop-blur-sm transition-all duration-200 ease-in-out hover:bg-black/75 active:scale-95"
-                  aria-label="Download video"
-                >
-                  <DownloadIcon className="h-5 w-5 text-white" />
-                </button>
-              </div>
-            </div>
-          ) : currentImageUrl ? (
-            <div className="relative w-full overflow-hidden rounded-xl bg-black/20 shadow-2xl">
-                {isLoading && (
-                    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-black/70 animate-fade-in">
-                        <Spinner />
-                        <p className="text-gray-300">
-                          {isProcessingFile
-                            ? 'Processing image...'
-                            : creativeMode === 'video'
-                              ? 'AI is generating your video...'
-                              : 'AI is working its magic...'}
-                        </p>
-                    </div>
-                )}
-
-                {activeTab === 'crop' && creativeMode === 'single' ? (
-                  <div className="flex w-full items-center justify-center">
-                    <Suspense fallback={(
-                      <img
-                        src={currentImageUrl}
-                        alt="Crop this image"
-                        className="w-full h-auto object-contain max-h-[60vh] rounded-xl"
-                      />
-                    )}>
-                      <CropEditor
-                        src={currentImageUrl}
-                        imageRef={imgRef}
-                        crop={crop}
-                        onChange={setCrop}
-                        onComplete={setCompletedCrop}
-                        aspect={aspect}
-                      />
-                    </Suspense>
-                  </div>
-                ) : imageDisplay }
-
-                {displayHotspot && !isLoading && activeTab === 'retouch' && creativeMode === 'single' && (
-                    <div
-                        className="absolute z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-blue-500/50 pointer-events-none"
-                        style={{ left: `${displayHotspot.x}px`, top: `${displayHotspot.y}px` }}
-                    >
-                        <div className="absolute inset-0 h-6 w-6 rounded-full bg-blue-400 animate-ping"></div>
-                    </div>
-                )}
-
-                {creativeMode === 'video' && !isLoading && (
-                  <div className="absolute left-3 top-3 z-20 rounded-md bg-black/60 px-3 py-1 text-sm text-gray-300 backdrop-blur-sm">
-                    Reference Image
-                  </div>
-                )}
-
-                {!isLoading && activeTab !== 'crop' && creativeMode === 'single' && (
-                  <button
-                    onClick={handleDownload}
-                    className="absolute bottom-3 right-3 z-20 rounded-md border border-white bg-transparent p-2 transition-all duration-200 ease-in-out hover:bg-white/10 active:scale-95"
-                    aria-label="Download image"
-                  >
-                    <DownloadIcon className="h-5 w-5 text-white" />
-                  </button>
-                )}
-            </div>
-          ) : creativeMode === 'video' && isLoading ? (
-            /* Loading state for text-to-video (no reference image) */
-            <div className="relative w-full shadow-2xl rounded-xl overflow-hidden bg-black/20 min-h-[200px] flex items-center justify-center">
-              <div className="flex flex-col items-center gap-4 animate-fade-in">
-                <Spinner />
-                <p className="text-gray-300">AI is generating your video...</p>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Image editing toolbar */}
-          {creativeMode === 'single' && (
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                  onClick={handleUndo}
-                  disabled={!canUndo}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                  aria-label="Undo last action"
-              >
-                  <UndoIcon className="w-5 h-5 mr-2" />
-                  Undo
-              </button>
-              <button
-                  onClick={handleRedo}
-                  disabled={!canRedo}
-                  className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-white/5"
-                  aria-label="Redo last action"
-              >
-                  <RedoIcon className="w-5 h-5 mr-2" />
-                  Redo
-              </button>
-
-              <div className="h-6 w-px bg-gray-600 mx-1 hidden sm:block"></div>
-
-              {canUndo && (
-                <button
-                    onMouseDown={() => setIsComparing(true)}
-                    onMouseUp={() => setIsComparing(false)}
-                    onMouseLeave={() => setIsComparing(false)}
-                    onTouchStart={() => setIsComparing(true)}
-                    onTouchEnd={() => setIsComparing(false)}
-                    className="flex items-center justify-center text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-                    aria-label="Press and hold to see original image"
-                >
-                    <EyeIcon className="w-5 h-5 mr-2" />
-                    Compare
-                </button>
-              )}
-
-              {/* Slider toggle and mode selector */}
-              {canUndo && activeTab !== 'crop' && (
-                <>
-                  <button
-                    onClick={handleToggleSlider}
-                    className={`flex items-center justify-center text-center ${showSlider ? 'bg-blue-600/30 border-blue-400 text-blue-300' : 'bg-white/10 border-white/20 text-gray-200'} border font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base`}
-                    aria-label="Toggle comparison slider"
-                    aria-pressed={showSlider}
-                  >
-                    <SlidersIcon className="w-5 h-5 mr-2" />
-                    Slider
-                  </button>
-
-                  {showSlider && (
-                    <select
-                      value={sliderCompareMode}
-                      onChange={(e) => setSliderCompareMode(e.target.value as 'original' | 'previous')}
-                      className="bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-3 rounded-md text-base focus:outline-none focus:ring-2 focus:ring-blue-400"
-                      aria-label="Select comparison mode"
-                    >
-                      <option value="original" className="bg-gray-800">vs Original</option>
-                      <option value="previous" className="bg-gray-800">vs Previous</option>
-                    </select>
-                  )}
-                </>
-              )}
-
-              <button
-                  onClick={handleReset}
-                  disabled={!canUndo}
-                  className="text-center bg-transparent border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/10 hover:border-white/30 active:scale-95 text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-transparent"
-                >
-                  Reset
-              </button>
-              <button
-                  onClick={handleUploadNew}
-                  className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-              >
-                  Home/Gallery
-              </button>
-            </div>
-          )}
-
-          {creativeMode === 'video' && (
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                  onClick={handleUploadNew}
-                  className="text-center bg-white/10 border border-white/20 text-gray-200 font-semibold py-3 px-5 rounded-md transition-all duration-200 ease-in-out hover:bg-white/20 hover:border-white/30 active:scale-95 text-base"
-              >
-                  Home/Gallery
-              </button>
-            </div>
-          )}
-
-          {(creativeMode === 'single' || creativeMode === 'composite') && (
-            <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-4 sm:p-5 flex flex-col gap-4 backdrop-blur-sm">
-              <ImageModelSelector
-                title={creativeMode === 'composite' ? 'Combined Photos' : 'Single Photo'}
-                value={imageGenerationOptions}
-                onChange={handleImageOptionsChange}
-                isLoading={isLoading}
-                workflow="image-to-image"
-              />
-              <ImageModelSettings
-                value={imageGenerationOptions}
-                onChange={handleImageOptionsChange}
-                isLoading={isLoading}
-                workflow="image-to-image"
-              />
-            </div>
-          )}
-
-          {/* Mode-specific panels */}
-          {creativeMode === 'single' && (
-            <>
-              <div className="w-full bg-gray-800/80 border border-gray-700/80 rounded-lg p-2 flex items-center justify-center gap-1 sm:gap-2 backdrop-blur-sm">
-                  {(['adjust', 'crop', 'retouch', 'filters'] as Tab[]).map(tab => (
-                       <button
-                          key={tab}
-                          onClick={() => setActiveTab(tab)}
-                          className={`flex-1 capitalize font-semibold py-3 px-2 sm:px-5 rounded-md transition-all duration-200 text-sm sm:text-base ${
-                              activeTab === tab
-                              ? 'bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-lg shadow-cyan-500/40'
-                              : 'text-gray-300 hover:text-white hover:bg-white/10'
-                          }`}
-                      >
-                          {tab}
-                      </button>
-                  ))}
-              </div>
-
-              <div className="w-full">
-                  {activeTab === 'retouch' && (
-                      <div className="flex flex-col items-center gap-4">
-                          <p className="text-md text-gray-400">
-                              {editHotspot ? 'Great! Now describe your localized edit below.' : 'Click an area on the image to make a precise edit.'}
-                          </p>
-                          <form onSubmit={(e) => { e.preventDefault(); handleGenerate(); }} className="w-full flex flex-col gap-2 sm:flex-row sm:items-center">
-                              <input
-                                  type="text"
-                                  value={prompt}
-                                  onChange={(e) => setPrompt(e.target.value)}
-                                  placeholder={editHotspot ? "e.g., 'change my shirt color to blue'" : "First click a point on the image"}
-                                  className="flex-grow bg-gray-800 border border-gray-700 text-gray-200 rounded-lg p-5 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition w-full disabled:cursor-not-allowed disabled:opacity-60"
-                                  disabled={isLoading || !editHotspot}
-                              />
-                              <button
-                                  type="submit"
-                                  className="w-full bg-gradient-to-br from-blue-600 to-blue-500 text-white font-bold py-5 px-6 text-base rounded-lg transition-all duration-300 ease-in-out shadow-lg shadow-blue-500/20 hover:shadow-xl hover:shadow-blue-500/40 hover:-translate-y-px active:scale-95 active:shadow-inner disabled:from-blue-800 disabled:to-blue-700 disabled:shadow-none disabled:cursor-not-allowed disabled:transform-none sm:w-auto sm:px-8 sm:text-lg"
-                                  disabled={isLoading || !prompt.trim() || !editHotspot}
-                              >
-                                  {isLoading ? `Generating... (${imageEditCreditLabel})` : `Generate - ${imageEditCreditLabel}`}
-                              </button>
-                          </form>
-                      </div>
-                  )}
-                  <Suspense fallback={<div className="min-h-24 w-full" />}>
-                    {activeTab === 'crop' && <CropPanel onApplyCrop={handleApplyCrop} onSetAspect={setAspect} isLoading={isLoading} isCropping={!!completedCrop?.width && completedCrop.width > 0} />}
-                    {activeTab === 'adjust' && <AdjustmentPanel key={`adjust-${historyIndex}-${history.length}`} onApplyAdjustment={handleApplyAdjustment} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
-                    {activeTab === 'filters' && <FilterPanel key={`filter-${historyIndex}-${history.length}`} onApplyFilter={handleApplyFilter} isLoading={isLoading} imageCreditCost={imageEditCreditCost} initialPrompt={prompt} />}
-                  </Suspense>
-              </div>
-            </>
-          )}
-
-          {creativeMode === 'composite' && currentImageUrl && (
-            <Suspense fallback={<div className="flex items-center justify-center py-8"><Spinner /></div>}>
-              <CompositeEditorOverlay
-                baseImageUrl={currentImageUrl}
-                onCombine={handleCompositeFromEditor}
-                onCancel={() => setCreativeMode('single')}
-                onHomeGallery={handleUploadNew}
-                onWebcamClick={handleWebcamForCompositeSecond}
-                onTextToImageGenerate={handleTextToImageGenerate}
-                isAuthenticated={!!(isLoaded && isSignedIn)}
-                onShowSignupPrompt={() => setShowSignupPrompt(true)}
-                isGeneratingImage={isLoading}
-                imageCreditCost={imageCreditCost}
-              />
-            </Suspense>
-          )}
-
-          {creativeMode === 'video' && (
-            <Suspense fallback={<div className="flex items-center justify-center py-8"><Spinner /></div>}>
-              <VideoControlsPanel
-                isLoading={isLoading}
-                onGenerate={handleGenerateVideo}
-                videoProvider={videoProvider}
-                onVideoProviderChange={setVideoProvider}
-                videoUrl={videoUrl}
-                videoError={videoError}
-                restoredPrompt={restoredVideoPrompt}
-                promptRecallKey={videoPromptRecallKey}
-                referenceImage={null}
-                wanReferenceImages={wanReferenceImages}
-                referenceVideoFile={referenceVideoFile}
-                referenceVideoUrl={referenceVideoUrl}
-                referenceVideoDuration={referenceVideoDuration}
-                seedanceInputMode={seedanceInputMode}
-                seedanceFirstFrame={seedanceFirstFrame}
-                seedanceLastFrame={seedanceLastFrame}
-                seedanceReferenceImages={seedanceReferenceImages}
-                seedanceReferenceVideoFile={seedanceReferenceVideoFile}
-                seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
-                seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
-                seedanceReferenceAudioFile={seedanceReferenceAudioFile}
-                onReferenceImageSelect={handleReferenceImageSelect}
-                onWanReferenceImagesChange={handleWanReferenceImagesChange}
-                onReferenceVideoSelect={handleReferenceVideoSelect}
-                onSeedanceInputModeChange={handleSeedanceInputModeChange}
-                onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
-                onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
-                onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
-                onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
-                onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
-                onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
-                onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
-              />
-            </Suspense>
-          )}
-
-          {(creativeMode === 'single' || creativeMode === 'composite' || creativeMode === 'video') && (
-            <Suspense fallback={null}>
-              <Gallery
-                onSelectImage={handleSelectGalleryImage}
-                onSelectVideo={handleSelectGalleryVideo}
-                onMakeImageReference={handleMakeGalleryImageReference}
-                onMakeVideoReference={creativeMode === 'video' ? handleMakeGalleryVideoReference : undefined}
-                imageReferenceActionLabel={creativeMode === 'composite' ? 'Add Reference' : creativeMode === 'single' ? 'Use Photo' : 'Make Reference'}
-                refreshTrigger={galleryRefreshTrigger}
-              />
-            </Suspense>
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <button
+            type="button"
+            onClick={() => { setError(null); setVideoError(null); }}
+            className="edge glass-chip h-9 rounded-full px-4 text-xs font-semibold text-gray-200 hover:text-white"
+          >
+            Dismiss
+          </button>
+          {isSafetyIssue && !hasPurchasedCredits && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setShowPricingModal(true);
+              }}
+              className="btn-porcelain edge-strong h-9 rounded-full px-4 text-xs font-semibold"
+            >
+              Verify age &amp; purchase credits
+            </button>
           )}
         </div>
-      );
-    }
-    
-    // Fallback just in case
-    return <StartScreen
-      onFileSelect={handleFileSelect}
-      onCompositeSelect={handleCompositeSelect}
-      onUseWebcamClick={handleUseWebcamClick}
-      onUseWebcamForCompositeClick={handleUseWebcamForCompositeClick}
-      onTextToImageGenerate={handleTextToImageGenerate}
-      imageOptions={imageGenerationOptions}
-      onImageOptionsChange={handleImageOptionsChange}
-      onVideoGenerate={handleStartScreenVideoGenerate}
-      onReferenceVideoSelect={handleReferenceVideoSelect}
-      onWanReferenceImagesChange={handleWanReferenceImagesChange}
-      wanReferenceImages={wanReferenceImages}
-      referenceVideoFile={referenceVideoFile}
-      referenceVideoUrl={referenceVideoUrl}
-      referenceVideoDuration={referenceVideoDuration}
-      onSeedanceReferenceVideoSelect={handleSeedanceReferenceVideoSelect}
-      seedanceInputMode={seedanceInputMode}
-      seedanceFirstFrame={seedanceFirstFrame}
-      seedanceLastFrame={seedanceLastFrame}
-      seedanceReferenceImages={seedanceReferenceImages}
-      seedanceReferenceVideoFile={seedanceReferenceVideoFile}
-      seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
-      seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
-      seedanceReferenceAudioFile={seedanceReferenceAudioFile}
-      onSeedanceInputModeChange={handleSeedanceInputModeChange}
-      onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
-      onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
-      onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
-      onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
-      onSeedanceReferenceAudioSelect={handleSeedanceReferenceAudioSelect}
-      videoProvider={videoProvider}
-      onVideoProviderChange={setVideoProvider}
-      activeMode={creativeMode}
-      onModeChange={handleModeChange}
-      isAuthenticated={isLoaded && isSignedIn}
-      onShowSignupPrompt={() => setShowSignupPrompt(true)}
-      isGeneratingImage={isLoading}
-      imageCreditCost={getImageCreditCost(
-        imageGenerationOptions.provider,
-        imageGenerationOptions.resolution,
-        creativeMode === 'composite' ? 'image-to-image' : 'text-to-image',
-        imageGenerationOptions.seedreamTier,
-        creativeMode === 'composite' ? 2 : 0
-      )}
-      onSelectGalleryImage={handleSelectGalleryImage}
-      onSelectGalleryVideo={handleSelectGalleryVideo}
-      onMakeGalleryImageReference={handleMakeGalleryImageReference}
-      onMakeGalleryVideoReference={handleMakeGalleryVideoReference}
-      galleryRefreshTrigger={galleryRefreshTrigger}
-      videoError={videoError}
-    />;
-  };
-  
+      </div>
+    </div>
+  ) : null;
 
+  /* ---------------- render ---------------- */
   return (
-    <div className="min-h-screen text-gray-100 flex flex-col">
+    <div className="min-h-dvh text-gray-100">
       {isLoaded && isSignedIn && (
         <link rel="preconnect" href="https://api.veilstudio.io" crossOrigin="anonymous" />
       )}
+      {/* Mobile uses one document-level scroll so the studio, creations, and
+          supporting content cannot move independently. Desktop keeps the
+          fixed-height workspace and its separate creations rail. */}
+      <div className="flex min-h-dvh flex-col md:h-dvh md:min-h-0">
       <Header
         onShowPricing={() => setShowPricingModal(true)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
         hasPurchasedCredits={hasPurchasedCredits}
+        onToggleGallery={() => document.getElementById('creations-gallery')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
-      <main className={`flex-grow w-full max-w-[1600px] mx-auto p-4 md:p-8 flex justify-center ${view === 'editor' ? 'items-start' : 'items-center'}`}>
-        {renderContent()}
-      </main>
 
-      {/* Footer */}
+      <div className="relative flex flex-1 flex-col overflow-visible md:min-h-0 md:flex-row md:overflow-hidden">
+        {/* Main column: stage + composer */}
+        <main className="studio-main flex min-h-full min-w-0 shrink-0 flex-col overflow-visible px-3 pb-9 sm:px-6 sm:pb-12 md:min-h-0 md:flex-1 md:shrink md:overflow-y-auto md:overflow-x-hidden md:ps-6 md:pe-[11.5rem] lg:ps-8 lg:pe-[13.5rem] xl:px-[13.5rem]">
+          {isVideoEditorOpen ? (
+            <Suspense fallback={<div className="flex flex-1 items-center justify-center"><Spinner /></div>}>
+              <VideoEditor
+                onClose={handleCloseVideoEditor}
+                incomingVideo={incomingEditorVideo}
+                onIncomingVideoConsumed={() => setIncomingEditorVideo(null)}
+                onSaved={() => setGalleryRefreshTrigger(n => n + 1)}
+                onRenderingChange={setIsVideoEditorRendering}
+              />
+            </Suspense>
+          ) : (
+            <>
+          <ResultStage
+            mode={studioMode}
+            isLoading={isProcessingFile}
+            loadingLabel="Processing image…"
+            currentImageUrl={currentImageUrl}
+            originalImageUrl={originalImageUrl}
+            previousImageUrl={previousImageUrl}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            isComparing={isComparing}
+            onComparingChange={setIsComparing}
+            showSlider={showSlider}
+            onToggleSlider={() => setShowSlider(prev => !prev)}
+            sliderCompareMode={sliderCompareMode}
+            onSliderCompareModeChange={setSliderCompareMode}
+            activeTool={activeTool}
+            supportsImageEditing={imageProviderSupportsReferences(imageGenerationOptions.provider)}
+            onToolChange={handleToolChange}
+            displayHotspot={displayHotspot}
+            onImageClick={handleImageClick}
+            imgRef={imgRef}
+            crop={crop}
+            onCropChange={(c) => setCrop(c)}
+            onCropComplete={setCompletedCrop}
+            aspect={aspect}
+            onAspectChange={setAspect}
+            onApplyCrop={handleApplyCrop}
+            cropReady={!!completedCrop?.width && completedCrop.width > 0}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onReset={handleReset}
+            onDownload={handleDownload}
+            videoUrl={videoUrl}
+            onVideoDownload={handleVideoDownload}
+            onContinueFromLastFrame={handleContinueFromLastFrame}
+            onOpenVideoEditor={handleOpenVideoEditor}
+            isExtractingLastFrame={isExtractingLastFrame}
+          />
+
+          {errorBanner}
+
+          <div className="studio-composer-wrap mx-auto mb-[25px] w-full max-w-[62rem] shrink-0">
+            <Composer
+              mode={studioMode}
+              onModeChange={handleModeChange}
+              isLoading={isProcessingFile}
+              activeGenerationCount={displayedActiveGenerationCount}
+              activeGenerationLimit={MAX_CONCURRENT_GENERATIONS}
+              prompt={studioMode === 'video' ? videoPrompt : imagePrompt}
+              onPromptChange={studioMode === 'video' ? setVideoPrompt : setImagePrompt}
+              onNewSession={handleNewSession}
+              imageOptions={imageGenerationOptions}
+              onImageOptionsChange={handleImageOptionsChange}
+              baseImage={currentImage}
+              onBaseImageSelect={handleBaseImageSelect}
+              styleImage={styleImage}
+              onStyleImageSelect={handleStyleImageSelect}
+              onOpenWebcam={handleOpenWebcam}
+              retouchActive={activeTool === 'retouch'}
+              hasHotspot={Boolean(editHotspot)}
+              imageCreditCost={imageActionCreditCost}
+              onGenerateImage={handleGenerateImage}
+              videoProvider={videoProvider}
+              onVideoProviderChange={handleVideoProviderChange}
+              videoModelRestoreRequest={videoModelRestoreRequest}
+              onGenerateVideo={handleGenerateVideo}
+              hasGeneratedVideo={Boolean(videoUrl)}
+              onUseGeneratedVideoAsReference={handleUseGeneratedVideoAsReference}
+              wanReferenceImages={wanReferenceImages}
+              onWanReferenceImagesChange={handleWanReferenceImagesChange}
+              referenceVideoFile={referenceVideoFile}
+              referenceVideoUrl={referenceVideoUrl}
+              onReferenceVideoSelect={handleReferenceVideoSelect}
+              wan3InputMode={wan3InputMode}
+              onWan3InputModeChange={handleWan3InputModeChange}
+              wan3FirstFrame={wan3FirstFrame}
+              onWan3FirstFrameSelect={handleWan3FirstFrameSelect}
+              wan3LastFrame={wan3LastFrame}
+              onWan3LastFrameSelect={setWan3LastFrame}
+              wan3ReferenceImages={wan3ReferenceImages}
+              onWan3ReferenceImagesChange={(files) => setWan3ReferenceImages(files.slice(0, WAN3_REFERENCE_LIMITS.images))}
+              wan3ReferenceVideoFiles={wan3ReferenceVideoFiles}
+              onWan3ReferenceVideosChange={handleWan3ReferenceVideosChange}
+              wan3ReferenceVideoDuration={wan3ReferenceVideoDuration}
+              wan3ReferenceAudioFiles={wan3ReferenceAudioFiles}
+              onWan3ReferenceAudiosChange={handleWan3ReferenceAudiosChange}
+              wan3ReferenceAudioDuration={wan3ReferenceAudioDuration}
+              wan3ReferenceFile={wan3ReferenceFile}
+              onWan3ReferenceFileChange={setWan3ReferenceFile}
+              wan3ReferenceLink={wan3ReferenceLink}
+              onWan3ReferenceLinkChange={setWan3ReferenceLink}
+              seedanceInputMode={seedanceInputMode}
+              onSeedanceInputModeChange={handleSeedanceInputModeChange}
+              seedanceFirstFrame={seedanceFirstFrame}
+              onSeedanceFirstFrameSelect={handleSeedanceFirstFrameSelect}
+              seedanceLastFrame={seedanceLastFrame}
+              onSeedanceLastFrameSelect={handleSeedanceLastFrameSelect}
+              seedanceReferenceImages={seedanceReferenceImages}
+              onSeedanceReferenceImagesChange={handleSeedanceReferenceImagesChange}
+              seedanceReferenceVideoFiles={seedanceReferenceVideoFiles}
+              seedanceReferenceVideoUrl={seedanceReferenceVideoUrl}
+              onSeedanceReferenceVideosChange={handleSeedanceReferenceVideosChange}
+              onSeedanceReferenceVideoUrlRemove={handleSeedanceReferenceVideoUrlRemove}
+              seedanceReferenceVideoDuration={seedanceReferenceVideoDuration}
+              seedanceReferenceAudioFiles={seedanceReferenceAudioFiles}
+              seedanceReferenceAudioDuration={seedanceReferenceAudioDuration}
+              onSeedanceReferenceAudiosChange={handleSeedanceReferenceAudiosChange}
+            />
+          </div>
+            </>
+          )}
+        </main>
+
+        {/* Creations rail (desktop) */}
+        <GalleryRail
+          refreshTrigger={galleryRefreshTrigger}
+          pendingItems={pendingGalleryItems}
+          onSelectImage={handleGallerySelectImage}
+          onSelectVideo={isVideoEditorOpen ? handleEditorGallerySelectVideo : handleGallerySelectVideo}
+          onUseImageAsReference={handleGalleryUseImageAsReference}
+          onUseVideoAsReference={!isVideoEditorOpen && studioMode === 'video' ? handleGalleryUseVideoAsReference : undefined}
+          showReferenceActions={!isVideoEditorOpen && !(studioMode === 'image' && !imageProviderSupportsReferences(imageGenerationOptions.provider))}
+          imageReferenceTargets={galleryImageReferenceTargets}
+          videoReferenceTargets={galleryVideoReferenceTargets}
+          onImageReferenceAction={handleGalleryImageReferenceAction}
+          onVideoReferenceAction={handleGalleryVideoReferenceAction}
+        />
+      </div>
+      </div>
+
+      {/* Crawlable supporting content begins below the complete studio viewport. */}
+      <Suspense fallback={null}>
+        <StudioBelowFold />
+      </Suspense>
+
       <Footer onShowPricing={() => setShowPricingModal(true)} />
+
+      {/* Webcam overlay */}
+      {webcamTarget && (
+        <div className="fixed inset-0 z-[80] overflow-y-auto bg-black/85 p-4 backdrop-blur-sm">
+          <div className="flex min-h-full items-center justify-center">
+            <Suspense fallback={<Spinner />}>
+              <WebcamCapture onCapture={handleWebcamCapture} onBack={() => setWebcamTarget(null)} />
+            </Suspense>
+          </div>
+        </div>
+      )}
 
       {/* Payment Success Modal */}
       {showPaymentSuccess && (
@@ -2486,10 +2811,7 @@ const App: React.FC = () => {
         <Suspense fallback={null}>
           <PaymentCancelled
             onClose={() => setShowPaymentCancelled(false)}
-            onRetry={() => {
-              setShowPaymentCancelled(false);
-              // Could trigger a new payment flow here if needed
-            }}
+            onRetry={() => setShowPaymentCancelled(false)}
           />
         </Suspense>
       )}
@@ -2509,10 +2831,7 @@ const App: React.FC = () => {
         <Suspense fallback={null}>
           <SignupPromptModal
             isOpen={showSignupPrompt}
-            onClose={() => {
-              console.log('🔴 Closing signup prompt modal');
-              setShowSignupPrompt(false);
-            }}
+            onClose={() => setShowSignupPrompt(false)}
           />
         </Suspense>
       )}

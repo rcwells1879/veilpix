@@ -33,6 +33,7 @@ const {
     createKieApiError,
     getKieErrorHttpResponse
 } = require('../utils/kieApiError');
+const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
 
 const router = express.Router();
 
@@ -72,6 +73,8 @@ const uploadMultiple = multer({
 const SEEDREAM_API_KEY = process.env.SEEDREAM_API_KEY;
 const SEEDREAM_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
 const IMAGE_PROVIDER = 'seedream';
+const SEEDREAM_MAX_POLL_ATTEMPTS = 300;
+const SEEDREAM_POLL_INTERVAL_MS = 1000;
 
 function getWorkflowForRequest(req) {
     return req.path === '/generate-text-to-image' ? IMAGE_WORKFLOWS.TEXT_TO_IMAGE : IMAGE_WORKFLOWS.IMAGE_TO_IMAGE;
@@ -159,8 +162,12 @@ async function createSeedreamTask(requestBody, model) {
     }
 }
 
-// Helper function to poll SeeDream job status
-async function pollSeedreamJob(taskId, maxAttempts = 120, intervalMs = 1000) {
+// Poll for up to 5 minutes so slower SeeDream 5 Pro jobs can finish.
+async function pollSeedreamJob(
+    taskId,
+    maxAttempts = SEEDREAM_MAX_POLL_ATTEMPTS,
+    intervalMs = SEEDREAM_POLL_INTERVAL_MS
+) {
     try {
         console.log(`⏳ Polling SeeDream task: ${taskId}`);
 
@@ -253,6 +260,10 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
     const { user } = req;
     const creditDetails = req.creditsInfo || getCreditDetailsForRequest(req);
     const creditsToDeduct = creditDetails.required || creditDetails.credits || 1;
+    const generationId = getGenerationId(req);
+    const storedResult = success && generationId
+        ? serializeImageGenerationResult(result, creditsToDeduct)
+        : errorMessage;
 
     try {
         if (success) {
@@ -273,11 +284,11 @@ async function deductCreditAndTrack(req, startTime, requestType, result, success
             requestType,
             costUsd: success ? creditDetails.costUsd : 0,
             chargedAmountUsd: success ? creditDetails.chargedAmountUsd : 0,
-            geminiRequestId: 'seedream-' + Date.now(),
+            geminiRequestId: generationId || 'seedream-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
             });
         } catch (logError) {
             console.error('Failed to log Seedream usage:', logError);

@@ -1,13 +1,12 @@
-const pricingPolicy = require('../config/generationPricing.json');
-const VEILPIX_CREDIT_USD = 6.99 / 100;
-const TARGET_MARGIN = pricingPolicy.creditPackages['200_credits'].targetMargin;
-const PREVIOUS_BILLABLE_USD_PER_CREDIT = VEILPIX_CREDIT_USD * 0.88;
-// Allocate the card fee over the purchased credits, not once per generation.
-const BILLABLE_USD_PER_VEILPIX_CREDIT = Math.min(...Object.values(pricingPolicy.creditPackages).map((pack) => {
-    const fee = Math.round((pack.priceUsd * pricingPolicy.stripePercentageFee + pricingPolicy.stripeFixedFeeUsd) * 100) / 100;
-    return (pack.priceUsd * (1 - pack.targetMargin) - fee) / pack.credits;
-}));
-const KIE_CREDIT_USD = 0.005;
+const {
+    BILLABLE_USD_PER_VEILPIX_CREDIT,
+    KIE_CREDIT_USD,
+    MIN_GROSS_USD_PER_VEILPIX_CREDIT,
+    MIN_NET_USD_PER_VEILPIX_CREDIT,
+    TARGET_MARGIN,
+    veilpixCreditsFromKieCredits,
+    veilpixCreditsFromUsd
+} = require('./creditEconomics');
 
 const IMAGE_WORKFLOWS = {
     TEXT_TO_IMAGE: 'text-to-image',
@@ -26,15 +25,21 @@ const IMAGE_ALLOWED_RESOLUTIONS = {
     wanimage: {
         'text-to-image': ['1K', '2K', '4K'],
         'image-to-image': ['1K', '2K']
+    },
+    zimage: {
+        'text-to-image': ['1K'],
+        'image-to-image': []
     }
 };
 
 const DEFAULT_RESOLUTIONS = {
     nanobanana2: '2K',
     seedream: '2K',
-    wanimage: '2K'
+    wanimage: '2K',
+    zimage: '1K'
 };
 
+// Verified against Kie's live pricing table on 2026-08-29.
 const IMAGE_KIE_CREDIT_PRICING = {
     nanobanana2: {
         '1K': 8,
@@ -50,6 +55,9 @@ const IMAGE_KIE_CREDIT_PRICING = {
         '1K': 4.8,
         '2K': 4.8,
         '4K': 12
+    },
+    zimage: {
+        '1K': 0.8
     }
 };
 
@@ -62,6 +70,13 @@ const SEEDREAM_KIE_CREDIT_PRICING = {
         '1K': 7,
         '2K': 14
     }
+};
+
+// Registered only for older clients; it is not exposed in the current UI.
+const NANOBANANA_PRO_KIE_CREDIT_PRICING = {
+    '1K': 18,
+    '2K': 18,
+    '4K': 24
 };
 
 function normalizeSeedreamTier(tier) {
@@ -91,26 +106,6 @@ function normalizeImageResolution(provider, resolution, workflow, seedreamTier =
     return allowed.includes(resolution) ? resolution : allowed[0] || DEFAULT_RESOLUTIONS[selectedProvider];
 }
 
-function roundImageCredits(rawCredits) {
-    if (rawCredits <= 0) return 0;
-    if (rawCredits < 1) return Math.ceil(rawCredits * 100 - 1e-10) / 100;
-    return Math.ceil(rawCredits - 1e-10);
-}
-
-function veilpixCreditsFromUsd(usdCost) {
-    const cost = Math.max(0, Number(usdCost) || 0);
-    if (cost === 0) return 0;
-    const previousCredits = roundImageCredits(cost / PREVIOUS_BILLABLE_USD_PER_CREDIT);
-    return Math.ceil(Math.max(
-        cost / BILLABLE_USD_PER_VEILPIX_CREDIT,
-        previousCredits * (1 + pricingPolicy.minimumIncrease)
-    ) * 100 - 1e-10) / 100;
-}
-
-function veilpixCreditsFromKieCredits(kieCredits) {
-    return veilpixCreditsFromUsd((Number(kieCredits) || 0) * KIE_CREDIT_USD);
-}
-
 function getImageKieCreditCost(provider, resolution, workflow = IMAGE_WORKFLOWS.TEXT_TO_IMAGE, seedreamTier = 'lite', imageCount = 0) {
     const selectedProvider = normalizeImageProvider(provider);
     const selectedTier = normalizeSeedreamTier(seedreamTier);
@@ -126,7 +121,16 @@ function getImageKieCreditCost(provider, resolution, workflow = IMAGE_WORKFLOWS.
 }
 
 function getImageCreditCost(provider, resolution, workflow = IMAGE_WORKFLOWS.TEXT_TO_IMAGE, seedreamTier = 'lite', imageCount = 0) {
-    return veilpixCreditsFromKieCredits(getImageKieCreditCost(provider, resolution, workflow, seedreamTier, imageCount));
+    const selectedProvider = normalizeImageProvider(provider);
+    const calculatedCredits = veilpixCreditsFromKieCredits(
+        getImageKieCreditCost(selectedProvider, resolution, workflow, seedreamTier, imageCount)
+    );
+    return calculatedCredits;
+}
+
+function getNanoBananaProCreditCost(resolution = '2K') {
+    const selectedResolution = resolution === '4K' ? '4K' : resolution === '1K' ? '1K' : '2K';
+    return veilpixCreditsFromKieCredits(NANOBANANA_PRO_KIE_CREDIT_PRICING[selectedResolution]);
 }
 
 function getImageCreditDetails(provider, resolution, workflow = IMAGE_WORKFLOWS.TEXT_TO_IMAGE, seedreamTier = 'lite', imageCount = 0) {
@@ -135,7 +139,13 @@ function getImageCreditDetails(provider, resolution, workflow = IMAGE_WORKFLOWS.
     const selectedTier = normalizeSeedreamTier(seedreamTier);
     const selectedResolution = normalizeImageResolution(selectedProvider, resolution, selectedWorkflow, selectedTier);
     const kieCredits = getImageKieCreditCost(selectedProvider, selectedResolution, selectedWorkflow, selectedTier, imageCount);
-    const credits = veilpixCreditsFromKieCredits(kieCredits);
+    const credits = getImageCreditCost(
+        selectedProvider,
+        selectedResolution,
+        selectedWorkflow,
+        selectedTier,
+        imageCount
+    );
 
     return {
         provider: selectedProvider,
@@ -145,7 +155,8 @@ function getImageCreditDetails(provider, resolution, workflow = IMAGE_WORKFLOWS.
         kieCredits,
         credits,
         costUsd: Number((kieCredits * KIE_CREDIT_USD).toFixed(4)),
-        chargedAmountUsd: Number((credits * VEILPIX_CREDIT_USD).toFixed(4))
+        chargedAmountUsd: Number((credits * MIN_GROSS_USD_PER_VEILPIX_CREDIT).toFixed(4)),
+        estimatedNetRevenueUsd: Number((credits * MIN_NET_USD_PER_VEILPIX_CREDIT).toFixed(4))
     };
 }
 
@@ -162,15 +173,18 @@ module.exports = {
     DEFAULT_RESOLUTIONS,
     IMAGE_ALLOWED_RESOLUTIONS,
     IMAGE_KIE_CREDIT_PRICING,
+    NANOBANANA_PRO_KIE_CREDIT_PRICING,
     SEEDREAM_KIE_CREDIT_PRICING,
     IMAGE_WORKFLOWS,
     KIE_CREDIT_USD,
+    MIN_GROSS_USD_PER_VEILPIX_CREDIT,
+    MIN_NET_USD_PER_VEILPIX_CREDIT,
     TARGET_MARGIN,
-    VEILPIX_CREDIT_USD,
     getAllowedImageResolutions,
     getImageCreditCost,
     getImageCreditDetails,
     getImageKieCreditCost,
+    getNanoBananaProCreditCost,
     getWanImageModel,
     normalizeImageProvider,
     normalizeImageResolution,

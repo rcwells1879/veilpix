@@ -7,7 +7,6 @@ on:
       - 'src/**'
       - 'public/**'
       - 'components/**'
-      - 'veilpix-api/config/generationPricing.json'
       - 'App.tsx'
       - 'index.css'
       - 'index.tsx'

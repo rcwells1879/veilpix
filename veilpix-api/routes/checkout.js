@@ -7,30 +7,8 @@ const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const { db, supabase } = require('../utils/database');
+const { CREDIT_PACKAGES } = require('../utils/creditEconomics');
 const router = express.Router();
-
-// Credit packages configuration
-const CREDIT_PACKAGES = {
-  '50_credits': {
-    credits: 50,
-    priceUsd: 3.99,
-    name: '50 Credits',
-    description: 'Perfect for casual editing'
-  },
-  '100_credits': {
-    credits: 100,
-    priceUsd: 6.99,
-    name: '100 Credits',
-    description: 'Great for regular users'
-  },
-  '200_credits': {
-    credits: 200,
-    priceUsd: 11.99,
-    name: '200 Credits',
-    description: 'Best value - Most popular',
-    popular: true
-  }
-};
 
 // Create a Stripe Checkout session for adding payment method
 router.post('/create-checkout-session', requireAuth, requireAllowedEmail, async (req, res) => {

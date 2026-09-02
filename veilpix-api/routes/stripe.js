@@ -134,44 +134,6 @@ router.get('/payment-methods', getUser, requireAuth, requireAllowedEmail, async 
     }
 });
 
-// Create billing meter (run once to set up usage-based billing)
-router.post('/create-meter', async (req, res) => {
-    try {
-        // This should only be run once to create the billing meter
-        // In production, you'd run this via a setup script, not an API endpoint
-        
-        const meter = await stripe.billing.meters.create({
-            display_name: 'VeilPix Image Generations',
-            event_name: 'veilpix_image_generation',
-            default_aggregation: {
-                formula: 'sum'
-            },
-            customer_mapping: {
-                event_payload_key: 'stripe_customer_id',
-                type: 'by_id'
-            },
-            value_settings: {
-                event_payload_key: 'value'
-            }
-        });
-
-        res.json({
-            success: true,
-            meter: {
-                id: meter.id,
-                display_name: meter.display_name,
-                event_name: meter.event_name
-            }
-        });
-
-    } catch (error) {
-        console.error('Error creating billing meter:', error);
-        res.status(500).json({
-            error: 'Failed to create billing meter'
-        });
-    }
-});
-
 // Report usage to Stripe (called internally after successful API calls)
 async function reportUsageToStripe(stripeCustomerId, usageValue = 1) {
     try {

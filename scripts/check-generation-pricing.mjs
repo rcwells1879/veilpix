@@ -1,68 +1,121 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
-import vm from 'node:vm';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import ts from 'typescript';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
-const imageApi = require('../veilpix-api/utils/imageCreditPricing.js');
-const seedanceApi = require('../veilpix-api/utils/seedanceAdapter.js');
-const loadRoute = require('../veilpix-api/utils/testing/loadPricingRoute.js');
-const wanApi = loadRoute('wan', ['getVideoCreditCost']);
+const economics = require('../veilpix-api/utils/creditEconomics.js');
+const images = require('../veilpix-api/utils/imageCreditPricing.js');
+const seedance = require('../veilpix-api/utils/seedanceAdapter.js');
+const wan = require('../veilpix-api/utils/wanAdapter.js');
+const wan3 = require('../veilpix-api/utils/wan3Adapter.js');
+const assertGenerationPricing = require('../veilpix-api/utils/testing/assertGenerationPricing.js');
 
-function loadControl(filename, additionalExports = []) {
-    const source = fs.readFileSync(path.join(root, filename), 'utf8');
-    const compiled = ts.transpileModule(`${source}\nexport { ${additionalExports.join(', ')} };`, {
-        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true }
-    }).outputText;
-    const module = { exports: {} };
-    vm.runInNewContext(compiled, {
-        module, exports: module.exports,
-        require: (id) => id.endsWith('generationPricing.json')
-            ? require('../veilpix-api/config/generationPricing.json') : {}
-    }, { filename });
-    return module.exports;
+// Execute the real browser pricing modules, including their local imports.
+const moduleCache = new Map();
+function loadBrowserModule(filename) {
+  if (moduleCache.has(filename)) return moduleCache.get(filename).exports;
+  const module = { exports: {} };
+  moduleCache.set(filename, module);
+  const localRequire = createRequire(filename);
+  const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    fileName: filename,
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.React,
+      esModuleInterop: true,
+    },
+  }).outputText;
+  const importModule = (specifier) => {
+    if (!specifier.startsWith('.')) return localRequire(specifier);
+    const base = path.resolve(path.dirname(filename), specifier);
+    const source = [base, `${base}.ts`, `${base}.tsx`, `${base}.js`]
+      .find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
+    assert.ok(source, `Missing browser import ${specifier} from ${filename}`);
+    return loadBrowserModule(source);
+  };
+  vm.runInThisContext(`(function(require, module, exports) {\n${compiled}\n})`, { filename })(
+    importModule, module, module.exports
+  );
+  return module.exports;
 }
 
-const imageUi = loadControl('components/ImageModelControlsPanel.tsx');
-const videoUi = loadControl('components/VideoControlsPanel.tsx', ['getWanCreditCost', 'getSeedanceCreditCost']);
-let comparisons = 0;
+const browserEconomics = loadBrowserModule(path.join(root, 'src/utils/creditEconomics.ts'));
+const browserImages = loadBrowserModule(path.join(root, 'components/ImageModelControlsPanel.tsx'));
+const browserVideo = loadBrowserModule(path.join(root, 'components/studio/videoPricing.ts'));
+let checked = 0;
+function checkPrice(browserPrice, serverPrice, kieCredits, label) {
+  assert.equal(browserPrice, serverPrice, `${label}: browser/server price mismatch`);
+  assertGenerationPricing(serverPrice, kieCredits * economics.KIE_CREDIT_USD, label);
+  checked += 1;
+}
 
-for (const provider of ['nanobanana2', 'seedream', 'wanimage']) {
-    for (const tier of ['lite', 'pro']) for (const workflow of ['text-to-image', 'image-to-image']) {
-        for (const resolution of imageApi.getAllowedImageResolutions(provider, workflow, tier)) {
-            for (let count = 0; count <= 14; count++) {
-                const args = [provider, resolution, workflow, tier, count];
-                assert.equal(imageUi.getImageCreditCost(...args), imageApi.getImageCreditCost(...args), args.join(' / '));
-                comparisons++;
-            }
+assert.equal(browserEconomics.BILLABLE_USD_PER_VEILPIX_CREDIT, economics.BILLABLE_USD_PER_VEILPIX_CREDIT);
+assert.equal(browserEconomics.TARGET_MARGIN, economics.TARGET_MARGIN);
+for (let index = 1; index <= 2000; index += 1) {
+  const kieCredits = index / 7;
+  checkPrice(browserEconomics.veilpixCreditsFromKieCredits(kieCredits),
+    economics.veilpixCreditsFromKieCredits(kieCredits), kieCredits, `Conversion ${kieCredits}`);
+}
+
+for (const provider of browserImages.IMAGE_PROVIDER_OPTIONS) {
+  for (const workflow of Object.values(images.IMAGE_WORKFLOWS)) {
+    if (!browserImages.imageProviderSupportsWorkflow(provider, workflow)) continue;
+    for (const tier of provider === 'seedream' ? ['lite', 'pro'] : ['lite']) {
+      for (const { value: resolution } of browserImages.getImageModelResolutions(provider, workflow, tier)) {
+        for (const count of workflow === 'image-to-image' ? [1, 2, 3, 8] : [0]) {
+          const args = [provider, resolution, workflow, tier, count];
+          checkPrice(browserImages.getImageCreditCost(...args), images.getImageCreditCost(...args),
+            images.getImageKieCreditCost(...args), args.join(' '));
         }
+      }
     }
+  }
 }
 
-for (const variant of Object.keys(seedanceApi.SEEDANCE_PRICING)) {
-    for (const resolution of [...Object.keys(seedanceApi.SEEDANCE_PRICING[variant]), 'invalid']) {
-        for (const duration of [4, 5, 7.9, 10, 15, 20, NaN]) for (const input of [null, 0, 4.1, 8.9, 15]) {
-            for (const hasVideoReference of [false, true]) {
-                assert.equal(
-                    videoUi.getSeedanceCreditCost(variant, resolution, duration, hasVideoReference, input),
-                    seedanceApi.estimateSeedanceVeilPixCredits({ variant, resolution, duration, hasVideoReference, referenceVideoDuration: input }),
-                    `Seedance ${variant} ${resolution} ${duration} ${hasVideoReference} ${input}`
-                );
-                comparisons++;
-            }
-        }
+for (const usesReferenceToVideo of [false, true]) {
+  const durations = usesReferenceToVideo ? browserVideo.WAN_27_DURATIONS : browserVideo.WAN_26_DURATIONS;
+  for (const duration of durations) {
+    for (const resolution of browserVideo.WAN_RESOLUTIONS) {
+      const context = { duration, resolution, usesReferenceToVideo };
+      checkPrice(browserVideo.getWanCreditCost(duration, resolution, usesReferenceToVideo),
+        wan.estimateWanVeilPixCredits(context), wan.estimateWanKieCredits(context), JSON.stringify(context));
     }
+  }
 }
 
-for (const mode of ['image', 'text', 'reference']) for (const resolution of ['720p', '1080p']) {
-    for (const duration of [2, 4, 5, 8, 10, 15, NaN]) {
-        assert.equal(videoUi.getWanCreditCost(duration, resolution, mode), wanApi.getVideoCreditCost(duration, resolution, mode));
-        comparisons++;
+for (const variant of browserVideo.SEEDANCE_VARIANTS) {
+  const limits = browserVideo.SEEDANCE_DURATION_LIMITS[variant];
+  const durations = Array.from({ length: limits.max - limits.min + 1 }, (_, index) => index + limits.min);
+  if (variant === 'v2_5') durations.push(-1);
+  for (const resolution of browserVideo.SEEDANCE_RESOLUTIONS[variant]) {
+    for (const duration of durations) {
+      for (const referenceVideoDuration of [0, 5.25, limits.max]) {
+        const hasVideoReference = referenceVideoDuration > 0;
+        const context = { variant, resolution, duration, hasVideoReference, referenceVideoDuration };
+        checkPrice(browserVideo.getSeedanceCreditCost(variant, resolution, duration, hasVideoReference, referenceVideoDuration),
+          seedance.estimateSeedanceVeilPixCredits(context), seedance.estimateSeedanceKieCredits(context), JSON.stringify(context));
+      }
     }
+  }
 }
 
-console.log(`Passed ${comparisons} frontend/backend generation-price comparisons.`);
+for (const variant of Object.keys(wan3.WAN3_PRICING)) {
+  for (const resolution of browserVideo.WAN3_RESOLUTIONS) {
+    for (const duration of [-1, ...Array.from({ length: 29 }, (_, index) => index + 2)]) {
+      for (const referenceVideoDuration of [0, 6.25, 15]) {
+        const hasVideoReference = referenceVideoDuration > 0;
+        const context = { variant, resolution, duration, hasVideoReference, referenceVideoDuration };
+        checkPrice(browserVideo.getWan3CreditCost(variant, resolution, duration, hasVideoReference, referenceVideoDuration),
+          wan3.estimateWan3VeilPixCredits(context), wan3.estimateWan3KieCredits(context), JSON.stringify(context));
+      }
+    }
+  }
+}
+
+console.log(`Passed ${checked} browser/API price, minimum increase, and package margin checks.`);

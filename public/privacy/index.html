@@ -444,9 +444,9 @@
                 <p class="eyebrow">Privacy &amp; data practices</p>
                 <h1>VeilPix privacy, explained plainly.</h1>
                 <p class="hero-copy">
-                    Your creations are not a social feed or an account-synced gallery. VeilPix keeps your working history in your browser, proxies generation requests through our server, and sends only the content needed to create your result. Cloud AI still requires cloud processing, so this page also explains exactly where your content goes and how long the provider says it remains there.
+                    Your creations are not a social feed or a permanent account gallery. VeilPix keeps durable working history in each browser and sends only the content needed to create your result. To keep a completed job from being lost when you close or switch browsers, VeilPix temporarily holds a private, account-scoped delivery copy for up to 48 hours so each signed-in browser can save its own local Album copy. Cloud AI still requires cloud processing, so this page also explains where your content goes and how long it may remain there.
                 </p>
-                <p class="updated">Effective and last updated: July 14, 2026</p>
+                <p class="updated">Effective and last updated: August 24, 2026</p>
             </div>
         </div>
 
@@ -464,8 +464,8 @@
                 <p>The AI gateway receives our server connection, not your direct browser IP, email, or payment identity.</p>
             </div>
             <div class="fact">
-                <strong>14-day provider media window</strong>
-                <p>Kie.ai says generated media is automatically deleted after 14 days; task text and metadata remain longer.</p>
+                <strong>Verified result delivery</strong>
+                <p>A private account delivery copy remains available to your signed-in browsers for up to 48 hours, then is deleted.</p>
             </div>
         </div>
 
@@ -496,7 +496,8 @@
                             <ul>
                                 <li>Keeps creation history and saved prompts in browser storage.</li>
                                 <li>Proxies AI calls through the VeilPix API.</li>
-                                <li>Uses temporary media URLs only when a model requires them.</li>
+                                <li>Uses private temporary reference storage only when a model requires a media URL.</li>
+                                <li>Keeps a completed result in private account delivery storage for a maximum of 48 hours so each signed-in browser can save a local copy.</li>
                                 <li>Avoids a public feed and account-linked cloud gallery.</li>
                                 <li>Does not use creative content to train a VeilPix model.</li>
                             </ul>
@@ -517,7 +518,7 @@
                 <section id="flow">
                     <p class="eyebrow">Request flow</p>
                     <h2>How a creation moves through VeilPix</h2>
-                    <p class="lede">The shortest accurate version is browser to VeilPix to AI provider, then back to your browser.</p>
+                    <p class="lede">The shortest accurate version is browser to private temporary storage when needed, through VeilPix to the AI provider, then into a verified browser-local Album.</p>
 
                     <div class="flow">
                         <div class="flow-step">
@@ -528,12 +529,12 @@
                         <div class="flow-step">
                             <span class="step-number">2</span>
                             <strong>VeilPix API</strong>
-                            <p>Your request reaches our server over HTTPS. We verify your account and credits, select the model, and submit the generation with a server-side API key.</p>
+                            <p>Your request reaches our server over HTTPS. We verify your account and credits, select the model, and submit the generation with a server-side API key. Large Wan 3.0 reference files upload directly from your browser to private storage, so they are not buffered or kept on the VeilPix application server.</p>
                         </div>
                         <div class="flow-step">
                             <span class="step-number">3</span>
                             <strong>Temporary media</strong>
-                            <p>When a model needs a URL, VeilPix temporarily uploads the reference file to Supabase Storage. We attempt to delete it as soon as the job completes or fails. A failed cleanup can delay deletion.</p>
+                            <p>When a model needs a URL, VeilPix uses a private Supabase Storage object and a short-lived signed URL. Wan 3.0 references remain private while the task runs and are deleted when it completes or fails; other workflows also attempt deletion when the job reaches a terminal state. A failed cleanup can delay deletion.</p>
                         </div>
                         <div class="flow-step">
                             <span class="step-number">4</span>
@@ -543,7 +544,7 @@
                         <div class="flow-step">
                             <span class="step-number">5</span>
                             <strong>Your result</strong>
-                            <p>Image results are returned to the app and may be saved in your local browser gallery. Video entries can point to provider-hosted result files, so download anything you want to keep.</p>
+                            <p>VeilPix streams the completed image or video into private temporary delivery storage scoped to the authenticated account. Each signed-in browser can download the actual blob into its own local Album and records a local receipt after verification. One browser does not consume the copy for the others. VeilPix deletes the temporary object and delivery record at the 48-hour expiry.</p>
                         </div>
                     </div>
 
@@ -574,6 +575,11 @@
                                     <td>Local gallery &amp; settings</td>
                                     <td>Your browser's IndexedDB and local storage</td>
                                     <td>Lets you revisit work and preferences. It remains until you delete gallery items, use Clear All, or clear site data. It does not automatically sync across devices.</td>
+                                </tr>
+                                <tr>
+                                    <td>Completed result delivery copy</td>
+                                    <td>Private Supabase Storage</td>
+                                    <td>Lets a completed job survive a closed browser and reach other browsers signed into the same account. Deleted at the 48-hour expiry; each browser keeps only its own local Album copy afterward.</td>
                                 </tr>
                                 <tr>
                                     <td>Account information</td>
@@ -643,7 +649,7 @@
                                 <tr>
                                     <td>Consumer ChatGPT</td>
                                     <td>OpenAI says individual-service content may be used to improve models unless the user opts out; Temporary Chat follows different rules.</td>
-                                    <td>VeilPix does not use your content to train a VeilPix model and does not maintain an account-synced creative history. Provider processing still applies.</td>
+                                    <td>VeilPix does not use your content to train a VeilPix model and does not maintain permanent account-synced creative history. Temporary 48-hour account delivery and provider processing still apply.</td>
                                 </tr>
                                 <tr>
                                     <td>Google AI Studio / Gemini API</td>
@@ -673,8 +679,8 @@
                             <p>Remove individual gallery items or use Clear All. Clearing the browser's VeilPix site data also removes locally stored history and settings.</p>
                         </div>
                         <div class="control">
-                            <h3>Save videos you need</h3>
-                            <p>Download provider-hosted videos before the 14-day media window ends. A local gallery entry does not extend the provider link's lifetime.</p>
+                            <h3>Keep the browser Album you need</h3>
+                            <p>Completed results are stored as local browser blobs after delivery. Download important work or back it up elsewhere before clearing VeilPix site data, changing devices, or removing browser storage.</p>
                         </div>
                         <div class="control">
                             <h3>Limit identifying content</h3>

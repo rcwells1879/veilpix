@@ -32,6 +32,7 @@ const {
     normalizeResponse,
     urlToBase64
 } = require('../utils/nanobanana2Adapter');
+const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
 const {
     IMAGE_WORKFLOWS,
     getImageCreditDetails
@@ -200,6 +201,10 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
     const { user } = req;
     const creditDetails = req.creditsInfo || getCreditDetailsForRequest(req);
     const creditsToDeduct = creditDetails.required || creditDetails.credits || 1;
+    const generationId = getGenerationId(req);
+    const storedResult = success && generationId
+        ? serializeImageGenerationResult(result, creditsToDeduct)
+        : errorMessage;
 
     try {
         if (success) {
@@ -220,11 +225,11 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
             requestType,
             costUsd: success ? creditDetails.costUsd : 0,
             chargedAmountUsd: success ? creditDetails.chargedAmountUsd : 0,
-            geminiRequestId: 'nanobanana2-' + Date.now(),
+            geminiRequestId: generationId || 'nanobanana2-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
             });
         } catch (logError) {
             console.error('Failed to log Nano Banana 2 usage:', logError);
@@ -285,7 +290,7 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
     let uploadedFilename = null;
 
     try {
-        const { prompt, x, y, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { prompt, x, y, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -386,7 +391,7 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { filterType, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { filterType, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -474,7 +479,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
     let uploadedFilename = null;
 
     try {
-        const { adjustment, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { adjustment, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' });
@@ -566,7 +571,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
     try {
         const prompt = req.body?.prompt;
         const resolution = req.body?.resolution || '2K';
-        const aspectRatio = req.body?.aspectRatio || '1:1';
+        const aspectRatio = req.body?.aspectRatio || 'auto';
         const imageFiles = req.files?.images || [];
 
         if (!imageFiles || imageFiles.length < 2) {
@@ -658,7 +663,7 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
     let usageLogged = false;
 
     try {
-        const { prompt, resolution = '2K', aspectRatio = '1:1' } = req.body;
+        const { prompt, resolution = '2K', aspectRatio = 'auto' } = req.body;
 
         console.log('Starting Nano Banana 2 text-to-image generation');
         console.log('Nano Banana 2 request summary:', { resolution, aspectRatio });

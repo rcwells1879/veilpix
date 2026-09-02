@@ -1,8 +1,6 @@
 const express = require('express');
 const multer = require('multer');
 const { db } = require('../utils/database');
-const { BILLABLE_USD_PER_VEILPIX_CREDIT, KIE_CREDIT_USD } = require('../utils/imageCreditPricing');
-const { minimumIncrease } = require('../config/generationPricing.json');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const {
     uploadTemporaryImage,
@@ -13,8 +11,12 @@ const {
     buildImageToVideoRequest,
     buildTextToVideoRequest,
     buildReferenceToVideoRequest,
-    normalizeVideoResponse
+    estimateWanVeilPixCredits
 } = require('../utils/wanAdapter');
+const {
+    getVideoGenerationId
+} = require('../utils/videoGenerationJob');
+const { queuePendingKieVideoJob } = require('../utils/kieVideoJobRecovery');
 
 const router = express.Router();
 
@@ -35,46 +37,6 @@ const upload = multer({
 // Wan API configuration (same kie.ai key as other models)
 const WAN_API_KEY = process.env.SEEDREAM_API_KEY;
 const WAN_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
-
-// Frozen baseline for the minimum 10% increase.
-const PREVIOUS_VIDEO_CREDIT_TABLE = {
-    5:  { '720p': 7,  '1080p': 10 },
-    10: { '720p': 13, '1080p': 19 },
-    15: { '720p': 19, '1080p': 29 },
-};
-
-const WAN_TEXT_KIE_CREDITS = {
-    5: { '720p': 70, '1080p': 104.5 },
-    10: { '720p': 140, '1080p': 209.5 },
-    15: { '720p': 210, '1080p': 315 }
-};
-
-function normalizeVideoDuration(duration, mode = 'image') {
-    const parsed = parseInt(duration, 10);
-    const value = Number.isFinite(parsed) ? parsed : 5;
-    if (mode === 'reference') return Math.max(2, Math.min(10, value));
-    return value <= 7 ? 5 : value <= 12 ? 10 : 15;
-}
-
-function getVideoCreditCost(duration, resolution, mode = 'image') {
-    const d = normalizeVideoDuration(duration, mode);
-    const r = resolution || '1080p';
-    if (!['720p', '1080p'].includes(r)) throw new Error('Unsupported video resolution');
-    const previousCredits = PREVIOUS_VIDEO_CREDIT_TABLE[d]?.[r] ?? Math.ceil(d * (r === '1080p' ? 2 : 1.4));
-    // Published Wan 2.7 rate, also used as a conservative Flash allowance.
-    // Flash's public rate is unavailable; see docs/generation-pricing.md.
-    const kieCredits = mode === 'text' ? WAN_TEXT_KIE_CREDITS[d][r] : d * (r === '1080p' ? 24 : 16);
-    return Math.ceil(Math.max(kieCredits * KIE_CREDIT_USD / BILLABLE_USD_PER_VEILPIX_CREDIT,
-        previousCredits * (1 + minimumIncrease)) - 1e-10);
-}
-
-function getVideoPricingTable(mode = 'image') {
-    const durations = mode === 'reference' ? [2, 3, 4, 5, 6, 7, 8, 9, 10] : [5, 10, 15];
-    return Object.fromEntries(durations.map((duration) => [duration, {
-        '720p': getVideoCreditCost(duration, '720p', mode),
-        '1080p': getVideoCreditCost(duration, '1080p', mode)
-    }]));
-}
 
 // Helper: create Wan task
 async function createWanTask(requestBody, model = 'wan/2-6-flash-image-to-video') {
@@ -117,115 +79,17 @@ async function createWanTask(requestBody, model = 'wan/2-6-flash-image-to-video'
     return result;
 }
 
-// Helper: poll Wan job status (longer timeout for video - up to 10 minutes)
-async function pollWanJob(taskId, maxAttempts = 300, intervalMs = 2000) {
-    console.log(`⏳ Polling Wan task: ${taskId}`);
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const response = await fetch(`${WAN_API_URL}/api/v1/jobs/recordInfo?taskId=${taskId}`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${WAN_API_KEY}`
-            }
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Task status check failed: ${response.status} - ${errorText}`);
-        }
-
-        const result = await response.json();
-
-        if (result.code !== 200) {
-            throw new Error(`Task query failed: ${result.message || 'Unknown error'}`);
-        }
-
-        const taskData = result.data;
-        const state = taskData.state;
-
-        // Log progress every 30 seconds
-        if (attempt % 15 === 0) {
-            console.log(`📊 Wan task status (attempt ${attempt + 1}/${maxAttempts}): ${state}`);
-        }
-
-        if (state === 'success') {
-            console.log('✅ Wan video task completed successfully');
-            const resultData = JSON.parse(taskData.resultJson);
-            return resultData;
-        }
-
-        if (state === 'fail') {
-            const failMsg = taskData.failMsg || taskData.failCode || 'Unknown error';
-            // Detect NSFW / content review failures
-            if (failMsg.toLowerCase().includes('review') || failMsg.toLowerCase().includes('nsfw') || failMsg.toLowerCase().includes('content') || failMsg.toLowerCase().includes('safety')) {
-                throw new Error(`NSFW content detected: ${failMsg}`);
-            }
-            throw new Error(`Video generation failed: ${failMsg}`);
-        }
-
-        // States: waiting, queuing, generating - continue polling
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-
-    throw new Error('Video generation timeout - exceeded maximum wait time (10 minutes)');
-}
-
-// Helper: call Wan API with full async flow
-async function callWanAPI(requestBody) {
-    const taskResponse = await createWanTask(requestBody);
-    const taskId = taskResponse.data.taskId;
-    console.log(`📋 Wan task created with ID: ${taskId}`);
-
-    const completedJob = await pollWanJob(taskId);
-    return completedJob;
-}
-
-// Helper: deduct credit and track usage
-async function deductCreditAndTrack(req, startTime, requestType, creditsToDeduct, success = true, errorMessage = null) {
-    const { user } = req;
-
-    try {
-        await db.logUsage({
-            userId: user.id,
-            clerkUserId: user.userId,
-            requestType,
-            geminiRequestId: 'wan-' + Date.now(),
-            imageSize: 'video',
-            processingTimeMs: Date.now() - startTime,
-            success,
-            errorMessage
-        });
-
-        if (success) {
-            const deductResult = await db.deductUserCredits(user.userId, creditsToDeduct);
-            if (!deductResult.success) {
-                console.error('Failed to deduct video credits:', deductResult.error);
-                return false;
-            }
-
-            if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, Math.round((req.creditsInfo.remaining - creditsToDeduct) * 100) / 100);
-            }
-        }
-
-        return true;
-    } catch (error) {
-        console.error('🚨 Credit deduction/tracking error:', error);
-        return false;
-    }
-}
-
 // Check user credits (uses body params to calculate required credits)
-async function checkUserCredits(req, res, next, mode = 'image') {
+async function checkUserCredits(req, res, next) {
     try {
         const { user } = req;
-        const duration = normalizeVideoDuration(req.body?.duration, mode);
+        const duration = parseInt(req.body?.duration || '5');
         const resolution = req.body?.resolution || '1080p';
-        if (!['720p', '1080p'].includes(resolution)) {
-            return res.status(400).json({ error: 'Unsupported video resolution' });
-        }
-        req.body.duration = duration;
-        const requiredCredits = getVideoCreditCost(duration, resolution, mode);
+        const requiredCredits = estimateWanVeilPixCredits({
+            duration,
+            resolution,
+            usesReferenceToVideo: req.path.includes('reference-to-video')
+        });
 
         const { credits, error } = await db.getUserCredits(user.userId);
 
@@ -258,16 +122,56 @@ async function checkUserCredits(req, res, next, mode = 'image') {
     }
 }
 
+async function reserveVideoCredits(req, res) {
+    const requiredCredits = req.videoCreditCost;
+    const reservation = await db.deductUserCredits(req.user.userId, requiredCredits);
+    if (reservation.error) {
+        res.status(500).json({
+            error: 'Failed to reserve credits',
+            message: 'Please try again in a moment.'
+        });
+        return false;
+    }
+    if (!reservation.success) {
+        const currentBalance = await db.getUserCredits(req.user.userId);
+        res.status(402).json({
+            error: 'Insufficient credits',
+            message: `This video requires ${requiredCredits} credits. You have ${currentBalance.credits}.`,
+            creditsRemaining: currentBalance.credits,
+            creditsRequired: requiredCredits,
+            requiresPayment: true
+        });
+        return false;
+    }
+
+    req.videoCreditsReserved = requiredCredits;
+    const currentBalance = await db.getUserCredits(req.user.userId);
+    req.creditsInfo = { remaining: currentBalance.credits };
+    return true;
+}
+
+async function refundReservedVideoCredits(req) {
+    const reservedCredits = Math.max(0, Number(req.videoCreditsReserved) || 0);
+    if (reservedCredits <= 0) return;
+    await db.addUserCredits(req.user.userId, reservedCredits);
+    req.videoCreditsReserved = 0;
+}
+
 // Apply authentication middleware to all routes
 router.use(getUser, requireAuth, requireAllowedEmail);
 
 // Generate video from image endpoint
 router.post('/generate-video', upload.single('image'), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
-    let usageLogged = false;
+    const generationId = getVideoGenerationId(req);
+    let providerTaskId = null;
+    let pendingJob = null;
     let uploadedFilename = null;
 
     try {
+        if (!generationId) {
+            return res.status(400).json({ error: 'A valid generation ID is required' });
+        }
         const { prompt, duration = '5', resolution = '1080p', nsfwFilterEnabled = 'true', audio = 'true', multiShots = 'false' } = req.body;
 
         if (!req.file) {
@@ -310,42 +214,60 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
             }
         );
 
-        // Call Wan 2.6 Flash API (this may take several minutes)
-        const wanResponse = await callWanAPI(wanRequest);
-
-        // Normalize response
-        const normalizedResponse = normalizeVideoResponse(wanResponse);
-
-        if (!normalizedResponse.success) {
-            throw new Error(normalizedResponse.error || 'Failed to process video response');
-        }
-
-        // Clean up uploaded reference image
-        if (uploadedFilename) {
-            await deleteTemporaryImage(uploadedFilename);
-        }
-
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'video', creditCost);
-        if (!usageLogged) throw new Error('Unable to deduct video credits');
+        if (!await reserveVideoCredits(req, res)) {
+            if (uploadedFilename) await deleteTemporaryImage(uploadedFilename);
+            return;
+        }
+        const taskResponse = await createWanTask(wanRequest);
+        providerTaskId = taskResponse.data.taskId;
+        pendingJob = await db.createPendingVideoGenerationJob({
+            userId: req.user.id,
+            clerkUserId: req.user.userId,
+            requestType: 'video',
+            generationId,
+            providerState: {
+                provider: 'wan',
+                providerTaskId,
+                estimatedCredits: creditCost,
+                reservedCredits: req.videoCreditsReserved,
+                duration: parseInt(duration),
+                cleanup: {
+                    kind: 'temporary-media',
+                    filenames: uploadedFilename ? [uploadedFilename] : []
+                }
+            }
+        });
+        queuePendingKieVideoJob(pendingJob);
 
-        res.json({
+        return res.status(202).json({
             success: true,
-            videoUrl: normalizedResponse.videoUrl,
+            pending: true,
+            generationId,
             processingTime: Date.now() - startTime,
             creditsUsed: creditCost,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining ?? 0
         });
 
     } catch (error) {
         console.error('Error generating video with Wan:', error);
 
-        if (uploadedFilename) {
+        if (!providerTaskId && uploadedFilename) {
             await deleteTemporaryImage(uploadedFilename);
         }
+        if (!providerTaskId) await refundReservedVideoCredits(req);
 
-        if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'video', 0, false, error.message);
+        if (!pendingJob && generationId) {
+            await db.logUsage({
+                userId: req.user.id,
+                clerkUserId: req.user.userId,
+                requestType: 'video',
+                geminiRequestId: generationId,
+                imageSize: 'video',
+                processingTimeMs: Date.now() - startTime,
+                success: false,
+                errorMessage: error.message
+            }).catch(() => {});
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
@@ -362,12 +284,17 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
 router.post('/generate-reference-to-video', upload.fields([
     { name: 'image', maxCount: 5 },
     { name: 'video', maxCount: 1 }
-]), (req, res, next) => checkUserCredits(req, res, next, 'reference'), async (req, res) => {
+]), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
-    let usageLogged = false;
+    const generationId = getVideoGenerationId(req);
+    let providerTaskId = null;
+    let pendingJob = null;
     const uploadedFilenames = [];
 
     try {
+        if (!generationId) {
+            return res.status(400).json({ error: 'A valid generation ID is required' });
+        }
         const { prompt, duration = '5', resolution = '1080p', ratio = '16:9', nsfwFilterEnabled = 'true', referenceVideoUrl } = req.body;
         const imageFiles = req.files?.image || [];
         const videoFile = req.files?.video?.[0];
@@ -437,41 +364,62 @@ router.post('/generate-reference-to-video', upload.fields([
             nsfwFilterEnabled: nsfwFilterEnabled === 'true' || nsfwFilterEnabled === true || nsfwFilterEnabled === undefined
         });
 
-        const taskResponse = await createWanTask(wanRequest, 'wan/2-7-r2v');
-        const taskId = taskResponse.data.taskId;
-        console.log(`📋 Reference-to-video task created with ID: ${taskId}`);
-
-        const completedJob = await pollWanJob(taskId);
-        const normalizedResponse = normalizeVideoResponse(completedJob);
-
-        if (!normalizedResponse.success) {
-            throw new Error(normalizedResponse.error || 'Failed to process video response');
-        }
-
-        for (const filename of uploadedFilenames) {
-            await deleteTemporaryImage(filename);
-        }
-
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'reference-to-video', creditCost);
-        if (!usageLogged) throw new Error('Unable to deduct video credits');
+        if (!await reserveVideoCredits(req, res)) {
+            for (const filename of uploadedFilenames) await deleteTemporaryImage(filename);
+            return;
+        }
+        const taskResponse = await createWanTask(wanRequest, 'wan/2-7-r2v');
+        providerTaskId = taskResponse.data.taskId;
 
-        res.json({
+        pendingJob = await db.createPendingVideoGenerationJob({
+            userId: req.user.id,
+            clerkUserId: req.user.userId,
+            requestType: 'reference-to-video',
+            generationId,
+            providerState: {
+                provider: 'wan',
+                providerTaskId,
+                estimatedCredits: creditCost,
+                reservedCredits: req.videoCreditsReserved,
+                duration: parseInt(duration),
+                cleanup: {
+                    kind: 'temporary-media',
+                    filenames: uploadedFilenames
+                }
+            }
+        });
+        queuePendingKieVideoJob(pendingJob);
+
+        return res.status(202).json({
             success: true,
-            videoUrl: normalizedResponse.videoUrl,
+            pending: true,
+            generationId,
             processingTime: Date.now() - startTime,
             creditsUsed: creditCost,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining ?? 0
         });
     } catch (error) {
         console.error('Error generating reference-to-video with Wan:', error);
 
-        for (const filename of uploadedFilenames) {
-            await deleteTemporaryImage(filename);
+        if (!providerTaskId) {
+            for (const filename of uploadedFilenames) {
+                await deleteTemporaryImage(filename);
+            }
+            await refundReservedVideoCredits(req);
         }
 
-        if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'reference-to-video', 0, false, error.message);
+        if (!pendingJob && generationId) {
+            await db.logUsage({
+                userId: req.user.id,
+                clerkUserId: req.user.userId,
+                requestType: 'reference-to-video',
+                geminiRequestId: generationId,
+                imageSize: 'video',
+                processingTimeMs: Date.now() - startTime,
+                success: false,
+                errorMessage: error.message
+            }).catch(() => {});
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
@@ -485,11 +433,16 @@ router.post('/generate-reference-to-video', upload.fields([
 });
 
 // Generate video from text prompt (no image required)
-router.post('/generate-text-to-video', express.json({ limit: '1mb' }), (req, res, next) => checkUserCredits(req, res, next, 'text'), async (req, res) => {
+router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
-    let usageLogged = false;
+    const generationId = getVideoGenerationId(req);
+    let providerTaskId = null;
+    let pendingJob = null;
 
     try {
+        if (!generationId) {
+            return res.status(400).json({ error: 'A valid generation ID is required' });
+        }
         const { prompt, duration = 5, resolution = '1080p', ratio = '16:9', multiShots = false, nsfwFilterEnabled = true } = req.body;
 
         if (!prompt || !prompt.trim()) {
@@ -515,36 +468,52 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), (req, res
         );
 
         // Call Wan 2.6 API for text-to-video
-        const taskResponse = await createWanTask(wanRequest, 'wan/2-6-text-to-video');
-        const taskId = taskResponse.data.taskId;
-        console.log(`📋 Text-to-video task created with ID: ${taskId}`);
-
-        const completedJob = await pollWanJob(taskId);
-
-        // Normalize response
-        const normalizedResponse = normalizeVideoResponse(completedJob);
-
-        if (!normalizedResponse.success) {
-            throw new Error(normalizedResponse.error || 'Failed to process video response');
-        }
-
         const creditCost = req.videoCreditCost;
-        usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-video', creditCost);
-        if (!usageLogged) throw new Error('Unable to deduct video credits');
+        if (!await reserveVideoCredits(req, res)) return;
+        const taskResponse = await createWanTask(wanRequest, 'wan/2-6-text-to-video');
+        providerTaskId = taskResponse.data.taskId;
 
-        res.json({
+        pendingJob = await db.createPendingVideoGenerationJob({
+            userId: req.user.id,
+            clerkUserId: req.user.userId,
+            requestType: 'text-to-video',
+            generationId,
+            providerState: {
+                provider: 'wan',
+                providerTaskId,
+                estimatedCredits: creditCost,
+                reservedCredits: req.videoCreditsReserved,
+                duration: typeof duration === 'number' ? duration : parseInt(duration),
+                cleanup: { kind: 'temporary-media', filenames: [] }
+            }
+        });
+        queuePendingKieVideoJob(pendingJob);
+
+        return res.status(202).json({
             success: true,
-            videoUrl: normalizedResponse.videoUrl,
+            pending: true,
+            generationId,
             processingTime: Date.now() - startTime,
             creditsUsed: creditCost,
-            creditsRemaining: req.creditsInfo?.remaining || 0
+            creditsRemaining: req.creditsInfo?.remaining ?? 0
         });
 
     } catch (error) {
         console.error('Error generating text-to-video with Wan:', error);
 
-        if (!usageLogged) {
-            await deductCreditAndTrack(req, startTime, 'text-to-video', 0, false, error.message);
+        if (!providerTaskId) await refundReservedVideoCredits(req);
+
+        if (!pendingJob && generationId) {
+            await db.logUsage({
+                userId: req.user.id,
+                clerkUserId: req.user.userId,
+                requestType: 'text-to-video',
+                geminiRequestId: generationId,
+                imageSize: 'video',
+                processingTimeMs: Date.now() - startTime,
+                success: false,
+                errorMessage: error.message
+            }).catch(() => {});
         }
 
         const isNsfwError = error.message?.toLowerCase().includes('nsfw') || error.message?.toLowerCase().includes('review') || error.message?.toLowerCase().includes('content');
@@ -557,16 +526,21 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), (req, res
     }
 });
 
-// Authenticated credit prices for each supported workflow.
+// Get video credit pricing table (no auth required)
 router.get('/pricing', (req, res) => {
+    const pricingFor = (usesReferenceToVideo, durations) => Object.fromEntries(
+        durations.map(duration => [duration, Object.fromEntries(
+            ['720p', '1080p'].map(resolution => [resolution, estimateWanVeilPixCredits({
+                duration,
+                resolution,
+                usesReferenceToVideo
+            })])
+        )])
+    );
     res.json({
         success: true,
-        pricing: getVideoPricingTable(),
-        pricingByMode: {
-            image: getVideoPricingTable(),
-            text: getVideoPricingTable('text'),
-            reference: getVideoPricingTable('reference')
-        }
+        pricing: pricingFor(false, [5, 10, 15]),
+        referencePricing: pricingFor(true, [5, 10])
     });
 });
 

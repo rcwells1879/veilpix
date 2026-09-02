@@ -2,6 +2,16 @@ const { getAuth, clerkClient } = require('@clerk/express');
 const { db } = require('../utils/database');
 const { validateEmailDomain, SUPPORTED_PROVIDERS } = require('../utils/emailValidator');
 
+function isClerkUserNotFound(error) {
+    const status = error?.status || error?.statusCode;
+    const errorCodes = (error?.errors || []).map(item => item?.code);
+    return status === 404 || errorCodes.includes('resource_not_found');
+}
+
+function isClerkUserBanned(user) {
+    return user?.banned === true || user?.privateMetadata?.moderation?.status === 'banned';
+}
+
 // Middleware to extract user from Clerk session (optional authentication)
 async function getUser(req, res, next) {
     const requestId = Math.random().toString(36).substring(7);
@@ -37,6 +47,7 @@ async function getUser(req, res, next) {
                     auth.sessionClaims?.primary_email ||
                     auth.sessionClaims?.email_address ||
                     null;
+                let clerkUserVerified = false;
                 try {
                     console.log(`🔍 AUTH[${requestId}]: Fetching user email from Clerk...`);
                     
@@ -47,16 +58,32 @@ async function getUser(req, res, next) {
                     );
                     
                     const clerkUser = await Promise.race([clerkPromise, timeoutPromise]);
+                    if (isClerkUserBanned(clerkUser)) {
+                        console.warn(`AUTH[${requestId}]: Blocking banned Clerk user ${auth.userId}`);
+                        req.user = null;
+                        req.authFailure = 'banned_user';
+                        return next();
+                    }
                     userEmail = clerkUser.emailAddresses?.[0]?.emailAddress || userEmail;
+                    clerkUserVerified = true;
                     console.log(`✅ AUTH[${requestId}]: Successfully fetched user email`);
                 } catch (clerkError) {
+                    if (isClerkUserNotFound(clerkError)) {
+                        console.warn(`AUTH[${requestId}]: Rejecting session for deleted Clerk user ${auth.userId}`);
+                        req.user = null;
+                        req.authFailure = 'clerk_user_not_found';
+                        return next();
+                    }
+
                     console.warn(`⚠️ AUTH[${requestId}]: Could not fetch user email from Clerk:`, clerkError.message);
                     // Continue without email - not critical
                 }
                 
                 // Get or create user in our database
                 console.log(`🔍 AUTH[${requestId}]: About to call createOrGetUser with userId:`, auth.userId);
-                const { user } = await db.createOrGetUser(auth.userId, userEmail);
+                const { user } = await db.createOrGetUser(auth.userId, userEmail, {
+                    reactivateDeleted: clerkUserVerified
+                });
                 console.log(`✅ AUTH[${requestId}]: createOrGetUser completed successfully`);
                 
                 req.user = {
@@ -64,7 +91,8 @@ async function getUser(req, res, next) {
                     userId: auth.userId,
                     email: user.email,
                     stripeCustomerId: user.stripe_customer_id,
-                    subscriptionStatus: user.subscription_status
+                    subscriptionStatus: user.subscription_status,
+                    deletedAt: user.deleted_at || null
                 };
                 
                 console.log(`✅ AUTH[${requestId}]: User authenticated successfully`);
@@ -124,6 +152,22 @@ function requireAuth(req, res, next) {
             return res.status(401).json({
                 error: 'Authentication required',
                 message: 'Please sign in to access this feature'
+            });
+        }
+
+        if (req.authFailure === 'banned_user') {
+            return res.status(403).json({
+                error: 'Account suspended',
+                message: 'This account has been suspended for violating the service rules.',
+                code: 'ACCOUNT_SUSPENDED'
+            });
+        }
+
+        if (req.authFailure === 'clerk_user_not_found' || req.user?.deletedAt) {
+            return res.status(401).json({
+                error: 'Authentication required',
+                message: 'This session is no longer valid',
+                code: 'SESSION_INVALID'
             });
         }
         
@@ -224,5 +268,7 @@ module.exports = {
     getUser,
     requireAuth,
     requirePaymentMethod,
-    requireAllowedEmail
+    requireAllowedEmail,
+    isClerkUserBanned,
+    isClerkUserNotFound
 };

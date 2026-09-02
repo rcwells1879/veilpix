@@ -3,13 +3,43 @@
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://veilstudio.io/veilpix/</loc>
-    <lastmod>2026-07-14</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://veilstudio.io/veilpix/og-image.webp</image:loc>
-      <image:title>VeilPix AI Image and Video Generator - Seedream 5, Wan 2.7, Nano Banana 2, and Seedance</image:title>
-      <image:caption>Private AI image editing, text-to-image, text-to-video, image-to-video, and reference-to-video generation</image:caption>
+      <image:title>VeilPix AI Image and Video Generator with Wan 3.0</image:title>
+      <image:caption>Create Wan 3.0 Standard or Prime videos with text, image, video, audio, file, and link inputs</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://veilstudio.io/veilpix/showcase/civic-800w.webp</image:loc>
+      <image:title>Original car photo before a VeilPix AI edit</image:title>
+      <image:caption>A teenager beside an older Honda Civic before an AI scene transformation</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://veilstudio.io/veilpix/showcase/audi-800w.webp</image:loc>
+      <image:title>VeilPix AI car replacement example</image:title>
+      <image:caption>The edited scene with an Audi sports car replacing the original vehicle</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://veilstudio.io/veilpix/showcase/blueprint-800w.webp</image:loc>
+      <image:title>Architectural blueprint before AI visualization</image:title>
+      <image:caption>A two-dimensional floor plan used as a VeilPix reference image</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://veilstudio.io/veilpix/showcase/3d-model-800w.webp</image:loc>
+      <image:title>VeilPix floor plan to 3D model example</image:title>
+      <image:caption>A furnished photorealistic 3D model generated from an architectural floor plan</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://veilstudio.io/veilpix/showcase/3dfloorplan-800w.webp</image:loc>
+      <image:title>Aerial architectural reference before AI reframing</image:title>
+      <image:caption>An aerial 3D view used as the reference for a new camera perspective</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://veilstudio.io/veilpix/showcase/deckview-800w.webp</image:loc>
+      <image:title>VeilPix AI viewpoint transformation example</image:title>
+      <image:caption>An eye-level view from the back deck generated from the aerial reference</image:caption>
     </image:image>
   </url>
   <url>
@@ -20,21 +50,27 @@
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/terms/</loc>
-    <lastmod>2025-12-03</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/</loc>
-    <lastmod>2026-07-14</lastmod>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://veilstudio.io/veilpix/blog/seedream-5-vs-wan-2-7-vs-nano-banana-2/</loc>
-    <lastmod>2026-07-13</lastmod>
+    <loc>https://veilstudio.io/veilpix/blog/wan-3-video-generator/</loc>
+    <lastmod>2026-08-24</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://veilstudio.io/veilpix/blog/seedance-2-5-long-form-video/</loc>
+    <lastmod>2026-08-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://veilstudio.io/veilpix/blog/ai-photo-editing-guide/</loc>

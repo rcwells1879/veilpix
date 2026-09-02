@@ -1,30 +1,13 @@
-/**
+/*
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import React from 'react';
 
-const SparkleIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    className={className}
-  >
-    <path
-      fillRule="evenodd"
-      d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5zM18 1.5a.75.75 0 01.728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 010 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 01-1.456 0l-.258-1.036a2.625 2.625 0 00-1.91-1.91l-1.036-.258a.75.75 0 010-1.456l1.036-.258a2.625 2.625 0 001.91-1.91l.258-1.036A.75.75 0 0118 1.5zM16.5 15a.75.75 0 01.712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 010 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 01-1.422 0l-.395-1.183a1.5 1.5 0 00-.948-.948l-1.183-.395a.75.75 0 010-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0116.5 15z"
-      clipRule="evenodd"
-    />
-  </svg>
-);
-
-// Showcase example data structure
 interface ShowcaseExample {
   id: string;
   title: string;
-  highlightWord: string;
   prompt: string;
   before: {
     image: string;
@@ -40,163 +23,144 @@ interface ShowcaseExample {
 const showcaseExamples: ShowcaseExample[] = [
   {
     id: 'car-transformation',
-    title: 'Instant Transformation',
-    highlightWord: 'Transformation',
-    prompt: "replace the teenager's busted old car with an audi sports car",
+    title: 'Transform a complete scene',
+    prompt: "Replace the teenager's busted old car with an Audi sports car",
     before: {
       image: 'civic',
-      alt: 'Before: Teenager looking dejected next to an old dusty Honda Civic'
+      alt: 'Before AI edit: a teenager standing beside an old dusty Honda Civic',
     },
     after: {
       image: 'audi',
-      alt: 'After: Same teenager now happy in a suit next to a sleek Audi R8 sports car'
+      alt: 'After VeilPix AI edit: the same person standing beside a sleek Audi R8 sports car',
     },
-    caption: 'One prompt. Total transformation.'
+    caption: 'One prompt can replace an object while preserving the composition and subject.',
   },
   {
     id: '3d-model',
-    title: 'Create Stunning 3D Models',
-    highlightWord: '3D Models',
-    prompt: 'transform this floor plan blueprint into a photorealistic 3D rendered model with furniture and landscaping',
+    title: 'Turn plans into visual concepts',
+    prompt: 'Transform this floor plan blueprint into a photorealistic 3D rendered model with furniture and landscaping',
     before: {
       image: 'blueprint',
-      alt: 'Before: 2D architectural floor plan blueprint showing room layout'
+      alt: 'Before AI edit: a two-dimensional architectural floor plan blueprint',
     },
     after: {
       image: '3d-model',
-      alt: 'After: Stunning 3D rendered model of the same floor plan with realistic furniture, textures, and pool'
+      alt: 'After VeilPix AI generation: a furnished photorealistic 3D model based on the floor plan',
     },
-    caption: 'From blueprint to reality in seconds.'
+    caption: 'Use a reference image and natural language to explore a design before it is built.',
   },
   {
     id: 'viewpoint-change',
-    title: 'Change Your Viewpoint',
-    highlightWord: 'Viewpoint',
-    prompt: 'show me the view from the back deck looking out at the yard',
+    title: 'Explore a new point of view',
+    prompt: 'Show me the view from the back deck looking out at the yard',
     before: {
       image: '3dfloorplan',
-      alt: 'Before: 3D aerial view of a home floor plan with pool and landscaping'
+      alt: 'Before AI edit: an aerial 3D view of a house, yard, pool, and landscaping',
     },
     after: {
       image: 'deckview',
-      alt: 'After: Eye-level view from the back deck looking out at the yard and pool'
+      alt: 'After VeilPix AI edit: an eye-level view from the back deck toward the yard and pool',
     },
-    caption: 'Any perspective, instantly.'
-  }
+    caption: 'Reframe a reference from another perspective while retaining its visual details.',
+  },
 ];
 
-interface ShowcaseItemProps {
-  example: ShowcaseExample;
+interface ExampleImageProps {
   basePath: string;
+  image: string;
+  alt: string;
+  label: 'Before' | 'After';
 }
 
-const ShowcaseItem: React.FC<ShowcaseItemProps> = ({ example, basePath }) => {
-  // Split title to highlight the keyword
-  const titleParts = example.title.split(example.highlightWord);
+const ExampleImage: React.FC<ExampleImageProps> = ({ basePath, image, alt, label }) => (
+  <div className="relative min-w-0 overflow-hidden rounded-xl bg-black/35">
+    <span
+      className={`absolute left-2.5 top-2.5 z-10 rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em] backdrop-blur-md ${
+        label === 'After'
+          ? 'bg-[#E04F67]/90 text-white'
+          : 'bg-black/65 text-gray-300'
+      }`}
+    >
+      {label}
+    </span>
+    <picture>
+      <source
+        srcSet={`${basePath}showcase/${image}-400w.webp 400w, ${basePath}showcase/${image}-800w.webp 800w`}
+        sizes="(min-width: 1280px) 18vw, (min-width: 768px) 42vw, 44vw"
+        type="image/webp"
+      />
+      <img
+        src={`${basePath}showcase/${image}-800w.webp`}
+        alt={alt}
+        width="800"
+        height="597"
+        loading="lazy"
+        decoding="async"
+        fetchPriority="low"
+        className="aspect-[800/597] h-auto w-full object-cover transition-transform duration-500 motion-safe:hover:scale-[1.025]"
+      />
+    </picture>
+  </div>
+);
 
-  return (
-    <div className="bg-black/20 border border-gray-700/50 rounded-xl p-4 sm:p-6 md:p-8">
-      {/* Section Title */}
-      <h3 className="text-2xl sm:text-3xl font-bold text-gray-100 mb-6 text-center">
-        {titleParts[0]}
-        <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-          {example.highlightWord}
-        </span>
-        {titleParts[1] || ''}
+const ShowcaseItem: React.FC<{ example: ShowcaseExample; basePath: string }> = ({ example, basePath }) => (
+  <article className="edge seo-surface flex h-full flex-col rounded-3xl p-4 sm:p-5">
+    <div className="flex-1">
+      <h3 className="text-lg font-semibold tracking-tight text-gray-100 sm:text-xl">
+        {example.title}
       </h3>
-
-      {/* Fake Prompt Input */}
-      <div className="mb-6 sm:mb-8">
-        <div className="flex items-center gap-3 bg-gray-800/50 border border-gray-600 rounded-lg px-4 py-3">
-          <SparkleIcon className="w-5 h-5 text-cyan-400 flex-shrink-0" />
-          <p className="text-gray-300 italic text-sm sm:text-base leading-relaxed">
-            "{example.prompt}"
-          </p>
-        </div>
+      <div className="mt-4 flex min-h-20 items-start gap-3 rounded-2xl bg-black/20 px-3.5 py-3 text-sm leading-relaxed text-gray-300">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          className="mt-0.5 h-4 w-4 shrink-0 text-accent-300"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m12 3 .8 2.8a4.7 4.7 0 0 0 3.3 3.3L19 10l-2.9.8a4.7 4.7 0 0 0-3.3 3.3L12 17l-.8-2.9a4.7 4.7 0 0 0-3.3-3.3L5 10l2.9-.9a4.7 4.7 0 0 0 3.3-3.3L12 3Z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="m18.5 15 .4 1.2a2.4 2.4 0 0 0 1.5 1.5l1.1.3-1.1.4a2.4 2.4 0 0 0-1.5 1.5l-.4 1.1-.4-1.1a2.4 2.4 0 0 0-1.5-1.5l-1.1-.4 1.1-.3a2.4 2.4 0 0 0 1.5-1.5l.4-1.2Z" />
+        </svg>
+        <p>&ldquo;{example.prompt}&rdquo;</p>
       </div>
-
-      {/* Before/After Images Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        {/* Before Image */}
-        <div className="relative group">
-          <div className="absolute top-3 left-3 z-10">
-            <span className="bg-gray-800/90 backdrop-blur-sm text-gray-300 text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full border border-gray-600/50">
-              BEFORE
-            </span>
-          </div>
-          <div className="overflow-hidden rounded-lg shadow-lg">
-            <picture>
-              <source
-                srcSet={`${basePath}showcase/${example.before.image}-400w.webp 400w, ${basePath}showcase/${example.before.image}-800w.webp 800w`}
-                sizes="(max-width: 768px) 100vw, 50vw"
-                type="image/webp"
-              />
-              <img
-                src={`${basePath}showcase/${example.before.image}-800w.webp`}
-                alt={example.before.alt}
-                loading="lazy"
-                decoding="async"
-                className="w-full h-auto aspect-[4/3] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-              />
-            </picture>
-          </div>
-        </div>
-
-        {/* After Image */}
-        <div className="relative group">
-          <div className="absolute top-3 left-3 z-10">
-            <span className="bg-gradient-to-r from-blue-500 to-cyan-400 text-white text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full shadow-lg shadow-blue-500/20">
-              AFTER
-            </span>
-          </div>
-          <div className="overflow-hidden rounded-lg shadow-lg ring-1 ring-blue-500/20">
-            <picture>
-              <source
-                srcSet={`${basePath}showcase/${example.after.image}-400w.webp 400w, ${basePath}showcase/${example.after.image}-800w.webp 800w`}
-                sizes="(max-width: 768px) 100vw, 50vw"
-                type="image/webp"
-              />
-              <img
-                src={`${basePath}showcase/${example.after.image}-800w.webp`}
-                alt={example.after.alt}
-                loading="lazy"
-                decoding="async"
-                className="w-full h-auto aspect-[4/3] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-              />
-            </picture>
-          </div>
-        </div>
-      </div>
-
-      {/* Subtle Caption */}
-      <p className="text-center text-gray-500 text-sm mt-6">
-        {example.caption}
-      </p>
     </div>
-  );
-};
+
+    <figure className="mt-4">
+      <div className="grid grid-cols-2 gap-2.5">
+        <ExampleImage basePath={basePath} image={example.before.image} alt={example.before.alt} label="Before" />
+        <ExampleImage basePath={basePath} image={example.after.image} alt={example.after.alt} label="After" />
+      </div>
+      <figcaption className="px-1 pt-3 text-xs leading-relaxed text-gray-500">
+        {example.caption}
+      </figcaption>
+    </figure>
+  </article>
+);
 
 const BeforeAfterShowcase: React.FC = () => {
-  // Use Vite's base URL for correct asset paths in both dev and production
   const basePath = import.meta.env.BASE_URL || '/';
 
   return (
-    <section className="mt-16 w-full">
-      {/* Main Section Header */}
-      <div className="text-center mb-8">
-        <h2 className="text-3xl sm:text-4xl font-bold text-gray-100 mb-3">
-          See the <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">Magic</span> in Action
-        </h2>
-        <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-          Watch how simple text prompts transform reality
-        </p>
-      </div>
+    <section id="examples" aria-labelledby="examples-heading" className="scroll-mt-8 py-20 sm:py-28">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <header className="mx-auto max-w-3xl text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent-300">
+            AI image editing examples
+          </p>
+          <h2 id="examples-heading" className="mt-4 text-3xl font-semibold tracking-tight text-gray-100 sm:text-5xl">
+            See what a single prompt can do
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-gray-400 sm:text-lg">
+            Edit photos, transform architectural references, and explore new perspectives with natural-language instructions in VeilPix.
+          </p>
+        </header>
 
-      {/* Showcase Examples */}
-      <div className="flex flex-col gap-8">
-        {showcaseExamples.map((example) => (
-          <ShowcaseItem key={example.id} example={example} basePath={basePath} />
-        ))}
+        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+          {showcaseExamples.map((example) => (
+            <ShowcaseItem key={example.id} example={example} basePath={basePath} />
+          ))}
+        </div>
       </div>
     </section>
   );

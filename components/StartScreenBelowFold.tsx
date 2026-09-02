@@ -62,7 +62,7 @@ const StartScreenBelowFold: React.FC<StartScreenBelowFoldProps> = ({
             <VideoIcon className="w-6 h-6 text-blue-400" />
           </div>
           <h3 className="text-xl font-bold text-gray-100">AI Video Generation</h3>
-          <p className="mt-2 text-gray-400">Create Wan clips or use Seedance 2.0 for multimodal image, video, and audio reference workflows.</p>
+          <p className="mt-2 text-gray-400">Create Wan 3.0 clips from text, frames, images, videos, audio, files, or links, or use Seedance for multimodal workflows.</p>
         </div>
         <div className="bg-black/20 p-6 rounded-lg border border-gray-700/50 flex flex-col items-center text-center">
           <div className="flex items-center justify-center w-12 h-12 bg-gray-700 rounded-full mb-4">

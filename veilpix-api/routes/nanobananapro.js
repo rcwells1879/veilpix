@@ -2,13 +2,13 @@
  * Nano Banana Pro (Google Gemini 3 Pro Image) API Routes
  *
  * Uses Kie.ai API infrastructure with the nano-banana-pro model.
- * Uses the generation margin policy, with a flat price covering up to 4K.
+ * Retained for compatibility with older clients; pricing follows the shared
+ * after-fee margin floor even though the model is not in the current UI.
  */
 
 const express = require('express');
 const multer = require('multer');
 const { db, supabase } = require('../utils/database');
-const { veilpixCreditsFromKieCredits } = require('../utils/imageCreditPricing');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const {
     validateImageGeneration,
@@ -31,6 +31,8 @@ const {
     normalizeResponse,
     urlToBase64
 } = require('../utils/nanobananaproAdapter');
+const { getGenerationId, serializeImageGenerationResult } = require('../utils/imageGenerationJob');
+const { getNanoBananaProCreditCost } = require('../utils/imageCreditPricing');
 
 const router = express.Router();
 
@@ -69,8 +71,6 @@ const uploadMultiple = multer({
 // API configuration (uses same key as SeeDream)
 const API_KEY = process.env.SEEDREAM_API_KEY;
 const API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
-const CREDITS_PER_GENERATION = veilpixCreditsFromKieCredits(24);
-
 // Helper function to create Nano Banana Pro task
 async function createNanoBananaProTask(requestBody) {
     try {
@@ -181,14 +181,19 @@ async function callNanoBananaProAPI(requestBody) {
     }
 }
 
-// Deduct the full generation price atomically and track usage.
+// Helper function to deduct the resolution-aware charge and track usage
 async function deductCreditsAndTrack(req, startTime, requestType, result, success = true, errorMessage = null) {
     const { user } = req;
+    const generationId = getGenerationId(req);
+    const creditCost = req.creditsInfo?.required || getNanoBananaProCreditCost(req.body?.resolution);
+    const storedResult = success && generationId
+        ? serializeImageGenerationResult(result, creditCost)
+        : errorMessage;
 
-    console.log('CREDIT DEDUCT: Starting credit deduction and tracking', {
-        credits: CREDITS_PER_GENERATION,
+    console.log('CREDIT DEDUCT: Starting Nano Banana Pro credit deduction and tracking', {
         userId: user?.userId,
         requestType,
+        creditCost,
         success
     });
 
@@ -197,24 +202,27 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
             userId: user.id,
             clerkUserId: user.userId,
             requestType,
-            geminiRequestId: 'nanobananapro-' + Date.now(),
+            geminiRequestId: generationId || 'nanobananapro-' + Date.now(),
             imageSize: req.file?.size > 1024 * 1024 ? 'large' : 'medium',
             processingTimeMs: Date.now() - startTime,
             success,
-            errorMessage
+            errorMessage: storedResult
         });
 
         console.log('CREDIT DEDUCT: Successfully logged usage');
 
         if (success) {
-            const deductResult = await db.deductUserCredits(user.userId, CREDITS_PER_GENERATION);
+            console.log(`CREDIT DEDUCT: Deducting ${creditCost} credits for user:`, user.userId);
+            const deductResult = await db.deductUserCredits(user.userId, creditCost);
             if (!deductResult.success) {
                 console.error('CREDIT DEDUCT: Failed to deduct credits:', deductResult.error);
                 return false;
             }
 
+            console.log(`CREDIT DEDUCT: Successfully deducted ${creditCost} credits`);
+
             if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, Math.round((req.creditsInfo.remaining - CREDITS_PER_GENERATION) * 100) / 100);
+                req.creditsInfo.remaining = Math.max(0, Math.round((req.creditsInfo.remaining - creditCost) * 100) / 100);
             }
         }
 
@@ -226,7 +234,7 @@ async function deductCreditsAndTrack(req, startTime, requestType, result, succes
     }
 }
 
-// Check the same amount that will be deducted on success.
+// Check user has enough credits for the requested output resolution.
 async function checkUserCredits(req, res, next) {
     try {
         const { user } = req;
@@ -245,17 +253,19 @@ async function checkUserCredits(req, res, next) {
 
         console.log('CREDITS: User has credits:', credits);
 
-        if (credits < CREDITS_PER_GENERATION) {
+        const requiredCredits = getNanoBananaProCreditCost(req.body?.resolution);
+        if (credits < requiredCredits) {
+            console.log(`CREDITS: User has insufficient credits for Nano Banana Pro (needs ${requiredCredits})`);
             return res.status(402).json({
                 error: 'Insufficient credits',
-                message: `Nano Banana Pro requires ${CREDITS_PER_GENERATION} credits per image. You have ${credits} credit(s) remaining.`,
+                message: `Nano Banana Pro requires ${requiredCredits} credits per image. You have ${credits} credit(s) remaining.`,
                 creditsRemaining: credits,
-                creditsRequired: CREDITS_PER_GENERATION,
+                creditsRequired: requiredCredits,
                 requiresPayment: true
             });
         }
 
-        req.creditsInfo = { remaining: credits };
+        req.creditsInfo = { remaining: credits, required: requiredCredits };
         console.log('CREDITS: User has sufficient credits:', credits);
 
         next();
@@ -345,14 +355,13 @@ router.post('/generate-edit', upload.single('image'), validateImageFile, validat
         }
 
         usageLogged = await deductCreditsAndTrack(req, startTime, 'retouch', apiResponse);
-        if (!usageLogged) throw new Error('Unable to deduct image credits');
 
         res.json({
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -435,14 +444,13 @@ router.post('/generate-filter', upload.single('image'), validateImageFile, valid
         }
 
         usageLogged = await deductCreditsAndTrack(req, startTime, 'filter', apiResponse);
-        if (!usageLogged) throw new Error('Unable to deduct image credits');
 
         res.json({
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -526,14 +534,13 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
         }
 
         usageLogged = await deductCreditsAndTrack(req, startTime, 'adjust', apiResponse);
-        if (!usageLogged) throw new Error('Unable to deduct image credits');
 
         res.json({
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -622,14 +629,13 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         }
 
         usageLogged = await deductCreditsAndTrack(req, startTime, 'combine', apiResponse);
-        if (!usageLogged) throw new Error('Unable to deduct image credits');
 
         res.json({
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {
@@ -695,14 +701,13 @@ router.post('/generate-text-to-image', express.json(), checkUserCredits, async (
         }
 
         usageLogged = await deductCreditsAndTrack(req, startTime, 'text-to-image', apiResponse);
-        if (!usageLogged) throw new Error('Unable to deduct image credits');
 
         res.json({
             success: true,
             image: normalizedResponse.image,
             processingTime: Date.now() - startTime,
             creditsRemaining: req.creditsInfo?.remaining || 0,
-            creditsUsed: CREDITS_PER_GENERATION
+            creditsUsed: req.creditsInfo?.required
         });
 
     } catch (error) {

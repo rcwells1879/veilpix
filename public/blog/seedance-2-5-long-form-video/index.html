@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How to Make Long-Form Videos with Seedance 2.5 | VeilPix</title>
+    <meta name="title" content="How to Make Long-Form Videos with Seedance 2.5 | VeilPix" />
+    <meta name="description" content="Create longer Seedance 2.5 videos in VeilPix with 30-second clips, MP4 or MOV output, last-frame continuation, and video stitching." />
+    <meta name="keywords" content="Seedance 2.5 tutorial, Seedance 2.5 long-form video, 30 second AI video, continue from last frame, MP4 vs MOV, MOV video editing, AI video stitching, VeilPix video editor, ByteDance AI video" />
+    <meta name="author" content="VeilPix" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-video-preview:-1" />
+
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://veilstudio.io/veilpix/blog/seedance-2-5-long-form-video/" />
+    <meta property="og:title" content="How to Make Long-Form AI Videos with Seedance 2.5" />
+    <meta property="og:description" content="A practical VeilPix workflow for 30-second Seedance 2.5 clips, MP4 or MOV output, seamless continuation, and final stitching." />
+    <meta property="og:image" content="https://veilstudio.io/veilpix/og-image.webp" />
+    <meta property="og:image:alt" content="VeilPix AI image and video creative workspace" />
+    <meta property="article:published_time" content="2026-08-08" />
+    <meta property="article:modified_time" content="2026-08-08" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Make Longer Seedance 2.5 Videos in VeilPix" />
+    <meta name="twitter:description" content="Generate 30-second clips, choose MP4 or MOV, continue from the last frame, and stitch a longer sequence." />
+    <meta name="twitter:image" content="https://veilstudio.io/veilpix/og-image.webp" />
+
+    <link rel="canonical" href="https://veilstudio.io/veilpix/blog/seedance-2-5-long-form-video/" />
+    <link rel="icon" href="/veilpix/favicon.png" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; min-height: 100vh; overflow-x: hidden; }
+        .article-copy p { margin-top: 1rem; color: rgb(209 213 219); line-height: 1.8; }
+        .article-copy h2 { margin-top: 3rem; color: white; font-size: 1.875rem; line-height: 2.25rem; font-weight: 700; }
+        .article-copy h3 { margin-top: 2rem; color: white; font-size: 1.25rem; line-height: 1.75rem; font-weight: 700; }
+        .article-copy ul, .article-copy ol { margin-top: 1rem; color: rgb(209 213 219); padding-left: 1.5rem; }
+        .article-copy ul { list-style: disc; }
+        .article-copy ol { list-style: decimal; }
+        .article-copy li { margin-top: .65rem; line-height: 1.75; }
+        .article-copy a { color: rgb(96 165 250); text-decoration: underline; text-underline-offset: 3px; }
+        .article-copy strong { color: white; }
+        .article-copy code { color: rgb(191 219 254); background: rgb(255 255 255 / .07); border: 1px solid rgb(255 255 255 / .1); border-radius: .35rem; padding: .1rem .35rem; }
+    </style>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "headline": "How to Make Long-Form AI Videos with Seedance 2.5 in VeilPix",
+      "description": "A practical workflow for building longer Seedance 2.5 videos from 30-second clips with MP4 or MOV output, last-frame continuation, and video stitching.",
+      "author": { "@type": "Organization", "name": "VeilPix" },
+      "publisher": { "@type": "Organization", "name": "VeilPix", "url": "https://veilstudio.io/veilpix/" },
+      "datePublished": "2026-08-08",
+      "dateModified": "2026-08-08",
+      "mainEntityOfPage": { "@type": "WebPage", "@id": "https://veilstudio.io/veilpix/blog/seedance-2-5-long-form-video/" },
+      "image": "https://veilstudio.io/veilpix/og-image.webp",
+      "keywords": ["Seedance 2.5", "long-form AI video", "30-second AI video", "MP4", "MOV", "last-frame continuation", "VeilPix"]
+    }
+    </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {"@type":"ListItem","position":1,"name":"VeilPix","item":"https://veilstudio.io/veilpix/"},
+        {"@type":"ListItem","position":2,"name":"Blog","item":"https://veilstudio.io/veilpix/blog/"},
+        {"@type":"ListItem","position":3,"name":"Seedance 2.5 long-form video guide","item":"https://veilstudio.io/veilpix/blog/seedance-2-5-long-form-video/"}
+      ]
+    }
+    </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      "name": "How to continue a Seedance 2.5 video in VeilPix",
+      "description": "Create connected Seedance 2.5 clips by using each finished clip's last frame as the next clip's first frame.",
+      "totalTime": "PT15M",
+      "step": [
+        {"@type":"HowToStep","position":1,"name":"Select Seedance 2.5","text":"Open Video mode and select Seedance 2.5 from the Model menu."},
+        {"@type":"HowToStep","position":2,"name":"Choose duration and format","text":"Set a duration up to 30 seconds, then choose MP4 or MOV under Options."},
+        {"@type":"HowToStep","position":3,"name":"Request the last frame","text":"Enable Return last frame under Options and generate the first clip."},
+        {"@type":"HowToStep","position":4,"name":"Continue the scene","text":"Select Continue from last frame below the result. VeilPix saves the frame to the local gallery and places it in the next clip's start-frame slot."},
+        {"@type":"HowToStep","position":5,"name":"Stitch the clips","text":"Repeat as needed, then open Video Editor to stitch two clips, save the result, and combine it with additional clips."}
+      ]
+    }
+    </script>
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How long can a Seedance 2.5 video be in VeilPix?",
+          "acceptedAnswer": {"@type":"Answer","text":"One Seedance 2.5 generation can be up to 30 seconds. Longer projects are built by continuing from the last frame and stitching the connected clips."}
+        },
+        {
+          "@type": "Question",
+          "name": "Should I choose MP4 or MOV for Seedance 2.5?",
+          "acceptedAnswer": {"@type":"Answer","text":"Choose MP4 for broad playback and publishing compatibility. Choose MOV when your editing workflow or Apple-oriented production tools prefer the QuickTime container. Container choice alone does not guarantee higher image quality; codec and export settings also matter."}
+        },
+        {
+          "@type": "Question",
+          "name": "What happens if Seedance 2.5 does not return a last-frame image?",
+          "acceptedAnswer": {"@type":"Answer","text":"VeilPix falls back to extracting the latest usable non-black frame from the generated video, saves it as an image in the browser-local gallery, and uses it as the next clip's first frame."}
+        }
+      ]
+    }
+    </script>
+</head>
+<body class="bg-[#05070c] text-white">
+    <div class="fixed inset-0 -z-10 bg-gradient-to-br from-[#020106] via-[#0a1629] to-[#064b63]"></div>
+
+    <nav class="w-full border-b border-white/10 bg-black/30 backdrop-blur-sm">
+        <div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
+            <a href="../../" class="text-2xl font-bold text-white transition-colors hover:text-blue-300">VeilPix</a>
+            <div class="flex items-center space-x-6">
+                <a href="../../" class="text-gray-300 transition-colors hover:text-white">Editor</a>
+                <a href="../" class="font-semibold text-blue-400">Blog</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="mx-auto max-w-4xl px-4 py-10 sm:py-14">
+        <nav class="text-sm text-gray-400" aria-label="Breadcrumb">
+            <a href="../../" class="hover:text-white">VeilPix</a>
+            <span class="px-2">/</span>
+            <a href="../" class="hover:text-white">Blog</a>
+            <span class="px-2">/</span>
+            <span class="text-gray-200">Seedance 2.5 long-form video</span>
+        </nav>
+
+        <article class="article-copy">
+            <header class="mt-10 border-b border-white/10 pb-10">
+                <div class="flex flex-wrap items-center gap-3 text-sm">
+                    <span class="rounded-full border border-blue-300/20 bg-blue-400/10 px-3 py-1 font-semibold text-blue-300">Video Tutorial</span>
+                    <time datetime="2026-08-08" class="text-gray-400">August 8, 2026</time>
+                    <span class="text-gray-500">10 min read</span>
+                </div>
+                <h1 class="mt-6 text-4xl font-bold leading-tight tracking-tight text-white md:text-5xl">
+                    How to make long-form AI videos with Seedance 2.5 in VeilPix
+                </h1>
+                <p class="!mt-6 max-w-3xl !text-lg !leading-8 text-gray-300">
+                    Seedance 2.5 can generate a complete clip up to 30 seconds long. For a longer story, VeilPix lets you carry the final frame into the next generation, repeat the process, and stitch the connected clips into one sequence.
+                </p>
+            </header>
+
+            <section class="mt-10 rounded-2xl border border-blue-300/20 bg-blue-400/10 p-6">
+                <h2 class="!mt-0 !text-xl">The short version</h2>
+                <p>Select <strong>Video</strong>, choose <strong>Seedance 2.5</strong>, set a duration up to <strong>30 seconds</strong>, and choose <strong>MP4</strong> or <strong>MOV</strong>. After generation, select <strong>Continue from last frame</strong>. VeilPix saves that frame as an image in your local gallery and prepares it as the starting frame for the next clip. Repeat, then combine the clips in <strong>Video Editor</strong>.</p>
+            </section>
+
+            <h2>Why the 30-second length matters</h2>
+            <p>Most AI video work is easier to direct in scenes rather than as one very long request. Seedance 2.5 raises the available clip length to 30 seconds, which gives a single generation more room for an establishing shot, an action, and a visual conclusion. That is long enough for a product beat, a short dialogue moment, a social video segment, or one scene in a larger sequence.</p>
+            <p>A longer project is still best treated as connected segments. Write a simple scene outline before generating:</p>
+            <ul>
+                <li><strong>Clip 1:</strong> establish the subject, location, lighting, and camera direction.</li>
+                <li><strong>Clip 2:</strong> continue the action without resetting the character or environment.</li>
+                <li><strong>Clip 3:</strong> resolve the movement, reveal, or narrative beat.</li>
+            </ul>
+            <p>Use the end of each prompt to describe the visual state you want to carry forward. The last-frame workflow preserves the image boundary, while the next prompt tells Seedance what should happen after that boundary.</p>
+
+            <h2>MP4 versus MOV: which format should you use?</h2>
+            <p>Seedance 2.5 in VeilPix offers both <code>.mp4</code> and <code>.mov</code> output. These are containers: they organize encoded video and audio for playback and editing. The container alone does not guarantee a different image quality, so the best choice depends on what you will do next.</p>
+
+            <div class="mt-6 overflow-x-auto rounded-2xl border border-white/10">
+                <table class="w-full min-w-[640px] border-collapse text-left text-sm text-gray-300">
+                    <thead class="bg-white/[0.06] text-white">
+                        <tr>
+                            <th class="p-4 font-semibold">Format</th>
+                            <th class="p-4 font-semibold">Best for</th>
+                            <th class="p-4 font-semibold">Why choose it</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/10">
+                        <tr>
+                            <td class="p-4 font-semibold text-white">MP4</td>
+                            <td class="p-4">Sharing, websites, social platforms, and broad device playback</td>
+                            <td class="p-4">MP4 is the safest default when compatibility and easy delivery matter most.</td>
+                        </tr>
+                        <tr>
+                            <td class="p-4 font-semibold text-white">MOV</td>
+                            <td class="p-4">Editing and Apple-oriented production workflows</td>
+                            <td class="p-4">MOV is a natural fit for QuickTime-based tools and is often more convenient in professional editing pipelines that expect the container and its metadata conventions.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p><strong>Choose MOV when editing is your next step.</strong> It is especially practical when your editor, ingest preset, or Apple production workflow prefers QuickTime media. Choose MP4 when you want the most widely playable delivery file. If you plan to edit and publish, you can generate MOV, complete the edit, and export a final MP4 from your editor.</p>
+
+            <h2>Step by step: create the first 30-second clip</h2>
+            <ol>
+                <li>Open <a href="../../">VeilPix</a> and select <strong>Video</strong> above the prompt composer.</li>
+                <li>Open <strong>Model</strong> and choose <strong>Seedance 2.5</strong>.</li>
+                <li>Open <strong>Duration</strong>. Choose <strong>Automatic</strong> if you want the model to select a length from 4 to 30 seconds, or set an exact duration up to <strong>30 seconds</strong>.</li>
+                <li>Choose the aspect ratio and resolution that match the final destination. VeilPix currently exposes the 480p and 720p choices documented by the active API.</li>
+                <li>For text-to-video, open <strong>References</strong>, leave <strong>Style &amp; characters</strong> selected, and do not add media. For image-to-video, video-to-video, or multimodal work, add the relevant images, videos, or audio there.</li>
+                <li>Open <strong>Options</strong>. Choose <strong>MOV</strong> for an editing-oriented workflow or <strong>MP4</strong> for maximum playback compatibility.</li>
+                <li>Enable <strong>Return last frame</strong>. This asks the provider to include a separate final-frame image with the completed video.</li>
+                <li>Write the first scene prompt and select <strong>Generate</strong>.</li>
+            </ol>
+
+            <h2>How to continue from the last frame</h2>
+            <p>When the first clip finishes, preview the ending and select <strong>Continue from last frame</strong> below the video. VeilPix follows one shared continuation process:</p>
+            <ol>
+                <li>If Seedance returned a dedicated last-frame image, VeilPix uses it first.</li>
+                <li>If that image is missing or cannot be downloaded, VeilPix extracts the latest usable non-black frame from the video.</li>
+                <li>The resolved frame is saved as a normal image in your browser-local VeilPix gallery.</li>
+                <li>VeilPix switches to Seedance frame mode and places the image in the <strong>Start frame</strong> slot.</li>
+                <li>Write the prompt for the next action and generate the next clip.</li>
+            </ol>
+            <p>You do not have to enable <strong>Return last frame</strong> for continuation to work. The legacy video-frame extractor remains available as a fallback. Enabling the option is preferable because a provider-created frame avoids browser seeking and video boundary artifacts, while the extractor keeps the workflow resilient.</p>
+
+            <h3>Write continuation prompts as the next beat</h3>
+            <p>Do not repeat the entire first prompt as though the scene is starting over. The start frame already carries the visible character, environment, and composition. Describe the next action, the camera behavior, and what should remain consistent.</p>
+            <div class="mt-5 rounded-2xl border border-white/10 bg-black/25 p-5">
+                <p class="!mt-0 text-sm font-semibold uppercase tracking-wider text-gray-500">Continuation prompt pattern</p>
+                <p class="!mt-3"><strong>Continue from the supplied frame.</strong> The subject [next action]. The camera [movement]. Preserve [character, wardrobe, environment, lighting]. End with [the visual state needed for the following clip].</p>
+            </div>
+
+            <h2>Stitch the clips into a longer video</h2>
+            <p>After generating the connected clips, open <strong>Video Editor</strong> below a video result. The editor combines two clips at a time:</p>
+            <ol>
+                <li>Add the first clip to Clip 1 and the continuation to Clip 2.</li>
+                <li>Select <strong>Stitch videos</strong> and keep the tab open while VeilPix renders both clips.</li>
+                <li>Preview the joined result, then download it or select <strong>Save to gallery</strong>.</li>
+                <li>For three or more clips, use the saved stitched result as Clip 1 and add the next continuation as Clip 2. Repeat until the sequence is complete.</li>
+            </ol>
+            <p>Because every continuation begins from the prior clip's resolved frame, the cut has a stronger visual match than two unrelated generations. Movement can still change across the boundary, so use compatible camera direction and action language on both sides of the edit.</p>
+
+            <h2>Practical tips for a more consistent long-form result</h2>
+            <ul>
+                <li><strong>Keep a continuity note.</strong> Reuse short descriptions for wardrobe, lighting, lens style, time of day, and recurring objects.</li>
+                <li><strong>Plan around visible transitions.</strong> A held pose, closed door, completed camera move, or settled product shot gives the next clip a stable place to begin.</li>
+                <li><strong>Use references selectively.</strong> Character and style images can improve continuity, but exact first-frame mode and multimodal reference mode are separate workflows.</li>
+                <li><strong>Review the last second before continuing.</strong> If the scene fades to black, choose a better stopping point in the prompt. VeilPix's fallback extractor searches backward for a usable non-black image.</li>
+                <li><strong>Match your format to the workflow.</strong> Use MOV when the files are headed into a compatible editor; use MP4 for direct publishing and easy playback.</li>
+                <li><strong>Save intermediate stitches.</strong> A saved two-clip result makes it easier to build a longer sequence without losing the original segments.</li>
+            </ul>
+
+            <h2>Frequently asked questions</h2>
+            <h3>Does Seedance 2.5 create one unlimited-length video?</h3>
+            <p>No. A single VeilPix Seedance 2.5 generation is up to 30 seconds. Long-form projects are assembled from multiple connected clips.</p>
+
+            <h3>Is MOV always higher quality than MP4?</h3>
+            <p>No. MOV can be more editing-friendly because many production tools and Apple workflows handle the QuickTime container naturally, but the codec and export settings also determine quality and editing performance. MP4 remains the stronger default for delivery compatibility.</p>
+
+            <h3>Where is the continuation frame stored?</h3>
+            <p>VeilPix saves it as an image in the creation gallery stored locally in your browser. It can be reopened or used as another image reference like other gallery images.</p>
+
+            <h3>Can I continue when Return last frame was turned off?</h3>
+            <p>Yes. Select <strong>Continue from last frame</strong> and VeilPix will extract a usable image from the generated video. The provider-returned image is the preferred path, not a replacement for the existing fallback.</p>
+
+            <h2>Sources and further reading</h2>
+            <ul>
+                <li><a href="https://docs.kie.ai/market/bytedance/seedance-2-5" target="_blank" rel="noopener">Kie.ai Seedance 2.5 API documentation</a></li>
+                <li><a href="https://kie.ai/seedance-2-5" target="_blank" rel="noopener">Kie.ai Seedance 2.5 model and feature page</a></li>
+                <li><a href="../../privacy/">VeilPix privacy and browser-local storage details</a></li>
+            </ul>
+
+            <section class="mt-12 rounded-2xl border border-white/15 bg-gradient-to-r from-blue-600/20 to-cyan-500/10 p-7 text-center">
+                <h2 class="!mt-0">Start a Seedance 2.5 video in VeilPix</h2>
+                <p class="mx-auto max-w-2xl">Create a 30-second scene, continue from its final frame, and build the connected clips into a longer project.</p>
+                <a href="../../" class="mt-6 inline-block rounded-lg bg-blue-500 px-6 py-3 font-semibold !text-white !no-underline transition hover:bg-blue-400">Open VeilPix</a>
+            </section>
+        </article>
+    </main>
+
+    <footer class="mt-16 border-t border-white/10 bg-black/20">
+        <div class="mx-auto flex max-w-4xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-gray-400 sm:flex-row">
+            <span>&copy; 2026 VeilPix. Privacy-first AI image and video generation.</span>
+            <div class="flex gap-6">
+                <a href="../../" class="hover:text-white">Editor</a>
+                <a href="../" class="hover:text-white">Blog</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

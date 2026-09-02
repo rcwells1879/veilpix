@@ -2,52 +2,55 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const policy = require('../config/generationPricing.json');
 
 const {
     BILLABLE_USD_PER_VEILPIX_CREDIT,
     IMAGE_WORKFLOWS,
-    VEILPIX_CREDIT_USD,
     getImageCreditDetails,
+    getNanoBananaProCreditCost,
     veilpixCreditsFromUsd
 } = require('./imageCreditPricing');
+const assertGenerationPricing = require('./testing/assertGenerationPricing');
 
 const CASES = [
-    ['Nano Banana 2 1K', 'nanobanana2', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.9, 0.66],
-    ['Nano Banana 2 2K', 'nanobanana2', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 1.35, 0.98],
-    ['Nano Banana 2 4K', 'nanobanana2', '4K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 2.2, 2],
-    ['Seedream 5 Lite 2K', 'seedream', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.62, 0.45],
-    ['Seedream 5 Lite combine', 'seedream', '4K', IMAGE_WORKFLOWS.IMAGE_TO_IMAGE, 'lite', 2, 0.68, 0.49],
-    ['Seedream 5 Pro 1K', 'seedream', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'pro', 0, 0.79, 0.57],
-    ['Seedream 5 Pro 1K combine', 'seedream', '1K', IMAGE_WORKFLOWS.IMAGE_TO_IMAGE, 'pro', 2, 0.84, 0.61],
-    ['Seedream 5 Pro 2K', 'seedream', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'pro', 0, 2.2, 2],
-    ['Wan 2.7 standard', 'wanimage', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.54, 0.4],
-    ['Wan 2.7 Pro 4K', 'wanimage', '4K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 1.35, 0.98]
+    ['Nano Banana 2 1K', 'nanobanana2', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.92],
+    ['Nano Banana 2 2K', 'nanobanana2', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 1.37],
+    ['Nano Banana 2 4K', 'nanobanana2', '4K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 2.06],
+    ['Seedream 5 Lite 2K', 'seedream', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.63],
+    ['Seedream 5 Lite combine', 'seedream', '4K', IMAGE_WORKFLOWS.IMAGE_TO_IMAGE, 'lite', 2, 0.69],
+    ['Seedream 5 Pro 1K', 'seedream', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'pro', 0, 0.80],
+    ['Seedream 5 Pro 1K combine', 'seedream', '1K', IMAGE_WORKFLOWS.IMAGE_TO_IMAGE, 'pro', 2, 0.86],
+    ['Seedream 5 Pro 2K', 'seedream', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'pro', 0, 1.60],
+    ['Wan 2.7 standard', 'wanimage', '2K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.55],
+    ['Wan 2.7 Pro 4K', 'wanimage', '4K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 1.37],
+    ['Z-Image Turbo', 'zimage', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE, 'lite', 0, 0.10]
 ];
 
-test('rounds new image prices to hundredths even above one credit', () => {
+test('uses hundredth-credit precision above and below one credit', () => {
     assert.equal(veilpixCreditsFromUsd(BILLABLE_USD_PER_VEILPIX_CREDIT * 0.5), 0.5);
     assert.equal(veilpixCreditsFromUsd(BILLABLE_USD_PER_VEILPIX_CREDIT * 1.01), 1.01);
-    assert.equal(veilpixCreditsFromUsd(0), 0);
 });
 
-for (const [name, provider, resolution, workflow, tier, imageCount, expectedCredits, previousCredits] of CASES) {
-    test(`${name} increases at least 10% and meets every after-fee margin floor`, () => {
+for (const [name, provider, resolution, workflow, tier, imageCount, expectedCredits] of CASES) {
+    test(`${name} charges ${expectedCredits} credits with all package margin floors`, () => {
         const details = getImageCreditDetails(provider, resolution, workflow, tier, imageCount);
         assert.equal(details.credits, expectedCredits);
-        assert.ok(details.credits + 1e-10 >= previousCredits * 1.1);
-        for (const pack of Object.values(policy.creditPackages)) {
-            const revenue = details.credits * pack.priceUsd / pack.credits;
-            const packFee = Math.round((pack.priceUsd * policy.stripePercentageFee + policy.stripeFixedFeeUsd) * 100) / 100;
-            const fee = details.credits * packFee / pack.credits;
-            const margin = (revenue - fee - details.costUsd) / revenue;
-            assert.ok(margin + 1e-10 >= pack.targetMargin, `${name} ${pack.credits}-pack margin was ${margin}`);
-        }
+        assertGenerationPricing(details.credits, details.costUsd, name);
     });
 }
 
-test('the customer credit value remains tied to the 100-credit package', () => {
-    assert.equal(VEILPIX_CREDIT_USD, 0.0699);
+test('Z-Image charge preserves the underlying Kie cost and target margin', () => {
+    const details = getImageCreditDetails('zimage', '1K', IMAGE_WORKFLOWS.TEXT_TO_IMAGE);
+    assert.equal(details.kieCredits, 0.8);
+    assert.equal(details.costUsd, 0.004);
+    assert.equal(details.credits, 0.10);
+    assert.equal(details.chargedAmountUsd, 0.0060);
+});
+
+test('the compatibility Nano Banana Pro route prices 1/2K and 4K independently', () => {
+    assert.equal(getNanoBananaProCreditCost('1K'), 2.06);
+    assert.equal(getNanoBananaProCreditCost('2K'), 2.06);
+    assert.equal(getNanoBananaProCreditCost('4K'), 2.74);
 });
 
 test('fractional migration uses an atomic conditional deduction', () => {

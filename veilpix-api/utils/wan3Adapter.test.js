@@ -1,0 +1,108 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+    KIE_CREDIT_USD,
+    WAN3_PRICING,
+    WAN3_MODELS,
+    buildWan3Request,
+    estimateWan3KieCredits,
+    estimateWan3VeilPixCredits,
+    normalizeWan3Response
+} = require('./wan3Adapter');
+const assertGenerationPricing = require('./testing/assertGenerationPricing');
+
+test('maps every Wan 3.0 reference type and After Dark setting', () => {
+    const payload = buildWan3Request('Use Image1 and Video1', {
+        variant: 'prime',
+        inputMode: 'references',
+        duration: 5,
+        resolution: '480p',
+        aspectRatio: '9:16',
+        referenceImages: ['https://example.com/image.png'],
+        referenceVideos: ['https://example.com/video.mp4'],
+        referenceAudios: ['https://example.com/audio.mp3'],
+        audio: false,
+        seed: 42,
+        nsfwFilterEnabled: false
+    });
+
+    assert.equal(payload.model, WAN3_MODELS.prime);
+    assert.deepEqual(payload.input.reference_image_urls, ['https://example.com/image.png']);
+    assert.deepEqual(payload.input.reference_video_urls, ['https://example.com/video.mp4']);
+    assert.deepEqual(payload.input.reference_audio_urls, ['https://example.com/audio.mp3']);
+    assert.equal(payload.input.resolution, '480P');
+    assert.equal(payload.input.aspect_ratio, '9:16');
+    assert.equal(payload.input.audio, false);
+    assert.equal(payload.input.nsfw_checker, false);
+    assert.equal(payload.input.seed, 42);
+});
+
+test('supports frames, file, link, and text-only modes without mixing them', () => {
+    assert.equal(buildWan3Request('Animate', {
+        inputMode: 'frames',
+        firstFrameUrl: 'https://example.com/start.png',
+        lastFrameUrl: 'https://example.com/end.png'
+    }).input.last_frame_url, 'https://example.com/end.png');
+    assert.deepEqual(buildWan3Request('Use file', {
+        inputMode: 'file',
+        referenceFileUrl: 'https://example.com/brief.pdf'
+    }).input.reference_file_urls, ['https://example.com/brief.pdf']);
+    assert.deepEqual(buildWan3Request('Use link', {
+        inputMode: 'link',
+        referenceLink: 'https://example.com/article'
+    }).input.reference_link_urls, ['https://example.com/article']);
+    assert.equal(buildWan3Request('Text only', { inputMode: 'references' }).input.reference_image_urls, undefined);
+    assert.throws(() => buildWan3Request('Mixed', {
+        inputMode: 'frames',
+        firstFrameUrl: 'https://example.com/start.png',
+        referenceImages: ['https://example.com/ref.png']
+    }), /cannot be combined/);
+});
+
+test('prices Standard and Prime from current Kie per-second credit rates', () => {
+    assert.equal(estimateWan3KieCredits({ variant: 'standard', resolution: '480P', duration: 5 }), 40);
+    assert.equal(estimateWan3VeilPixCredits({ variant: 'standard', resolution: '480P', duration: 5 }), 4.57);
+    assert.equal(estimateWan3KieCredits({ variant: 'prime', resolution: '480P', duration: 5 }), 61);
+    assert.equal(estimateWan3VeilPixCredits({ variant: 'prime', resolution: '480P', duration: 5 }), 6.97);
+});
+
+test('adds reference-video duration but not image or audio references to Wan 3.0 billing', () => {
+    const context = {
+        variant: 'prime',
+        resolution: '720P',
+        duration: 6,
+        hasVideoReference: true,
+        referenceVideoDuration: 6
+    };
+    assert.equal(estimateWan3KieCredits(context), 302.4);
+    assert.equal(estimateWan3VeilPixCredits(context), 34.52);
+    assert.equal(estimateWan3KieCredits({ ...context, hasVideoReference: false }), 151.2);
+});
+
+test('every Wan 3.0 tier, resolution, duration, and video-reference path preserves the margin', () => {
+    for (const variant of Object.keys(WAN3_PRICING)) {
+        for (const resolution of Object.keys(WAN3_PRICING[variant])) {
+            for (const duration of [2, 6, 30]) {
+                for (const referenceVideoDuration of [0, 6, 15]) {
+                    if (duration + referenceVideoDuration > 30) continue;
+                    const context = {
+                        variant,
+                        resolution,
+                        duration,
+                        hasVideoReference: referenceVideoDuration > 0,
+                        referenceVideoDuration
+                    };
+                    const providerCostUsd = estimateWan3KieCredits(context) * KIE_CREDIT_USD;
+                    assertGenerationPricing(estimateWan3VeilPixCredits(context), providerCostUsd, `${variant} ${resolution}`);
+                }
+            }
+        }
+    }
+});
+
+test('normalizes Kie Wan 3.0 task results', () => {
+    assert.deepEqual(normalizeWan3Response(JSON.stringify({ resultUrls: ['https://example.com/result.mp4'] })), {
+        success: true,
+        videoUrl: 'https://example.com/result.mp4'
+    });
+});

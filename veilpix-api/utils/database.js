@@ -151,10 +151,32 @@ async function reconcileUserFromEmailMatch(supabase, currentUser, matchedUser, c
     return data;
 }
 
+async function reactivateDeletedUser(supabase, user) {
+    if (!user?.deleted_at) {
+        return user;
+    }
+
+    const { data, error } = await supabase
+        .from('users')
+        .update({
+            deleted_at: null,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id)
+        .select()
+        .single();
+
+    if (error) {
+        throw error;
+    }
+
+    return data;
+}
+
 // Database utility functions
 const db = {
     // User management
-    async createOrGetUser(clerkUserId, email) {
+    async createOrGetUser(clerkUserId, email, { reactivateDeleted = false } = {}) {
         try {
             console.log('🔍 DB: createOrGetUser called with:', { clerkUserId, email });
             const supabase = getSupabaseClient();
@@ -178,10 +200,13 @@ const db = {
 
             if (existingUser && !fetchError) {
                 console.log('🔍 DB: Found existing user, returning');
-                const matchedUser = await findUserByEmail(supabase, normalizedEmail, email, existingUser.id);
+                const activeUser = reactivateDeleted
+                    ? await reactivateDeletedUser(supabase, existingUser)
+                    : existingUser;
+                const matchedUser = await findUserByEmail(supabase, normalizedEmail, email, activeUser.id);
                 const reconciledUser = await reconcileUserFromEmailMatch(
                     supabase,
-                    existingUser,
+                    activeUser,
                     matchedUser,
                     clerkUserId,
                     email,
@@ -193,14 +218,20 @@ const db = {
             const sameEmailUser = await findUserByEmail(supabase, normalizedEmail, email);
             if (sameEmailUser && !fetchError) {
                 console.log('DB: Found same-email user for new Clerk ID, migrating row');
+                const migrationData = {
+                    clerk_user_id: clerkUserId,
+                    email: sameEmailUser.email || email,
+                    normalized_email: sameEmailUser.normalized_email || normalizedEmail,
+                    updated_at: new Date().toISOString()
+                };
+
+                if (reactivateDeleted && Object.hasOwn(sameEmailUser, 'deleted_at')) {
+                    migrationData.deleted_at = null;
+                }
+
                 const { data: migratedUser, error: migrateError } = await supabase
                     .from('users')
-                    .update({
-                        clerk_user_id: clerkUserId,
-                        email: sameEmailUser.email || email,
-                        normalized_email: sameEmailUser.normalized_email || normalizedEmail,
-                        updated_at: new Date().toISOString()
-                    })
+                    .update(migrationData)
                     .eq('id', sameEmailUser.id)
                     .select()
                     .single();
@@ -247,6 +278,29 @@ const db = {
         }
     },
 
+    async markClerkUserDeleted(clerkUserId) {
+        const supabase = getSupabaseClient();
+        const deletedAt = new Date().toISOString();
+        const { data, error } = await supabase
+            .from('users')
+            .update({
+                deleted_at: deletedAt,
+                updated_at: deletedAt
+            })
+            .eq('clerk_user_id', clerkUserId)
+            .select('id')
+            .limit(1);
+
+        if (error) {
+            throw error;
+        }
+
+        return {
+            found: Boolean(data?.length),
+            deletedAt
+        };
+    },
+
     // Usage tracking
     async logUsage({
         userId,
@@ -263,6 +317,32 @@ const db = {
     }) {
         try {
             const supabase = getSupabaseClient();
+            let storedErrorMessage = errorMessage;
+
+            // Successful provider outputs are retained only in the private,
+            // short-lived delivery outbox. The usage log keeps the delivery
+            // receipt rather than a long-lived provider media URL.
+            if (success && typeof geminiRequestId === 'string') {
+                const {
+                    parseSerializedGenerationResult,
+                    stageMediaDelivery
+                } = require('./mediaDelivery');
+                const serializedResult = parseSerializedGenerationResult(errorMessage);
+                if (serializedResult) {
+                    const delivery = await stageMediaDelivery({
+                        clerkUserId,
+                        generationId: geminiRequestId,
+                        artifactType: serializedResult.artifactType,
+                        provider: requestType,
+                        sourceUrl: serializedResult.sourceUrl
+                    });
+                    storedErrorMessage = JSON.stringify({
+                        deliveryId: delivery.id,
+                        artifactType: delivery.artifact_type,
+                        creditsUsed: serializedResult.result.creditsUsed
+                    });
+                }
+            }
             
             const { data, error } = await supabase
                 .from('usage_logs')
@@ -277,7 +357,7 @@ const db = {
                     image_size: imageSize,
                     processing_time_ms: processingTimeMs,
                     success,
-                    error_message: errorMessage
+                    error_message: storedErrorMessage
                 })
                 .select()
                 .single();
@@ -290,6 +370,173 @@ const db = {
         } catch (error) {
             console.error('Error logging usage:', error);
             throw error;
+        }
+    },
+
+    async createPendingVideoGenerationJob({
+        userId,
+        clerkUserId,
+        requestType,
+        generationId,
+        providerState
+    }) {
+        const supabase = getSupabaseClient();
+        const {
+            parsePendingVideoGeneration,
+            serializePendingVideoGeneration
+        } = require('./videoGenerationJob');
+        const { data: existing, error: lookupError } = await supabase
+            .from('usage_logs')
+            .select('*')
+            .eq('clerk_user_id', clerkUserId)
+            .eq('gemini_request_id', generationId)
+            .eq('request_type', requestType)
+            .order('created_at', { ascending: false })
+            .limit(1);
+        if (lookupError) throw lookupError;
+        if (existing?.[0]) {
+            const record = existing[0];
+            if (record.success || parsePendingVideoGeneration(record.error_message)) return record;
+            throw new Error('This generation ID already has a terminal result');
+        }
+
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .insert({
+                user_id: userId,
+                clerk_user_id: clerkUserId,
+                request_type: requestType,
+                gemini_request_id: generationId,
+                image_size: 'video',
+                processing_time_ms: 0,
+                success: false,
+                error_message: serializePendingVideoGeneration(providerState)
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    async listPendingVideoGenerationJobs(client = null) {
+        const supabase = client || getSupabaseClient();
+        const { VIDEO_GENERATION_REQUEST_TYPES } = require('./videoGenerationJob');
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .select('id,user_id,clerk_user_id,request_type,gemini_request_id,error_message,created_at')
+            .in('request_type', VIDEO_GENERATION_REQUEST_TYPES)
+            .eq('success', false)
+            .like('error_message', '%"status":"provider_pending"%')
+            .order('created_at', { ascending: true })
+            .limit(50);
+        if (error) throw error;
+        return data || [];
+    },
+
+    async completePendingVideoGenerationJob({
+        jobId,
+        clerkUserId,
+        generationId,
+        requestType,
+        deliveryProvider = requestType,
+        sourceUrl,
+        sourceHeaders,
+        creditsUsed,
+        processingTimeMs
+    }) {
+        const { stageMediaDelivery } = require('./mediaDelivery');
+        const delivery = await stageMediaDelivery({
+            clerkUserId,
+            generationId,
+            artifactType: 'video',
+            provider: deliveryProvider,
+            sourceUrl,
+            sourceHeaders
+        });
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .update({
+                success: true,
+                processing_time_ms: processingTimeMs,
+                error_message: JSON.stringify({
+                    deliveryId: delivery.id,
+                    artifactType: delivery.artifact_type,
+                    creditsUsed
+                })
+            })
+            .eq('id', jobId)
+            .eq('clerk_user_id', clerkUserId)
+            .eq('gemini_request_id', generationId)
+            .eq('success', false)
+            .select()
+            .limit(1);
+        if (error) throw error;
+        return { delivery, updated: data?.[0] || null };
+    },
+
+    async failPendingVideoGenerationJob({
+        jobId,
+        clerkUserId,
+        generationId,
+        message,
+        processingTimeMs
+    }) {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+            .from('usage_logs')
+            .update({
+                success: false,
+                processing_time_ms: processingTimeMs,
+                error_message: message || 'The video provider could not complete this generation.'
+            })
+            .eq('id', jobId)
+            .eq('clerk_user_id', clerkUserId)
+            .eq('gemini_request_id', generationId)
+            .eq('success', false)
+            .select()
+            .limit(1);
+        if (error) throw error;
+        return data?.[0] || null;
+    },
+
+    async getVideoGenerationJob(clerkUserId, generationId, client = null) {
+        try {
+            const supabase = client || getSupabaseClient();
+            const { VIDEO_GENERATION_REQUEST_TYPES } = require('./videoGenerationJob');
+            const { data, error } = await supabase
+                .from('usage_logs')
+                .select('success, error_message, processing_time_ms, request_type, created_at')
+                .eq('clerk_user_id', clerkUserId)
+                .eq('gemini_request_id', generationId)
+                .in('request_type', VIDEO_GENERATION_REQUEST_TYPES)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            return { job: data?.[0] || null, error };
+        } catch (error) {
+            console.error('Error getting video generation job:', error);
+            return { job: null, error };
+        }
+    },
+
+    async getImageGenerationJob(clerkUserId, generationId, client = null) {
+        try {
+            const supabase = client || getSupabaseClient();
+            const { IMAGE_GENERATION_REQUEST_TYPES } = require('./imageGenerationJob');
+            const { data, error } = await supabase
+                .from('usage_logs')
+                .select('success, error_message, processing_time_ms, request_type, created_at')
+                .eq('clerk_user_id', clerkUserId)
+                .eq('gemini_request_id', generationId)
+                .in('request_type', IMAGE_GENERATION_REQUEST_TYPES)
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            return { job: data?.[0] || null, error };
+        } catch (error) {
+            console.error('Error getting image generation job:', error);
+            return { job: null, error };
         }
     },
 

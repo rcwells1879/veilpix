@@ -19,6 +19,8 @@ export interface ImageGenerationResponse {
   success: boolean
   message?: string
   creditsRemaining?: number
+  creditsUsed?: number
+  processingTime?: number
 }
 
 export interface UsageStats {
@@ -29,6 +31,7 @@ export interface UsageStats {
 }
 
 export interface GenerateEditRequest {
+  generationId?: string
   image: File
   prompt: string
   x: number
@@ -41,6 +44,7 @@ export interface GenerateEditRequest {
 }
 
 export interface GenerateFilterRequest {
+  generationId?: string
   image: File
   filterType: string
   resolution?: string  // For SeeDream API
@@ -51,6 +55,7 @@ export interface GenerateFilterRequest {
 }
 
 export interface GenerateAdjustRequest {
+  generationId?: string
   image: File
   prompt: string
   resolution?: string  // For Kie image model APIs
@@ -62,6 +67,7 @@ export interface GenerateAdjustRequest {
 }
 
 export interface GenerateCompositeRequest {
+  generationId?: string
   image1: File
   image2: File
   prompt: string
@@ -74,12 +80,17 @@ export interface GenerateCompositeRequest {
 }
 
 export interface GenerateTextToImageRequest {
+  generationId?: string
   prompt: string
   resolution?: string  // For Nano Banana 2 / Wan Image text-to-image
   aspectRatio?: string  // For Nano Banana 2 / Wan Image text-to-image
   seedreamTier?: 'lite' | 'pro'
   outputFormat?: 'png' | 'jpeg'
   nsfwFilterEnabled?: boolean  // For Wan Image text-to-image
+}
+
+function generationHeaders(generationId?: string): Record<string, string> {
+  return generationId ? { 'X-Generation-ID': generationId } : {}
 }
 
 // Custom hook for usage statistics (authenticated only)
@@ -141,7 +152,7 @@ export function useGenerateEditNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-edit', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -174,7 +185,7 @@ export function useGenerateFilterNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-filter', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -208,7 +219,7 @@ export function useGenerateAdjustNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/generate-adjust', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -248,7 +259,7 @@ export function useGenerateCompositeNanoBanana2() {
       return await apiRequest<ImageGenerationResponse>('/api/nanobanana2/combine-photos', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -271,6 +282,7 @@ export function useGenerateTextToImage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
         },
         body: JSON.stringify({
           prompt: data.prompt,
@@ -326,7 +338,7 @@ export function useGenerateEditSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-edit', {
         method: 'POST',
         body: formData,
-        headers: {}, // Let browser set Content-Type for FormData
+        headers: generationHeaders(data.generationId), // Let browser set Content-Type for FormData
         requiresAuth: true
       })
     },
@@ -361,7 +373,7 @@ export function useGenerateFilterSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-filter', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -399,7 +411,7 @@ export function useGenerateAdjustSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/generate-adjust', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -441,7 +453,7 @@ export function useGenerateCompositeSeeDream() {
       return await apiRequest<ImageGenerationResponse>('/api/seedream/combine-photos', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -462,6 +474,7 @@ export function useGenerateTextToImageSeeDream() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
         },
         body: JSON.stringify({
           prompt: data.prompt,
@@ -511,7 +524,7 @@ export function useGenerateEditWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-edit', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -544,7 +557,7 @@ export function useGenerateFilterWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-filter', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -578,7 +591,7 @@ export function useGenerateAdjustWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/generate-adjust', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -618,7 +631,7 @@ export function useGenerateCompositeWanImage() {
       return await apiRequest<ImageGenerationResponse>('/api/wanimage/combine-photos', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: generationHeaders(data.generationId),
         requiresAuth: true
       })
     },
@@ -639,6 +652,7 @@ export function useGenerateTextToImageWanImage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
         },
         body: JSON.stringify({
           prompt: data.prompt,
@@ -654,6 +668,58 @@ export function useGenerateTextToImageWanImage() {
     },
     retry: false,
   })
+}
+
+// Z-Image Turbo supports text-to-image only.
+export function useGenerateTextToImageZImage() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    mutationFn: async (data: GenerateTextToImageRequest): Promise<ImageGenerationResponse> => {
+      return await apiRequest<ImageGenerationResponse>('/api/zimage/generate-text-to-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...generationHeaders(data.generationId),
+        },
+        body: JSON.stringify({
+          prompt: data.prompt,
+          aspectRatio: data.aspectRatio,
+          nsfwFilterEnabled: data.nsfwFilterEnabled !== false
+        }),
+        requiresAuth: true
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    retry: false,
+  })
+}
+
+export interface ImageGenerationJobStatus {
+  status: 'pending' | 'succeeded' | 'failed'
+  image?: ImageGenerationResponse['image']
+  delivered?: boolean
+  message?: string
+  creditsUsed?: number
+  processingTime?: number
+}
+
+export function useImageGenerationRecovery() {
+  const { apiRequest } = useApiClient()
+
+  return React.useCallback(async (generationId: string) => {
+    const status = await apiRequest<ImageGenerationJobStatus>(`/api/image-jobs/${encodeURIComponent(generationId)}`, {
+      method: 'GET',
+      cache: 'no-store',
+      requiresAuth: true,
+    })
+    if (status.status === 'succeeded') {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    }
+    return status
+  }, [apiRequest])
 }
 
 // Custom hook for optimistic image updates using React 19's useOptimistic
@@ -691,6 +757,7 @@ export function useOptimisticImageGeneration() {
 export interface GenerateVideoRequest {
   image: File
   prompt: string
+  generationId?: string
   duration?: number   // 2-15 seconds (default 5)
   resolution?: string // '720p' | '1080p' (default '1080p')
   nsfwFilterEnabled?: boolean // NSFW content filter (default true)
@@ -700,7 +767,10 @@ export interface GenerateVideoRequest {
 
 export interface VideoGenerationResponse {
   videoUrl?: string
+  lastFrameUrl?: string
+  outputFormat?: 'mp4' | 'mov'
   success: boolean
+  pending?: boolean
   message?: string
   creditsRemaining?: number
   creditsUsed?: number
@@ -731,7 +801,7 @@ export function useGenerateVideo() {
       return await apiRequest<VideoGenerationResponse>('/api/wan/generate-video', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: data.generationId ? { 'X-Generation-ID': data.generationId } : {},
         requiresAuth: true
       })
     },
@@ -748,6 +818,7 @@ export function useGenerateVideo() {
 
 export interface GenerateTextToVideoRequest {
   prompt: string
+  generationId?: string
   duration?: number   // 2-15 seconds (default 5)
   resolution?: string // '720p' | '1080p' (default '1080p')
   ratio?: string      // '16:9' | '9:16' | '1:1' | '4:3' | '3:4' (default '16:9')
@@ -761,6 +832,7 @@ export interface GenerateReferenceToVideoRequest {
   video?: File | null
   referenceVideoUrl?: string | null
   prompt: string
+  generationId?: string
   duration?: number
   resolution?: string
   ratio?: string
@@ -771,18 +843,154 @@ export interface GenerateSeedanceVideoRequest {
   referenceImages?: File[]
   firstFrame?: File | null
   lastFrame?: File | null
-  referenceVideo?: File | null
+  referenceVideos?: File[]
   referenceVideoUrl?: string | null
   referenceVideoDuration?: number | null
-  referenceAudio?: File | null
+  referenceAudios?: File[]
+  referenceAudioDuration?: number | null
   prompt: string
-  variant?: 'regular' | 'fast' | 'mini'
+  generationId?: string
+  variant?: 'v2_5' | 'regular' | 'fast' | 'mini'
+  inputMode?: 'frames' | 'references'
   duration?: number
   resolution?: string
   aspectRatio?: string
   generateAudio?: boolean
   webSearch?: boolean
+  returnLastFrame?: boolean
+  outputFormat?: 'mp4' | 'mov'
   nsfwFilterEnabled?: boolean
+}
+
+export interface GenerateWan3VideoRequest {
+  prompt: string
+  generationId: string
+  variant: 'standard' | 'prime'
+  inputMode: 'frames' | 'references' | 'file' | 'link'
+  duration: number
+  resolution: string
+  aspectRatio: string
+  firstFrame?: File | null
+  lastFrame?: File | null
+  referenceImages?: File[]
+  referenceVideos?: File[]
+  referenceVideoDuration?: number | null
+  referenceAudios?: File[]
+  referenceAudioDuration?: number | null
+  referenceFile?: File | null
+  referenceLink?: string
+  audio?: boolean
+  seed?: number | null
+  nsfwFilterEnabled?: boolean
+}
+
+type Wan3UploadCategory = 'image' | 'video' | 'audio' | 'file'
+
+interface SignedWan3Upload {
+  objectPath: string
+  signedUrl: string
+  mimeType: string
+  size: number
+  category: Wan3UploadCategory
+  fileName: string
+}
+
+async function uploadWan3Input(upload: SignedWan3Upload, file: File): Promise<void> {
+  const response = await fetch(upload.signedUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': upload.mimeType,
+      'x-upsert': 'false',
+    },
+    body: file,
+  })
+  if (!response.ok) {
+    const details = await response.text().catch(() => '')
+    throw new Error(`Direct reference upload failed (${response.status})${details ? `: ${details}` : ''}`)
+  }
+}
+
+export function useGenerateWan3Video() {
+  const { apiRequest } = useApiClient()
+
+  return useMutation({
+    retry: false,
+    mutationFn: async (data: GenerateWan3VideoRequest): Promise<VideoGenerationResponse> => {
+      const taggedFiles: Array<{ key: string; category: Wan3UploadCategory; file: File }> = []
+      if (data.firstFrame) taggedFiles.push({ key: 'firstFrame', category: 'image', file: data.firstFrame })
+      if (data.lastFrame) taggedFiles.push({ key: 'lastFrame', category: 'image', file: data.lastFrame })
+      data.referenceImages?.slice(0, 10).forEach((file, index) => taggedFiles.push({ key: `referenceImages:${index}`, category: 'image', file }))
+      data.referenceVideos?.slice(0, 5).forEach((file, index) => taggedFiles.push({ key: `referenceVideos:${index}`, category: 'video', file }))
+      data.referenceAudios?.slice(0, 5).forEach((file, index) => taggedFiles.push({ key: `referenceAudios:${index}`, category: 'audio', file }))
+      if (data.referenceFile) taggedFiles.push({ key: 'referenceFile', category: 'file', file: data.referenceFile })
+
+      let signedUploads: SignedWan3Upload[] = []
+      if (taggedFiles.length > 0) {
+        const prepared = await apiRequest<{ success: boolean; uploads: SignedWan3Upload[] }>('/api/wan3/inputs/sign', {
+          method: 'POST',
+          body: JSON.stringify({
+            files: taggedFiles.map(({ category, file }) => ({
+              category,
+              fileName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              size: file.size,
+            })),
+          }),
+          headers: generationHeaders(data.generationId),
+          requiresAuth: true,
+        })
+        signedUploads = prepared.uploads
+        if (signedUploads.length !== taggedFiles.length) throw new Error('The upload service returned an incomplete reference list.')
+        await Promise.all(signedUploads.map((upload, index) => uploadWan3Input(upload, taggedFiles[index].file)))
+      }
+
+      const uploadDescriptor = (index: number) => {
+        const upload = signedUploads[index]
+        return upload ? {
+          objectPath: upload.objectPath,
+          fileName: upload.fileName,
+          mimeType: upload.mimeType,
+          size: upload.size,
+          category: upload.category,
+        } : null
+      }
+      const uploads: Record<string, unknown> = {
+        referenceImages: [],
+        referenceVideos: [],
+        referenceAudios: [],
+      }
+      taggedFiles.forEach((tagged, index) => {
+        const descriptor = uploadDescriptor(index)
+        const [group] = tagged.key.split(':')
+        if (tagged.key.includes(':')) (uploads[group] as unknown[]).push(descriptor)
+        else uploads[group] = descriptor
+      })
+
+      return apiRequest<VideoGenerationResponse>('/api/wan3/generate-video', {
+        method: 'POST',
+        body: JSON.stringify({
+          prompt: data.prompt,
+          variant: data.variant,
+          inputMode: data.inputMode,
+          duration: data.duration,
+          resolution: data.resolution,
+          aspectRatio: data.aspectRatio,
+          uploads,
+          referenceVideoDuration: data.referenceVideoDuration,
+          referenceAudioDuration: data.referenceAudioDuration,
+          referenceLink: data.referenceLink,
+          audio: data.audio !== false,
+          seed: data.seed,
+          nsfwFilterEnabled: data.nsfwFilterEnabled !== false,
+        }),
+        headers: generationHeaders(data.generationId),
+        requiresAuth: true,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  })
 }
 
 export function useGenerateSeedanceVideo() {
@@ -803,36 +1011,41 @@ export function useGenerateSeedanceVideo() {
       }
       if (data.referenceImages?.length) {
         const compressedImages = await compressMultipleImages(data.referenceImages, 20)
-        compressedImages.slice(0, 9).forEach((image) => {
+        const maxReferenceImages = data.variant === 'v2_5' ? 30 : 9
+        compressedImages.slice(0, maxReferenceImages).forEach((image) => {
           formData.append('referenceImages', image)
         })
       }
-      if (data.referenceVideo) {
-        formData.append('referenceVideo', data.referenceVideo)
-      }
+      const maxReferenceVideos = data.variant === 'v2_5' ? 10 : 1
+      data.referenceVideos?.slice(0, maxReferenceVideos).forEach((video) => formData.append('referenceVideo', video))
       if (data.referenceVideoUrl) {
         formData.append('referenceVideoUrl', data.referenceVideoUrl)
       }
       if (typeof data.referenceVideoDuration === 'number') {
         formData.append('referenceVideoDuration', data.referenceVideoDuration.toString())
       }
-      if (data.referenceAudio) {
-        formData.append('referenceAudio', data.referenceAudio)
+      const maxReferenceAudios = data.variant === 'v2_5' ? 10 : 1
+      data.referenceAudios?.slice(0, maxReferenceAudios).forEach((audio) => formData.append('referenceAudio', audio))
+      if (typeof data.referenceAudioDuration === 'number') {
+        formData.append('referenceAudioDuration', data.referenceAudioDuration.toString())
       }
 
       formData.append('prompt', data.prompt)
       formData.append('variant', data.variant || 'regular')
-      formData.append('duration', (data.duration || 5).toString())
+      formData.append('inputMode', data.inputMode || 'references')
+      formData.append('duration', (data.duration ?? 5).toString())
       formData.append('resolution', data.resolution || '720p')
       formData.append('aspectRatio', data.aspectRatio || '16:9')
       formData.append('generateAudio', (data.generateAudio === true).toString())
       formData.append('webSearch', (data.webSearch === true).toString())
+      formData.append('returnLastFrame', (data.returnLastFrame === true).toString())
+      formData.append('outputFormat', data.outputFormat || 'mp4')
       formData.append('nsfwFilterEnabled', (data.nsfwFilterEnabled !== false).toString())
 
       return await apiRequest<VideoGenerationResponse>('/api/seedance/generate-video', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: data.generationId ? { 'X-Generation-ID': data.generationId } : {},
         requiresAuth: true
       })
     },
@@ -871,7 +1084,7 @@ export function useGenerateReferenceToVideo() {
       return await apiRequest<VideoGenerationResponse>('/api/wan/generate-reference-to-video', {
         method: 'POST',
         body: formData,
-        headers: {},
+        headers: data.generationId ? { 'X-Generation-ID': data.generationId } : {},
         requiresAuth: true
       })
     },
@@ -897,7 +1110,10 @@ export function useGenerateTextToVideo() {
           multiShots: data.multiShots === true,
           nsfwFilterEnabled: data.nsfwFilterEnabled !== false
         }),
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(data.generationId ? { 'X-Generation-ID': data.generationId } : {}),
+        },
         requiresAuth: true
       })
     },
@@ -905,4 +1121,71 @@ export function useGenerateTextToVideo() {
       queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
     },
   })
+}
+
+export interface VideoGenerationJobStatus {
+  status: 'pending' | 'succeeded' | 'failed'
+  videoUrl?: string
+  delivered?: boolean
+  message?: string
+  creditsUsed?: number
+  processingTime?: number
+}
+
+export interface PendingMediaDelivery {
+  id: string
+  generationId: string
+  artifactType: 'image' | 'video' | 'audio' | 'file'
+  provider: string
+  mimeType: string
+  fileName: string
+  sizeBytes?: number | null
+  createdAt: string
+  expiresAt: string
+  downloadUrl: string
+}
+
+export function useMediaDeliveryRecovery() {
+  const { apiRequest } = useApiClient()
+
+  return React.useMemo(() => ({
+    list: async (): Promise<PendingMediaDelivery[]> => {
+      const response = await apiRequest<{ deliveries: PendingMediaDelivery[] }>('/api/media-deliveries', {
+        method: 'GET',
+        cache: 'no-store',
+        requiresAuth: true,
+      })
+      return response.deliveries || []
+    },
+    acknowledge: async (deliveryId: string): Promise<void> => {
+      await apiRequest(`/api/media-deliveries/${encodeURIComponent(deliveryId)}/ack`, {
+        method: 'POST',
+        requiresAuth: true,
+      })
+      await queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+    acknowledgeGeneration: async (generationId: string): Promise<void> => {
+      await apiRequest(`/api/media-deliveries/generation/${encodeURIComponent(generationId)}/ack`, {
+        method: 'POST',
+        requiresAuth: true,
+      })
+      await queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    },
+  }), [apiRequest])
+}
+
+export function useVideoGenerationRecovery() {
+  const { apiRequest } = useApiClient()
+
+  return React.useCallback(async (generationId: string) => {
+    const status = await apiRequest<VideoGenerationJobStatus>(`/api/video-jobs/${encodeURIComponent(generationId)}`, {
+      method: 'GET',
+      cache: 'no-store',
+      requiresAuth: true,
+    })
+    if (status.status === 'succeeded') {
+      queryClient.invalidateQueries({ queryKey: ['usage-stats'] })
+    }
+    return status
+  }, [apiRequest])
 }

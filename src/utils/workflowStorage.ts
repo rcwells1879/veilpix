@@ -2,16 +2,70 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Workflow persistence using IndexedDB (100% client-side storage).
- * Images never leave the user's device - this is purely local browser storage.
+ * Browser-local workflow and Album persistence using IndexedDB.
+ * Generation inputs/outputs may use the API's temporary provider and delivery
+ * storage, but this module keeps the user's durable Album in the browser.
  */
 
+import {
+  extractVideoThumbnailFrame,
+  isImageBlobNearlyBlack,
+} from './videoFrameExtraction';
+
 const DB_NAME = 'veilpix-workflow';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'workflow';
 const GALLERY_STORE_NAME = 'gallery';
+const PENDING_VIDEO_INPUTS_STORE_NAME = 'pending-video-inputs';
 const WORKFLOW_KEY = 'current';
 const MAX_GALLERY_IMAGES = 20;
+const DELIVERY_RECEIPT_STORAGE_KEY = 'veilpix-media-delivery-receipts';
+const DELIVERY_RECEIPT_TTL_MS = 48 * 60 * 60 * 1000;
+const PENDING_VIDEO_INPUT_TTL_MS = 48 * 60 * 60 * 1000;
+
+type LocalDeliveryReceipts = Record<string, number>;
+
+function readLocalDeliveryReceipts(now = Date.now()): LocalDeliveryReceipts {
+  try {
+    const raw = localStorage.getItem(DELIVERY_RECEIPT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as LocalDeliveryReceipts : {};
+    const active = Object.fromEntries(
+      Object.entries(parsed).filter(([generationId, expiresAt]) => (
+        generationId.length > 0 && Number.isFinite(expiresAt) && expiresAt > now
+      ))
+    );
+    if (Object.keys(active).length !== Object.keys(parsed).length) {
+      localStorage.setItem(DELIVERY_RECEIPT_STORAGE_KEY, JSON.stringify(active));
+    }
+    return active;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Record that this browser has verified a delivery in its local Album. The
+ * receipt outlives Album deletion or eviction so a temporary account delivery
+ * does not re-add an item that was deliberately removed in this browser.
+ */
+export function markLocalDeliveryReceipt(generationId: string, expiresAt?: string): void {
+  if (!generationId) return;
+  try {
+    const receipts = readLocalDeliveryReceipts();
+    const parsedExpiry = expiresAt ? Date.parse(expiresAt) : NaN;
+    receipts[generationId] = Number.isFinite(parsedExpiry)
+      ? parsedExpiry
+      : Date.now() + DELIVERY_RECEIPT_TTL_MS;
+    localStorage.setItem(DELIVERY_RECEIPT_STORAGE_KEY, JSON.stringify(receipts));
+  } catch {
+    // IndexedDB verification still prevents duplication during this page load.
+  }
+}
+
+/** Whether this browser has already accepted this temporary account delivery. */
+export function hasLocalDeliveryReceipt(generationId: string): boolean {
+  return Boolean(generationId && readLocalDeliveryReceipts()[generationId]);
+}
 
 interface StoredWorkflow {
   images: Array<{
@@ -35,8 +89,20 @@ export interface GalleryImage {
   videoBlob?: Blob;          // Local copy for video entries when the provider URL is temporary
   videoDuration?: number;
   hasReferenceImage?: boolean;
-  provider?: 'wan' | 'seedance';
+  provider?: 'wan' | 'wan3' | 'seedance';
+  generationId?: string;
+  wan3InputMode?: 'frames' | 'references' | 'file' | 'link';
+  wan3Variant?: 'standard' | 'prime';
+  seedanceInputMode?: 'frames' | 'references';
+  seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
+  videoOutputFormat?: 'mp4' | 'mov';
   referenceImages?: StoredGalleryFile[];
+  imageProvider?: 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
+  imageResolution?: '1K' | '2K' | '4K';
+  imageAspectRatio?: string;
+  imageSeedreamTier?: 'lite' | 'pro';
+  imageOutputFormat?: 'png' | 'jpeg';
+  styleImage?: StoredGalleryFile;
   prompt?: string;
 }
 
@@ -49,13 +115,49 @@ export interface GalleryThumbnail {
   videoUrl?: string;
   videoDuration?: number;
   hasReferenceImage?: boolean;
-  provider?: 'wan' | 'seedance';
+  provider?: 'wan' | 'wan3' | 'seedance';
   prompt?: string;
 }
 
 export interface GalleryImageDetails {
   file: File;
   prompt: string;
+  imageProvider?: 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
+  imageResolution?: '1K' | '2K' | '4K';
+  imageAspectRatio?: string;
+  imageSeedreamTier?: 'lite' | 'pro';
+  imageOutputFormat?: 'png' | 'jpeg';
+  styleImage: File | null;
+}
+
+export interface SaveImageToGalleryContext {
+  imageProvider?: 'nanobanana2' | 'seedream' | 'wanimage' | 'zimage';
+  imageResolution?: '1K' | '2K' | '4K';
+  imageAspectRatio?: string;
+  imageSeedreamTier?: 'lite' | 'pro';
+  imageOutputFormat?: 'png' | 'jpeg';
+  styleImage?: File | null;
+}
+
+function mergeImageGenerationContext(
+  entry: GalleryImage,
+  prompt: string,
+  context: SaveImageToGalleryContext,
+): GalleryImage {
+  return {
+    ...entry,
+    prompt: prompt || entry.prompt || '',
+    imageProvider: context.imageProvider ?? entry.imageProvider,
+    imageResolution: context.imageResolution ?? entry.imageResolution,
+    imageAspectRatio: context.imageAspectRatio ?? entry.imageAspectRatio,
+    imageSeedreamTier: context.imageSeedreamTier ?? entry.imageSeedreamTier,
+    imageOutputFormat: context.imageOutputFormat ?? entry.imageOutputFormat,
+    styleImage: context.styleImage === undefined
+      ? entry.styleImage
+      : context.styleImage
+        ? toStoredGalleryFile(context.styleImage)
+        : undefined,
+  };
 }
 
 interface StoredGalleryFile {
@@ -65,13 +167,24 @@ interface StoredGalleryFile {
   lastModified?: number;
 }
 
+interface StoredPendingVideoInputs {
+  generationId: string;
+  referenceImages: StoredGalleryFile[];
+  savedAt: number;
+}
+
 export interface GalleryVideoDetails {
   videoUrl: string;
   videoFile: File | null;
   referenceImage: File | null;
   referenceImages: File[];
   videoDuration?: number;
-  provider?: 'wan' | 'seedance';
+  provider?: 'wan' | 'wan3' | 'seedance';
+  wan3InputMode?: 'frames' | 'references' | 'file' | 'link';
+  wan3Variant?: 'standard' | 'prime';
+  seedanceInputMode?: 'frames' | 'references';
+  seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
+  videoOutputFormat?: 'mp4' | 'mov';
   prompt: string;
 }
 
@@ -119,6 +232,23 @@ function openDB(): Promise<IDBDatabase> {
         return;
       }
 
+      if (db.objectStoreNames.contains(PENDING_VIDEO_INPUTS_STORE_NAME)) {
+        const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readwrite');
+        const savedAtIndex = transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME).index('savedAt');
+        const expiredCursor = savedAtIndex.openCursor(
+          IDBKeyRange.upperBound(Date.now() - PENDING_VIDEO_INPUT_TTL_MS)
+        );
+        expiredCursor.onsuccess = () => {
+          const cursor = expiredCursor.result;
+          if (!cursor) return;
+          cursor.delete();
+          cursor.continue();
+        };
+        transaction.onerror = () => {
+          console.warn('Could not clean up expired pending video reference images:', transaction.error);
+        };
+      }
+
       resolve(db);
     };
 
@@ -134,6 +264,14 @@ function openDB(): Promise<IDBDatabase> {
           autoIncrement: true,
         });
         galleryStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+      // v3: Keep active video reference images in the browser so an async
+      // delivery can preserve them after a reload or suspended tab.
+      if (!db.objectStoreNames.contains(PENDING_VIDEO_INPUTS_STORE_NAME)) {
+        const pendingVideoInputsStore = db.createObjectStore(PENDING_VIDEO_INPUTS_STORE_NAME, {
+          keyPath: 'generationId',
+        });
+        pendingVideoInputsStore.createIndex('savedAt', 'savedAt', { unique: false });
       }
     };
 
@@ -352,9 +490,34 @@ async function createThumbnail(file: File): Promise<Blob> {
  * Creates a thumbnail and stores both the full image and thumbnail
  * Enforces MAX_GALLERY_IMAGES limit by removing oldest
  */
-export async function saveToGallery(image: File, prompt = ''): Promise<void> {
+export async function saveToGallery(
+  image: File,
+  prompt = '',
+  generationId?: string,
+  context: SaveImageToGalleryContext = {},
+): Promise<boolean> {
   try {
     const db = await openDB();
+    if (generationId) {
+      const existingEntry = await new Promise<GalleryImage | undefined>((resolve, reject) => {
+        const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+        const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(
+          (request.result as GalleryImage[]).find(entry => entry.generationId === generationId)
+        );
+      });
+      if (existingEntry?.id !== undefined) {
+        const mergedEntry = mergeImageGenerationContext(existingEntry, prompt, context);
+        return new Promise<boolean>((resolve, reject) => {
+          const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+          transaction.objectStore(GALLERY_STORE_NAME).put(mergedEntry);
+          transaction.oncomplete = () => resolve(true);
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+      }
+    }
     const thumbnail = await createThumbnail(image);
 
     const galleryImage: GalleryImage = {
@@ -363,9 +526,16 @@ export async function saveToGallery(image: File, prompt = ''): Promise<void> {
       createdAt: Date.now(),
       name: image.name,
       prompt,
+      generationId,
+      imageProvider: context.imageProvider,
+      imageResolution: context.imageResolution,
+      imageAspectRatio: context.imageAspectRatio,
+      imageSeedreamTier: context.imageSeedreamTier,
+      imageOutputFormat: context.imageOutputFormat,
+      styleImage: context.styleImage ? toStoredGalleryFile(context.styleImage) : undefined,
     };
 
-    return new Promise((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
       const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
       const store = transaction.objectStore(GALLERY_STORE_NAME);
 
@@ -399,11 +569,12 @@ export async function saveToGallery(image: File, prompt = ''): Promise<void> {
             };
           }
         };
-        resolve();
+        resolve(true);
       };
     });
   } catch (error) {
     console.error('Failed to save to gallery:', error);
+    return false;
   }
 }
 
@@ -467,7 +638,18 @@ export async function getGalleryImage(id: number): Promise<GalleryImageDetails |
         const image = request.result as GalleryImage | undefined;
         if (image?.blob) {
           const file = new File([image.blob], image.name, { type: image.blob.type || 'image/png' });
-          resolve({ file, prompt: image.prompt || '' });
+          resolve({
+            file,
+            prompt: image.prompt || '',
+            imageProvider: image.imageProvider,
+            imageResolution: image.imageResolution,
+            imageAspectRatio: image.imageAspectRatio,
+            imageSeedreamTier: image.imageSeedreamTier,
+            imageOutputFormat: image.imageOutputFormat,
+            styleImage: image.styleImage
+              ? fromStoredGalleryFile(image.styleImage, 'style-reference.png')
+              : null,
+          });
         } else {
           resolve(null);
         }
@@ -519,6 +701,82 @@ function fromStoredGalleryFile(file: StoredGalleryFile, fallbackName: string): F
   });
 }
 
+/**
+ * Persist active video reference images locally until the generated video has
+ * been verified in this browser's Album. This store is never synchronized to
+ * the account delivery outbox or any server-side database.
+ */
+export async function savePendingVideoReferenceImages(
+  generationId: string,
+  referenceImages: File[],
+): Promise<void> {
+  if (!generationId) return;
+  const db = await openDB();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME);
+    store.put({
+      generationId,
+      referenceImages: referenceImages.map(toStoredGalleryFile),
+      savedAt: Date.now(),
+    } satisfies StoredPendingVideoInputs);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+export async function getPendingVideoReferenceImages(generationId: string): Promise<File[]> {
+  if (!generationId) return [];
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readonly');
+    const request = transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME).get(generationId);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const entry = request.result as StoredPendingVideoInputs | undefined;
+      resolve(entry?.referenceImages.map((file, index) => (
+        fromStoredGalleryFile(file, `pending-video-reference-${index + 1}.png`)
+      )) ?? []);
+    };
+  });
+}
+
+export async function clearPendingVideoReferenceImages(generationId: string): Promise<void> {
+  if (!generationId) return;
+  const db = await openDB();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(PENDING_VIDEO_INPUTS_STORE_NAME, 'readwrite');
+    transaction.objectStore(PENDING_VIDEO_INPUTS_STORE_NAME).delete(generationId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+/**
+ * Image and video generations share the same browser-only 48-hour input
+ * snapshot store. Generation UUIDs are unique, so the image style reference
+ * can use the established durable path without another IndexedDB migration.
+ */
+export async function savePendingImageStyleImage(
+  generationId: string,
+  styleImage: File | null,
+): Promise<void> {
+  return savePendingVideoReferenceImages(generationId, styleImage ? [styleImage] : []);
+}
+
+export async function getPendingImageStyleImage(generationId: string): Promise<File | null> {
+  return (await getPendingVideoReferenceImages(generationId))[0] ?? null;
+}
+
+export async function clearPendingImageStyleImage(generationId: string): Promise<void> {
+  return clearPendingVideoReferenceImages(generationId);
+}
+
 export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDetails | null> {
   try {
     const db = await openDB();
@@ -552,6 +810,14 @@ export async function getGalleryVideoDetails(id: number): Promise<GalleryVideoDe
           referenceImages,
           videoDuration: entry.videoDuration,
           provider: entry.provider,
+          wan3InputMode: entry.wan3InputMode,
+          wan3Variant: entry.wan3Variant,
+          // Older gallery records did not persist the Seedance mode. Treat a
+          // two-image legacy record as the likely first/end-frame workflow.
+          seedanceInputMode: entry.seedanceInputMode
+            ?? (entry.provider === 'seedance' && referenceImages.length === 2 ? 'frames' : undefined),
+          seedanceVariant: entry.seedanceVariant,
+          videoOutputFormat: entry.videoOutputFormat,
           prompt: entry.prompt || '',
         });
       };
@@ -586,62 +852,12 @@ async function createVideoPlaceholderThumbnail(): Promise<Blob> {
   });
 }
 
-async function createVideoFrameThumbnail(videoSource: string): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    const video = document.createElement('video');
-    const timeout = window.setTimeout(() => finish(null), 8000);
-    let done = false;
-
-    const finish = (blob: Blob | null) => {
-      if (done) return;
-      done = true;
-      window.clearTimeout(timeout);
-      video.removeAttribute('src');
-      video.load();
-      resolve(blob);
-    };
-
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = 'metadata';
-
-    video.onerror = () => finish(null);
-    video.onloadedmetadata = () => {
-      const duration = Number.isFinite(video.duration) ? video.duration : 0;
-      video.currentTime = Math.min(0.1, Math.max(0, duration / 2));
-    };
-    video.onseeked = () => {
-      try {
-        const width = video.videoWidth || 320;
-        const height = video.videoHeight || 180;
-        const maxSize = 320;
-        const scale = Math.min(1, maxSize / Math.max(width, height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(width * scale));
-        canvas.height = Math.max(1, Math.round(height * scale));
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          finish(null);
-          return;
-        }
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        canvas.toBlob((blob) => finish(blob), 'image/jpeg', 0.82);
-      } catch {
-        finish(null);
-      }
-    };
-
-    video.src = videoSource;
-  });
-}
-
-async function createVideoFrameThumbnailFromFile(file: File): Promise<Blob | null> {
-  const objectUrl = URL.createObjectURL(file);
+async function createVideoFrameThumbnail(source: File | string): Promise<Blob | null> {
   try {
-    return await createVideoFrameThumbnail(objectUrl);
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+    return await extractVideoThumbnailFrame(source);
+  } catch (error) {
+    console.warn('Could not extract a usable video thumbnail:', error);
+    return null;
   }
 }
 
@@ -657,39 +873,172 @@ async function fetchVideoBlob(videoUrl: string): Promise<Blob | null> {
   }
 }
 
+let galleryVideoThumbnailRepairPromise: Promise<number> | null = null;
+
+async function updateGalleryThumbnail(entry: GalleryImage, thumbnail: Blob): Promise<void> {
+  if (entry.id === undefined) return;
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+    const request = transaction.objectStore(GALLERY_STORE_NAME).put({ ...entry, thumbnail });
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * Repairs previously saved black video thumbnails in the background. Existing
+ * local video blobs are preferred, while a non-black placeholder is used when
+ * the old video can no longer be decoded or downloaded.
+ */
+export function repairBlackVideoThumbnails(): Promise<number> {
+  if (galleryVideoThumbnailRepairPromise) return galleryVideoThumbnailRepairPromise;
+
+  galleryVideoThumbnailRepairPromise = (async () => {
+    try {
+      const db = await openDB();
+      const entries = await new Promise<GalleryImage[]>((resolve, reject) => {
+        const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+        const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result as GalleryImage[]);
+      });
+
+      let repaired = 0;
+      for (const entry of entries) {
+        if (entry.type !== 'video') continue;
+
+        let isBlack = false;
+        try {
+          isBlack = await isImageBlobNearlyBlack(entry.thumbnail);
+        } catch {
+          // An unreadable thumbnail should be repaired just like a black one.
+          isBlack = true;
+        }
+        if (!isBlack) continue;
+
+        const source = entry.videoBlob
+          ? new File([entry.videoBlob], entry.name || 'gallery-video.mp4', {
+              type: entry.videoBlob.type || 'video/mp4',
+            })
+          : entry.videoUrl;
+        const extracted = source ? await createVideoFrameThumbnail(source) : null;
+        const replacement = extracted || await createVideoPlaceholderThumbnail();
+        await updateGalleryThumbnail(entry, replacement);
+        repaired += 1;
+      }
+
+      return repaired;
+    } catch (error) {
+      console.warn('Could not repair old video thumbnails:', error);
+      return 0;
+    }
+  })();
+
+  return galleryVideoThumbnailRepairPromise;
+}
+
 export interface SaveVideoToGalleryOptions {
   videoUrl: string;
-  provider?: 'wan' | 'seedance';
+  videoFile?: File | null;
+  generationId?: string;
+  provider?: 'wan' | 'wan3' | 'seedance';
   referenceImage?: File | null;
   referenceImages?: File[];
   referenceVideoFile?: File | null;
   referenceVideoUrl?: string | null;
   videoDuration?: number;
+  wan3InputMode?: 'frames' | 'references' | 'file' | 'link';
+  wan3Variant?: 'standard' | 'prime';
+  seedanceInputMode?: 'frames' | 'references';
+  seedanceVariant?: 'v2_5' | 'regular' | 'fast' | 'mini';
+  videoOutputFormat?: 'mp4' | 'mov';
   prompt?: string;
 }
 
 /**
- * Save a video to the gallery
- * Stores the video URL and a thumbnail generated from a video frame when possible.
+ * Save a video blob to the browser-local Album, retaining the URL only as
+ * compatibility metadata and generating a thumbnail when possible.
  */
-export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<void> {
+export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Promise<boolean> {
   try {
-    const { videoUrl, provider, referenceImage = null, referenceImages = [], referenceVideoFile = null, referenceVideoUrl = null, videoDuration, prompt = '' } = options;
-    const maxStoredReferenceImages = provider === 'seedance' ? 9 : 5;
-    const db = await openDB();
+    const {
+      videoUrl,
+      videoFile = null,
+      generationId,
+      provider,
+      referenceImage = null,
+      referenceImages = [],
+      referenceVideoFile = null,
+      referenceVideoUrl = null,
+      videoDuration,
+      wan3InputMode,
+      wan3Variant,
+      seedanceInputMode,
+      seedanceVariant,
+      videoOutputFormat,
+      prompt = ''
+    } = options;
+    const resolvedVideoOutputFormat = videoOutputFormat ?? 'mp4';
+    const maxStoredReferenceImages = provider === 'seedance'
+      ? seedanceVariant === 'v2_5' ? 30 : 9
+      : provider === 'wan3' ? 10 : 5;
     const storedReferenceImages = referenceImages.length > 0
       ? referenceImages.slice(0, maxStoredReferenceImages)
       : referenceImage
         ? [referenceImage]
         : [];
-    const videoBlob = await fetchVideoBlob(videoUrl);
+    const db = await openDB();
+    if (generationId) {
+      const existingEntry = await new Promise<GalleryImage | undefined>((resolve, reject) => {
+        const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+        const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(
+          (request.result as GalleryImage[]).find(entry => entry.generationId === generationId)
+        );
+      });
+      if (existingEntry?.id !== undefined) {
+        const incomingReferenceImages = storedReferenceImages.map(toStoredGalleryFile);
+        const mergedReferenceImages = incomingReferenceImages.length > 0
+          ? incomingReferenceImages
+          : existingEntry.referenceImages ?? [];
+        const mergedEntry: GalleryImage = {
+          ...existingEntry,
+          videoUrl: existingEntry.videoUrl || videoUrl,
+          videoBlob: existingEntry.videoBlob || videoFile || undefined,
+          videoDuration: videoDuration ?? existingEntry.videoDuration,
+          hasReferenceImage: mergedReferenceImages.length > 0 || existingEntry.hasReferenceImage,
+          provider: provider ?? existingEntry.provider,
+          wan3InputMode: wan3InputMode ?? existingEntry.wan3InputMode,
+          wan3Variant: wan3Variant ?? existingEntry.wan3Variant,
+          seedanceInputMode: seedanceInputMode ?? existingEntry.seedanceInputMode,
+          seedanceVariant: seedanceVariant ?? existingEntry.seedanceVariant,
+          videoOutputFormat: videoOutputFormat ?? existingEntry.videoOutputFormat ?? 'mp4',
+          referenceImages: mergedReferenceImages,
+          prompt: prompt || existingEntry.prompt || '',
+        };
+
+        return new Promise<boolean>((resolve, reject) => {
+          const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+          transaction.objectStore(GALLERY_STORE_NAME).put(mergedEntry);
+          transaction.oncomplete = () => resolve(true);
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+      }
+    }
+    const videoBlob = videoFile || await fetchVideoBlob(videoUrl);
+    if (!videoBlob) {
+      throw new Error('The generated video could not be stored in this browser.');
+    }
     const generatedVideoThumbnail = videoBlob
-      ? await createVideoFrameThumbnailFromFile(new File([videoBlob], `video-${Date.now()}.mp4`, { type: videoBlob.type || 'video/mp4' }))
+      ? await createVideoFrameThumbnail(new File([videoBlob], `video-${Date.now()}.${resolvedVideoOutputFormat}`, { type: videoBlob.type || `video/${resolvedVideoOutputFormat === 'mov' ? 'quicktime' : 'mp4'}` }))
       : await createVideoFrameThumbnail(videoUrl);
     const referenceVideoThumbnail = generatedVideoThumbnail
       ? null
       : referenceVideoFile
-        ? await createVideoFrameThumbnailFromFile(referenceVideoFile)
+        ? await createVideoFrameThumbnail(referenceVideoFile)
         : referenceVideoUrl
           ? await createVideoFrameThumbnail(referenceVideoUrl)
           : null;
@@ -703,18 +1052,24 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
       blob: storedBlob,
       thumbnail,
       createdAt: Date.now(),
-      name: `video-${Date.now()}.mp4`,
+      name: `video-${Date.now()}.${resolvedVideoOutputFormat}`,
       type: 'video',
       videoUrl,
       videoBlob: videoBlob || undefined,
       videoDuration,
       hasReferenceImage: storedReferenceImages.length > 0,
       provider,
+      generationId,
+      wan3InputMode,
+      wan3Variant,
+      seedanceInputMode,
+      seedanceVariant,
+      videoOutputFormat: resolvedVideoOutputFormat,
       referenceImages: storedReferenceImages.map(toStoredGalleryFile),
       prompt,
     };
 
-    return new Promise((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
       const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
       const store = transaction.objectStore(GALLERY_STORE_NAME);
 
@@ -746,11 +1101,116 @@ export async function saveVideoToGallery(options: SaveVideoToGalleryOptions): Pr
             };
           }
         };
-        resolve();
+        resolve(true);
       };
     });
   } catch (error) {
     console.error('Failed to save video to gallery:', error);
+    return false;
+  }
+}
+
+/** Verify that a generated artifact is durably readable from local IndexedDB. */
+export async function hasGalleryArtifact(
+  generationId: string,
+  artifactType: 'image' | 'video'
+): Promise<boolean> {
+  try {
+    const db = await openDB();
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const entry = (request.result as GalleryImage[]).find(item => item.generationId === generationId);
+        if (!entry) return resolve(false);
+        if (artifactType === 'video') {
+          return resolve(entry.type === 'video' && Boolean(entry.videoBlob?.size));
+        }
+        return resolve((entry.type || 'image') === 'image' && Boolean(entry.blob?.size));
+      };
+    });
+  } catch (error) {
+    console.warn('Could not verify local gallery delivery:', error);
+    return false;
+  }
+}
+
+/** Verify that a saved video also contains its reusable image-reference context. */
+export async function hasGalleryVideoReferences(
+  generationId: string,
+  expectedReferenceCount: number,
+): Promise<boolean> {
+  if (expectedReferenceCount <= 0) return true;
+  try {
+    const db = await openDB();
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const entry = (request.result as GalleryImage[]).find(item => item.generationId === generationId);
+        resolve(Boolean(entry && (entry.referenceImages?.length ?? 0) >= expectedReferenceCount));
+      };
+    });
+  } catch (error) {
+    console.warn('Could not verify saved video references:', error);
+    return false;
+  }
+}
+
+/** Merge replayable model/reference context into an image already in the Album. */
+export async function updateGalleryImageGenerationContext(
+  generationId: string,
+  prompt: string,
+  context: SaveImageToGalleryContext,
+): Promise<boolean> {
+  if (!generationId) return false;
+  try {
+    const db = await openDB();
+    const existingEntry = await new Promise<GalleryImage | undefined>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(
+        (request.result as GalleryImage[]).find(entry => entry.generationId === generationId)
+      );
+    });
+    if (existingEntry?.id === undefined) return false;
+    const mergedEntry = mergeImageGenerationContext(existingEntry, prompt, context);
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readwrite');
+      transaction.objectStore(GALLERY_STORE_NAME).put(mergedEntry);
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } catch (error) {
+    console.error('Failed to update gallery image generation context:', error);
+    return false;
+  }
+}
+
+/** Verify that a generated image retained its reusable style reference. */
+export async function hasGalleryImageStyleReference(
+  generationId: string,
+  expected: boolean,
+): Promise<boolean> {
+  if (!expected) return true;
+  try {
+    const db = await openDB();
+    return await new Promise<boolean>((resolve, reject) => {
+      const transaction = db.transaction(GALLERY_STORE_NAME, 'readonly');
+      const request = transaction.objectStore(GALLERY_STORE_NAME).getAll();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const entry = (request.result as GalleryImage[]).find(item => item.generationId === generationId);
+        resolve(Boolean(entry?.styleImage?.blob?.size));
+      };
+    });
+  } catch (error) {
+    console.warn('Could not verify saved image style reference:', error);
+    return false;
   }
 }
 
