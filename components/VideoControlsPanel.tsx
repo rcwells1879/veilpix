@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useImageImport } from '../src/hooks/useImageImport';
 import { PhotoIcon, VideoIcon } from './icons';
+import pricingPolicy from '../veilpix-api/config/generationPricing.json';
 
 type VideoProvider = 'wan' | 'seedance';
 type SeedanceVariant = 'regular' | 'fast' | 'mini';
@@ -90,12 +91,12 @@ const WAN_VIDEO_CREDIT_TABLE: Record<number, Record<string, number>> = {
 
 const SEEDANCE_PRICING: Record<SeedanceVariant, Record<string, { noVideo: number; withVideo: number }>> = {
   fast: {
-    '480p': { noVideo: 15.5, withVideo: 9 },
-    '720p': { noVideo: 33, withVideo: 20 },
+    '480p': { noVideo: 11.7, withVideo: 6.8 },
+    '720p': { noVideo: 24.8, withVideo: 15 },
   },
   mini: {
-    '480p': { noVideo: 9.5, withVideo: 6 },
-    '720p': { noVideo: 20.5, withVideo: 12.5 },
+    '480p': { noVideo: 3.8, withVideo: 2.4 },
+    '720p': { noVideo: 8.2, withVideo: 5 },
   },
   regular: {
     '480p': { noVideo: 19, withVideo: 11.5 },
@@ -105,16 +106,46 @@ const SEEDANCE_PRICING: Record<SeedanceVariant, Record<string, { noVideo: number
 };
 
 const KIE_CREDIT_USD = 0.005;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = 0.0699 * 0.88;
+const PREVIOUS_BILLABLE_USD_PER_CREDIT = 0.0699 * 0.88;
+const BILLABLE_USD_PER_VEILPIX_CREDIT = Math.min(...Object.values(pricingPolicy.creditPackages).map((pack) => {
+  const fee = Math.round((pack.priceUsd * pricingPolicy.stripePercentageFee + pricingPolicy.stripeFixedFeeUsd) * 100) / 100;
+  return (pack.priceUsd * (1 - pack.targetMargin) - fee) / pack.credits;
+}));
+const PREVIOUS_SEEDANCE_PRICING = {
+  regular: {
+    '480p': { noVideo: 19, withVideo: 11.5 },
+    '720p': { noVideo: 41, withVideo: 25 },
+    '1080p': { noVideo: 102, withVideo: 62 },
+  },
+  fast: {
+    '480p': { noVideo: 15.5, withVideo: 9 },
+    '720p': { noVideo: 33, withVideo: 20 },
+  },
+  mini: {
+    '480p': { noVideo: 9.5, withVideo: 6 },
+    '720p': { noVideo: 20.5, withVideo: 12.5 },
+  },
+};
+const WAN_TEXT_KIE_CREDITS: Record<number, Record<string, number>> = {
+  5: { '720p': 70, '1080p': 104.5 },
+  10: { '720p': 140, '1080p': 209.5 },
+  15: { '720p': 210, '1080p': 315 },
+};
 
-function getWanCreditCost(duration: number, resolution: string): number {
-  return WAN_VIDEO_CREDIT_TABLE[duration]?.[resolution] ?? Math.ceil(duration * (resolution === '1080p' ? 2.0 : 1.4));
+function getWanCreditCost(duration: number, resolution: string, mode: 'image' | 'text' | 'reference' = 'image'): number {
+  const parsed = Number.parseInt(String(duration), 10);
+  const value = Number.isFinite(parsed) ? parsed : 5;
+  const seconds = mode === 'reference' ? Math.max(2, Math.min(10, value)) : value <= 7 ? 5 : value <= 12 ? 10 : 15;
+  const previousCredits = WAN_VIDEO_CREDIT_TABLE[seconds]?.[resolution] ?? Math.ceil(seconds * (resolution === '1080p' ? 2 : 1.4));
+  const kieCredits = mode === 'text' ? WAN_TEXT_KIE_CREDITS[seconds][resolution] : seconds * (resolution === '1080p' ? 24 : 16);
+  return Math.ceil(Math.max(kieCredits * KIE_CREDIT_USD / BILLABLE_USD_PER_VEILPIX_CREDIT,
+    previousCredits * (1 + pricingPolicy.minimumIncrease)) - 1e-10);
 }
 
 function clampSeedanceDuration(variant: SeedanceVariant, duration: number): number {
   const limits = SEEDANCE_DURATION_LIMITS[variant];
   if (!Number.isFinite(duration)) return limits.defaultValue;
-  return Math.max(limits.min, Math.min(limits.max, Math.round(duration)));
+  return Math.max(limits.min, Math.min(limits.max, Math.trunc(duration)));
 }
 
 function getSeedanceCreditCost(
@@ -124,14 +155,20 @@ function getSeedanceCreditCost(
   hasVideoReference: boolean,
   referenceVideoDuration?: number | null
 ): number {
-  const pricing = SEEDANCE_PRICING[variant][resolution] ?? SEEDANCE_PRICING[variant][SEEDANCE_RESOLUTIONS[variant][0]];
+  const selectedResolution = SEEDANCE_RESOLUTIONS[variant].includes(resolution)
+    ? resolution : SEEDANCE_RESOLUTIONS[variant][SEEDANCE_RESOLUTIONS[variant].length - 1];
+  const pricing = SEEDANCE_PRICING[variant][selectedResolution];
+  const previousPricing = PREVIOUS_SEEDANCE_PRICING[variant][selectedResolution];
   const outputSeconds = clampSeedanceDuration(variant, duration);
   const inputSeconds = hasVideoReference
-    ? Math.max(0, Math.min(SEEDANCE_DURATION_LIMITS[variant].max, Math.round(referenceVideoDuration ?? SEEDANCE_DURATION_LIMITS[variant].max)))
+    ? Math.max(0, Math.min(SEEDANCE_DURATION_LIMITS[variant].max, Math.ceil(referenceVideoDuration || SEEDANCE_DURATION_LIMITS[variant].max)))
     : 0;
   const rate = hasVideoReference ? pricing.withVideo : pricing.noVideo;
   const kieCredits = Math.ceil(rate * (outputSeconds + inputSeconds));
-  return Math.max(1, Math.ceil((kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT));
+  const previousRate = hasVideoReference ? previousPricing.withVideo : previousPricing.noVideo;
+  const previousCredits = Math.max(1, Math.ceil(Math.ceil(previousRate * (outputSeconds + inputSeconds)) * KIE_CREDIT_USD / PREVIOUS_BILLABLE_USD_PER_CREDIT));
+  return Math.max(1, Math.ceil(Math.max(kieCredits * KIE_CREDIT_USD / BILLABLE_USD_PER_VEILPIX_CREDIT,
+    previousCredits * (1 + pricingPolicy.minimumIncrease)) - 1e-10));
 }
 
 function getWanMaxReferenceImages(hasVideoReference: boolean): number {
@@ -316,7 +353,9 @@ const VideoControlsPanel: React.FC<VideoControlsPanelProps> = ({
     maxFiles: SEEDANCE_MAX_REFERENCE_IMAGES - seedanceReferenceImages.length,
   });
 
-  const wanCreditCost = useMemo(() => getWanCreditCost(wanDuration, wanResolution), [wanDuration, wanResolution]);
+  const wanCreditCost = useMemo(() => getWanCreditCost(
+    wanDuration, wanResolution, wanUsesTextToVideo ? 'text' : wanUsesReferenceToVideo ? 'reference' : 'image'
+  ), [wanDuration, wanResolution, wanUsesTextToVideo, wanUsesReferenceToVideo]);
   const seedanceCreditCost = useMemo(() => getSeedanceCreditCost(
     seedanceVariant,
     seedanceResolution,

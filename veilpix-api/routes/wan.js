@@ -1,6 +1,8 @@
 const express = require('express');
 const multer = require('multer');
 const { db } = require('../utils/database');
+const { BILLABLE_USD_PER_VEILPIX_CREDIT, KIE_CREDIT_USD } = require('../utils/imageCreditPricing');
+const { minimumIncrease } = require('../config/generationPricing.json');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const {
     uploadTemporaryImage,
@@ -34,24 +36,44 @@ const upload = multer({
 const WAN_API_KEY = process.env.SEEDREAM_API_KEY;
 const WAN_API_URL = process.env.SEEDREAM_API_BASE_URL || 'https://api.kie.ai';
 
-// Video credit pricing table: { duration: { resolution: credits } }
-// Targeting ~12% profit margin at mid-tier credit pricing ($0.0699/credit)
-const VIDEO_CREDIT_TABLE = {
+// Frozen baseline for the minimum 10% increase.
+const PREVIOUS_VIDEO_CREDIT_TABLE = {
     5:  { '720p': 7,  '1080p': 10 },
     10: { '720p': 13, '1080p': 19 },
     15: { '720p': 19, '1080p': 29 },
 };
 
-function getVideoCreditCost(duration, resolution) {
-    const d = parseInt(duration);
+const WAN_TEXT_KIE_CREDITS = {
+    5: { '720p': 70, '1080p': 104.5 },
+    10: { '720p': 140, '1080p': 209.5 },
+    15: { '720p': 210, '1080p': 315 }
+};
+
+function normalizeVideoDuration(duration, mode = 'image') {
+    const parsed = parseInt(duration, 10);
+    const value = Number.isFinite(parsed) ? parsed : 5;
+    if (mode === 'reference') return Math.max(2, Math.min(10, value));
+    return value <= 7 ? 5 : value <= 12 ? 10 : 15;
+}
+
+function getVideoCreditCost(duration, resolution, mode = 'image') {
+    const d = normalizeVideoDuration(duration, mode);
     const r = resolution || '1080p';
-    // Exact match from table
-    if (VIDEO_CREDIT_TABLE[d] && VIDEO_CREDIT_TABLE[d][r]) {
-        return VIDEO_CREDIT_TABLE[d][r];
-    }
-    // Interpolate for non-standard durations using per-second rates
-    const perSecRate = r === '1080p' ? 2.0 : 1.4;
-    return Math.ceil(d * perSecRate);
+    if (!['720p', '1080p'].includes(r)) throw new Error('Unsupported video resolution');
+    const previousCredits = PREVIOUS_VIDEO_CREDIT_TABLE[d]?.[r] ?? Math.ceil(d * (r === '1080p' ? 2 : 1.4));
+    // Published Wan 2.7 rate, also used as a conservative Flash allowance.
+    // Flash's public rate is unavailable; see docs/generation-pricing.md.
+    const kieCredits = mode === 'text' ? WAN_TEXT_KIE_CREDITS[d][r] : d * (r === '1080p' ? 24 : 16);
+    return Math.ceil(Math.max(kieCredits * KIE_CREDIT_USD / BILLABLE_USD_PER_VEILPIX_CREDIT,
+        previousCredits * (1 + minimumIncrease)) - 1e-10);
+}
+
+function getVideoPricingTable(mode = 'image') {
+    const durations = mode === 'reference' ? [2, 3, 4, 5, 6, 7, 8, 9, 10] : [5, 10, 15];
+    return Object.fromEntries(durations.map((duration) => [duration, {
+        '720p': getVideoCreditCost(duration, '720p', mode),
+        '1080p': getVideoCreditCost(duration, '1080p', mode)
+    }]));
 }
 
 // Helper: create Wan task
@@ -175,16 +197,14 @@ async function deductCreditAndTrack(req, startTime, requestType, creditsToDeduct
         });
 
         if (success) {
-            for (let i = 0; i < creditsToDeduct; i++) {
-                const deductResult = await db.deductUserCredit(user.userId);
-                if (!deductResult.success) {
-                    console.error('🚨 Failed to deduct credit:', deductResult.error);
-                    return false;
-                }
+            const deductResult = await db.deductUserCredits(user.userId, creditsToDeduct);
+            if (!deductResult.success) {
+                console.error('Failed to deduct video credits:', deductResult.error);
+                return false;
             }
 
             if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
+                req.creditsInfo.remaining = Math.max(0, Math.round((req.creditsInfo.remaining - creditsToDeduct) * 100) / 100);
             }
         }
 
@@ -196,12 +216,16 @@ async function deductCreditAndTrack(req, startTime, requestType, creditsToDeduct
 }
 
 // Check user credits (uses body params to calculate required credits)
-async function checkUserCredits(req, res, next) {
+async function checkUserCredits(req, res, next, mode = 'image') {
     try {
         const { user } = req;
-        const duration = parseInt(req.body?.duration || '5');
+        const duration = normalizeVideoDuration(req.body?.duration, mode);
         const resolution = req.body?.resolution || '1080p';
-        const requiredCredits = getVideoCreditCost(duration, resolution);
+        if (!['720p', '1080p'].includes(resolution)) {
+            return res.status(400).json({ error: 'Unsupported video resolution' });
+        }
+        req.body.duration = duration;
+        const requiredCredits = getVideoCreditCost(duration, resolution, mode);
 
         const { credits, error } = await db.getUserCredits(user.userId);
 
@@ -303,6 +327,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
 
         const creditCost = req.videoCreditCost;
         usageLogged = await deductCreditAndTrack(req, startTime, 'video', creditCost);
+        if (!usageLogged) throw new Error('Unable to deduct video credits');
 
         res.json({
             success: true,
@@ -337,7 +362,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
 router.post('/generate-reference-to-video', upload.fields([
     { name: 'image', maxCount: 5 },
     { name: 'video', maxCount: 1 }
-]), checkUserCredits, async (req, res) => {
+]), (req, res, next) => checkUserCredits(req, res, next, 'reference'), async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
     const uploadedFilenames = [];
@@ -429,6 +454,7 @@ router.post('/generate-reference-to-video', upload.fields([
 
         const creditCost = req.videoCreditCost;
         usageLogged = await deductCreditAndTrack(req, startTime, 'reference-to-video', creditCost);
+        if (!usageLogged) throw new Error('Unable to deduct video credits');
 
         res.json({
             success: true,
@@ -459,7 +485,7 @@ router.post('/generate-reference-to-video', upload.fields([
 });
 
 // Generate video from text prompt (no image required)
-router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUserCredits, async (req, res) => {
+router.post('/generate-text-to-video', express.json({ limit: '1mb' }), (req, res, next) => checkUserCredits(req, res, next, 'text'), async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
 
@@ -504,6 +530,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
 
         const creditCost = req.videoCreditCost;
         usageLogged = await deductCreditAndTrack(req, startTime, 'text-to-video', creditCost);
+        if (!usageLogged) throw new Error('Unable to deduct video credits');
 
         res.json({
             success: true,
@@ -530,11 +557,16 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
     }
 });
 
-// Get video credit pricing table (no auth required)
+// Authenticated credit prices for each supported workflow.
 router.get('/pricing', (req, res) => {
     res.json({
         success: true,
-        pricing: VIDEO_CREDIT_TABLE
+        pricing: getVideoPricingTable(),
+        pricingByMode: {
+            image: getVideoPricingTable(),
+            text: getVideoPricingTable('text'),
+            reference: getVideoPricingTable('reference')
+        }
     });
 });
 

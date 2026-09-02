@@ -5,9 +5,9 @@
  * requests and centralizes Seedance pricing.
  */
 
-const VEILPIX_CREDIT_USD = 6.99 / 100;
-const TARGET_MARGIN = 0.12;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
+const { BILLABLE_USD_PER_VEILPIX_CREDIT } = require('./imageCreditPricing');
+const { minimumIncrease } = require('../config/generationPricing.json');
+const PREVIOUS_BILLABLE_USD_PER_CREDIT = (6.99 / 100) * 0.88;
 const KIE_CREDIT_USD = 0.005;
 
 const SEEDANCE_MODELS = {
@@ -18,17 +18,34 @@ const SEEDANCE_MODELS = {
 
 const SEEDANCE_PRICING = {
     fast: {
+        '480p': { noVideo: 11.7, withVideo: 6.8 },
+        '720p': { noVideo: 24.8, withVideo: 15 }
+    },
+    mini: {
+        '480p': { noVideo: 3.8, withVideo: 2.4 },
+        '720p': { noVideo: 8.2, withVideo: 5 }
+    },
+    regular: {
+        '480p': { noVideo: 19, withVideo: 11.5 },
+        '720p': { noVideo: 41, withVideo: 25 },
+        '1080p': { noVideo: 102, withVideo: 62 }
+    }
+};
+
+// Preserve the requested increase even where Kie's current rates have fallen.
+const PREVIOUS_SEEDANCE_PRICING = {
+    regular: {
+        '480p': { noVideo: 19, withVideo: 11.5 },
+        '720p': { noVideo: 41, withVideo: 25 },
+        '1080p': { noVideo: 102, withVideo: 62 }
+    },
+    fast: {
         '480p': { noVideo: 15.5, withVideo: 9 },
         '720p': { noVideo: 33, withVideo: 20 }
     },
     mini: {
         '480p': { noVideo: 9.5, withVideo: 6 },
         '720p': { noVideo: 20.5, withVideo: 12.5 }
-    },
-    regular: {
-        '480p': { noVideo: 19, withVideo: 11.5 },
-        '720p': { noVideo: 41, withVideo: 25 },
-        '1080p': { noVideo: 102, withVideo: 62 }
     }
 };
 
@@ -62,12 +79,15 @@ function normalizeAspectRatio(aspectRatio) {
     return ASPECT_RATIOS.includes(aspectRatio) ? aspectRatio : '16:9';
 }
 
-function veilpixCreditsFromUsd(usdCost) {
-    return Math.max(1, Math.ceil(usdCost / BILLABLE_USD_PER_VEILPIX_CREDIT));
+function veilpixCreditsFromUsd(usdCost, previousCredits = 0) {
+    return Math.max(1, Math.ceil(Math.max(
+        usdCost / BILLABLE_USD_PER_VEILPIX_CREDIT,
+        previousCredits * (1 + minimumIncrease)
+    ) - 1e-10));
 }
 
-function veilpixCreditsFromKieCredits(kieCredits) {
-    return veilpixCreditsFromUsd(Number(kieCredits || 0) * KIE_CREDIT_USD);
+function veilpixCreditsFromKieCredits(kieCredits, previousCredits = 0) {
+    return veilpixCreditsFromUsd(Number(kieCredits || 0) * KIE_CREDIT_USD, previousCredits);
 }
 
 function estimateSeedanceKieCredits({
@@ -76,14 +96,14 @@ function estimateSeedanceKieCredits({
     duration = 5,
     hasVideoReference = false,
     referenceVideoDuration = 0
-}) {
+}, rates = SEEDANCE_PRICING) {
     const selectedVariant = normalizeVariant(variant);
     const selectedResolution = normalizeResolution(selectedVariant, resolution);
     const selectedDuration = clampDuration(duration, selectedVariant);
-    const pricing = SEEDANCE_PRICING[selectedVariant][selectedResolution];
+    const pricing = rates[selectedVariant][selectedResolution];
     const inputDurationLimit = SEEDANCE_DURATION_LIMITS[selectedVariant].max;
     const billableSeconds = hasVideoReference
-        ? selectedDuration + Math.max(0, Math.min(inputDurationLimit, Number(referenceVideoDuration) || 0))
+        ? selectedDuration + Math.max(0, Math.min(inputDurationLimit, Math.ceil(Number(referenceVideoDuration) || inputDurationLimit)))
         : selectedDuration;
     const rate = hasVideoReference ? pricing.withVideo : pricing.noVideo;
 
@@ -91,7 +111,10 @@ function estimateSeedanceKieCredits({
 }
 
 function estimateSeedanceVeilPixCredits(options) {
-    return veilpixCreditsFromKieCredits(estimateSeedanceKieCredits(options));
+    const previousCredits = Math.max(1, Math.ceil(
+        estimateSeedanceKieCredits(options, PREVIOUS_SEEDANCE_PRICING) * KIE_CREDIT_USD / PREVIOUS_BILLABLE_USD_PER_CREDIT
+    ));
+    return veilpixCreditsFromKieCredits(estimateSeedanceKieCredits(options), previousCredits);
 }
 
 function buildSeedanceRequest(prompt, options = {}) {

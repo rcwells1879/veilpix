@@ -1,0 +1,10 @@
+{
+  "minimumIncrease": 0.10,
+  "stripePercentageFee": 0.029,
+  "stripeFixedFeeUsd": 0.30,
+  "creditPackages": {
+    "50_credits": { "credits": 50, "priceUsd": 3.99, "targetMargin": 0.22 },
+    "100_credits": { "credits": 100, "priceUsd": 6.99, "targetMargin": 0.21 },
+    "200_credits": { "credits": 200, "priceUsd": 11.99, "targetMargin": 0.20 }
+  }
+}

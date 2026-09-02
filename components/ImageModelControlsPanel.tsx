@@ -6,6 +6,7 @@
 import React from 'react';
 import { formatCreditAmount } from '../src/utils/creditFormatting';
 import { PhotoIcon } from './icons';
+import pricingPolicy from '../veilpix-api/config/generationPricing.json';
 
 export type ImageProvider = 'nanobanana2' | 'seedream' | 'wanimage';
 export type ImageResolution = '1K' | '2K' | '4K';
@@ -45,8 +46,11 @@ interface ImageModelConfig {
 }
 
 const VEILPIX_CREDIT_USD = 0.0699;
-const TARGET_MARGIN = 0.12;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
+const PREVIOUS_BILLABLE_USD_PER_CREDIT = VEILPIX_CREDIT_USD * 0.88;
+const BILLABLE_USD_PER_VEILPIX_CREDIT = Math.min(...Object.values(pricingPolicy.creditPackages).map((pack) => {
+  const fee = Math.round((pack.priceUsd * pricingPolicy.stripePercentageFee + pricingPolicy.stripeFixedFeeUsd) * 100) / 100;
+  return (pack.priceUsd * (1 - pack.targetMargin) - fee) / pack.credits;
+}));
 const KIE_CREDIT_USD = 0.005;
 
 export const IMAGE_KIE_CREDIT_PRICING: Record<ImageProvider, Partial<Record<ImageResolution, number>>> = {
@@ -189,11 +193,20 @@ export function getImageModelResolutions(provider: ImageProvider, workflow?: Ima
   return workflowResolutions.filter((resolution) => allowed.includes(resolution.value));
 }
 
-function veilpixCreditsFromKieCredits(kieCredits: number): number {
-  const rawCredits = Math.max(0, (kieCredits * KIE_CREDIT_USD) / BILLABLE_USD_PER_VEILPIX_CREDIT);
+function roundImageCredits(rawCredits: number): number {
   if (rawCredits <= 0) return 0;
-  if (rawCredits < 1) return Math.ceil(rawCredits * 100) / 100;
-  return Math.ceil(rawCredits);
+  if (rawCredits < 1) return Math.ceil(rawCredits * 100 - 1e-10) / 100;
+  return Math.ceil(rawCredits - 1e-10);
+}
+
+function veilpixCreditsFromKieCredits(kieCredits: number): number {
+  const cost = Math.max(0, kieCredits * KIE_CREDIT_USD);
+  if (cost === 0) return 0;
+  const previousCredits = roundImageCredits(cost / PREVIOUS_BILLABLE_USD_PER_CREDIT);
+  return Math.ceil(Math.max(
+    cost / BILLABLE_USD_PER_VEILPIX_CREDIT,
+    previousCredits * (1 + pricingPolicy.minimumIncrease)
+  ) * 100 - 1e-10) / 100;
 }
 
 export function getImageKieCreditCost(provider: ImageProvider, resolution?: ImageResolution, workflow?: ImageWorkflow, seedreamTier: SeedreamTier = 'lite', imageCount = 0): number {

@@ -256,16 +256,14 @@ async function deductCreditsAndTrack(req, startTime, requestType, creditsToDeduc
         });
 
         if (success) {
-            for (let i = 0; i < creditsToDeduct; i++) {
-                const deductResult = await db.deductUserCredit(user.userId);
-                if (!deductResult.success) {
-                    console.error('Failed to deduct Seedance credit:', deductResult.error);
-                    return false;
-                }
+            const deductResult = await db.deductUserCredits(user.userId, creditsToDeduct);
+            if (!deductResult.success) {
+                console.error('Failed to deduct Seedance credits:', deductResult.error);
+                return false;
             }
 
             if (req.creditsInfo) {
-                req.creditsInfo.remaining = Math.max(0, req.creditsInfo.remaining - creditsToDeduct);
+                req.creditsInfo.remaining = Math.max(0, Math.round((req.creditsInfo.remaining - creditsToDeduct) * 100) / 100);
             }
         }
 
@@ -454,6 +452,7 @@ router.post('/generate-video', upload.fields([
         });
 
         usageLogged = await deductCreditsAndTrack(req, startTime, 'seedance-video', actualCredits);
+        if (!usageLogged) throw new Error('Unable to deduct video credits');
 
         res.json({
             success: true,

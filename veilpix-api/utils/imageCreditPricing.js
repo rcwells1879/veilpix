@@ -1,6 +1,12 @@
+const pricingPolicy = require('../config/generationPricing.json');
 const VEILPIX_CREDIT_USD = 6.99 / 100;
-const TARGET_MARGIN = 0.12;
-const BILLABLE_USD_PER_VEILPIX_CREDIT = VEILPIX_CREDIT_USD * (1 - TARGET_MARGIN);
+const TARGET_MARGIN = pricingPolicy.creditPackages['200_credits'].targetMargin;
+const PREVIOUS_BILLABLE_USD_PER_CREDIT = VEILPIX_CREDIT_USD * 0.88;
+// Allocate the card fee over the purchased credits, not once per generation.
+const BILLABLE_USD_PER_VEILPIX_CREDIT = Math.min(...Object.values(pricingPolicy.creditPackages).map((pack) => {
+    const fee = Math.round((pack.priceUsd * pricingPolicy.stripePercentageFee + pricingPolicy.stripeFixedFeeUsd) * 100) / 100;
+    return (pack.priceUsd * (1 - pack.targetMargin) - fee) / pack.credits;
+}));
 const KIE_CREDIT_USD = 0.005;
 
 const IMAGE_WORKFLOWS = {
@@ -85,11 +91,20 @@ function normalizeImageResolution(provider, resolution, workflow, seedreamTier =
     return allowed.includes(resolution) ? resolution : allowed[0] || DEFAULT_RESOLUTIONS[selectedProvider];
 }
 
-function veilpixCreditsFromUsd(usdCost) {
-    const rawCredits = Math.max(0, (Number(usdCost) || 0) / BILLABLE_USD_PER_VEILPIX_CREDIT);
+function roundImageCredits(rawCredits) {
     if (rawCredits <= 0) return 0;
-    if (rawCredits < 1) return Math.ceil(rawCredits * 100) / 100;
-    return Math.ceil(rawCredits);
+    if (rawCredits < 1) return Math.ceil(rawCredits * 100 - 1e-10) / 100;
+    return Math.ceil(rawCredits - 1e-10);
+}
+
+function veilpixCreditsFromUsd(usdCost) {
+    const cost = Math.max(0, Number(usdCost) || 0);
+    if (cost === 0) return 0;
+    const previousCredits = roundImageCredits(cost / PREVIOUS_BILLABLE_USD_PER_CREDIT);
+    return Math.ceil(Math.max(
+        cost / BILLABLE_USD_PER_VEILPIX_CREDIT,
+        previousCredits * (1 + pricingPolicy.minimumIncrease)
+    ) * 100 - 1e-10) / 100;
 }
 
 function veilpixCreditsFromKieCredits(kieCredits) {
