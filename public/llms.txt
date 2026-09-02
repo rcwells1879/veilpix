@@ -25,7 +25,6 @@ VeilPix is a free-to-try, privacy-focused AI image and video workspace for photo
 - AI photo editing, retouching, filters, adjustments, and multi-image composition
 - Seedance 2.5 multimodal clips up to 30 seconds with MP4 or MOV output
 - Last-frame continuation and browser-side video stitching
-- Age-verified After Dark where supported by the selected provider
 - Browser-local Album with temporary delivery recovery instead of a persistent server-side creative gallery
 
 Website: https://veilstudio.io/veilpix/

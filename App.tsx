@@ -44,6 +44,7 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import Spinner from './components/Spinner';
 import type { SettingsState } from './components/SettingsMenu';
+import { ContentPolicyNotice } from './components/ContentPolicyNotice';
 import {
   getImageCreditCost,
   imageProviderSupportsReferences,
@@ -243,9 +244,6 @@ const isSafetyFilterError = (error: unknown): boolean => {
 
   const lowerError = getApiErrorMessage(error).toLowerCase();
   if (safetyKeywords.some(keyword => lowerError.includes(keyword))) return true;
-
-  // Kie.ai returns generic "Internal Error" for content-filtered requests.
-  if (lowerError.includes('internal error') || lowerError.includes('500')) return true;
 
   return false;
 };
@@ -2557,32 +2555,10 @@ const App: React.FC = () => {
         </p>
 
         {isSafetyIssue ? (
-          <div className="flex flex-col gap-2 text-[13px] leading-relaxed text-gray-300">
-            {hasPurchasedCredits && !settings.nsfwFilterEnabled ? (
-              <p>
-                Your request was blocked by the AI provider's built-in content filter. Although VeilStudio's
-                content filter is disabled, the underlying model may enforce restrictions that cannot be
-                overridden. Try rephrasing your prompt or switching models.
-              </p>
-            ) : hasPurchasedCredits ? (
-              <p>
-                Your request was flagged while the content filter is enabled. For supported consensual adult
-                content, you can turn on After Dark by disabling the content filter in Settings. Individual
-                providers may still enforce their own restrictions.
-              </p>
-            ) : (
-              <p>
-                Your request appears to contain adult content. VeilPix requires an account and age
-                verification before supported consensual adult content can be generated. Age verification is
-                completed when you purchase credits. After purchasing, open Settings and turn on After Dark by
-                disabling the content filter.
-              </p>
-            )}
-            <p className="text-xs font-medium text-gray-400">
-              VeilPix strictly prohibits child sexual abuse material (CSAM) and non-consensual intimate
-              imagery under all circumstances.
-            </p>
-          </div>
+          <ContentPolicyNotice
+            hasPurchasedCredits={hasPurchasedCredits}
+            nsfwFilterEnabled={settings.nsfwFilterEnabled}
+          />
         ) : (
           <p className="text-[13px] leading-relaxed text-gray-300">{activeError}</p>
         )}

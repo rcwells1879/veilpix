@@ -16,10 +16,6 @@ const faqData: FAQItem[] = [
     answer: 'VeilPix is a privacy-focused AI image and video creative workspace. You can generate images from text, edit photos, combine references, and create text-to-video, frame-to-video, reference-to-video, file-to-video, and link-to-video clips with models including Nano Banana 2, Seedream 5 Lite/Pro, Z-Image Turbo, Wan 3.0 Standard/Prime, earlier Wan video models, and Seedance 2.5.',
   },
   {
-    question: 'What is VeilPix After Dark?',
-    answer: 'VeilPix After Dark is an age-verified 18+ mode for private NSFW and adult creative workflows where supported by the selected model provider. Uploaded media is sent only for the requested generation or edit and is not stored as a user library. VeilPix still applies account controls, provider safety systems, and misuse prevention.',
-  },
-  {
     question: 'Can VeilPix generate videos?',
     answer: 'Yes. Wan 3.0 supports clips up to 30 seconds with text, first/last frames, up to 10 reference images, 5 reference videos, 5 reference audio files, a document, or a public webpage. Choose Standard for lower cost or Prime for faster generation. Seedance 2.5 also supports multimodal clips up to 30 seconds.',
   },
