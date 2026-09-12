@@ -161,7 +161,7 @@ async function failPendingJob(record, state, message) {
     });
     const reservedCredits = Math.max(0, Number(state?.reservedCredits) || 0);
     if (failed && reservedCredits > 0) {
-        const refund = await db.addUserCredits(record.clerk_user_id, reservedCredits);
+        const refund = await db.refundUserCredits(record.clerk_user_id, reservedCredits, state.creditRefundId || `video:${record.id}`);
         if (!refund.success) {
             console.error(`Could not refund ${reservedCredits} reserved credits for failed generation ${record.gemini_request_id}`);
         }
@@ -222,7 +222,7 @@ async function recoverPendingKieVideoJob(record) {
                 console.error(`Could not deduct ${settlement.deductCredits} settlement credits for recovered generation ${record.gemini_request_id}`);
             }
         } else if (settlement.refundCredits > 0) {
-            const refund = await db.addUserCredits(record.clerk_user_id, settlement.refundCredits);
+            const refund = await db.refundUserCredits(record.clerk_user_id, settlement.refundCredits, state.creditRefundId || `video:${record.id}`);
             if (!refund.success) {
                 console.error(`Could not refund ${settlement.refundCredits} excess reserved credits for recovered generation ${record.gemini_request_id}`);
             }

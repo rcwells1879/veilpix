@@ -83,7 +83,7 @@ async function findUserByEmail(supabase, normalizedEmail, email, currentUserId =
             .limit(10);
 
         if (error) {
-            console.warn('Unable to query users by normalized email:', error.message);
+            throw error;
         } else {
             for (const user of data || []) candidates.set(user.id, user);
         }
@@ -97,7 +97,7 @@ async function findUserByEmail(supabase, normalizedEmail, email, currentUserId =
             .limit(10);
 
         if (error) {
-            console.warn('Unable to query users by email:', error.message);
+            throw error;
         } else {
             for (const user of data || []) candidates.set(user.id, user);
         }
@@ -136,19 +136,24 @@ async function reconcileUserFromEmailMatch(supabase, currentUser, matchedUser, c
         reconciledCredits: updateData.credits_remaining
     });
 
-    const { data, error } = await supabase
-        .from('users')
-        .update(updateData)
-        .eq('id', currentUser.id)
-        .select()
-        .single();
+    let reconciliation = supabase.from('users').update(updateData).eq('id', currentUser.id);
+    // Preserve deductions, purchases, and operator adjustments made since the read.
+    for (const column of ['credits_remaining', 'total_credits_purchased']) {
+        reconciliation = currentUser[column] == null
+            ? reconciliation.is(column, null)
+            : reconciliation.eq(column, currentUser[column]);
+    }
+    const { data, error } = await reconciliation.select().maybeSingle();
 
     if (error) {
         console.warn('Unable to reconcile same-email user credits:', error.message);
         return currentUser;
     }
 
-    return data;
+    if (data) return data;
+    const latest = await supabase.from('users').select('*').eq('id', currentUser.id).single();
+    if (latest.error) throw latest.error;
+    return latest.data;
 }
 
 async function reactivateDeletedUser(supabase, user) {
@@ -176,10 +181,10 @@ async function reactivateDeletedUser(supabase, user) {
 // Database utility functions
 const db = {
     // User management
-    async createOrGetUser(clerkUserId, email, { reactivateDeleted = false } = {}) {
+    async createOrGetUser(clerkUserId, email, { reactivateDeleted = false, client = null } = {}) {
         try {
             console.log('🔍 DB: createOrGetUser called with:', { clerkUserId, email });
-            const supabase = getSupabaseClient();
+            const supabase = client || getSupabaseClient();
             console.log('🔍 DB: Got supabase client');
 
             // Normalize the email for storage (defense in depth)
@@ -198,7 +203,11 @@ const db = {
             const existingUser = existingUsers?.[0] || null;
             console.log('🔍 DB: Query completed. Data:', !!existingUser, 'Error:', fetchError?.message);
 
-            if (existingUser && !fetchError) {
+            // A failed lookup is not evidence that the account is absent.
+            // Never write signup defaults after a timeout or database error.
+            if (fetchError) throw fetchError;
+
+            if (existingUser) {
                 console.log('🔍 DB: Found existing user, returning');
                 const activeUser = reactivateDeleted
                     ? await reactivateDeletedUser(supabase, existingUser)
@@ -241,11 +250,11 @@ const db = {
                     return { user: migratedUser, created: false };
                 }
 
-                console.warn('Unable to migrate same-email user to current Clerk ID:', migrateError?.message);
+                throw migrateError || new Error('Unable to migrate existing account');
             }
 
             // Create new user if doesn't exist (with 30 initial credits)
-            // Use upsert with onConflict to handle race conditions
+            // Concurrent sign-ins may create this row first. Never overwrite it.
             // Store both original email and normalized email for burner detection
             console.log('🔍 DB: Creating new user with 30 initial credits...');
             const { data: newUser, error: createError } = await supabase
@@ -259,15 +268,25 @@ const db = {
                     total_credits_purchased: 0
                 }, {
                     onConflict: 'clerk_user_id',
-                    ignoreDuplicates: false
+                    ignoreDuplicates: true
                 })
                 .select()
-                .single();
+                .maybeSingle();
 
             console.log('🔍 DB: Upsert completed. Data:', !!newUser, 'Error:', createError?.message);
 
             if (createError) {
                 throw createError;
+            }
+
+            if (!newUser) {
+                const existing = await supabase.from('users').select('*')
+                    .eq('clerk_user_id', clerkUserId).single();
+                if (existing.error) throw existing.error;
+                const user = reactivateDeleted
+                    ? await reactivateDeletedUser(supabase, existing.data)
+                    : existing.data;
+                return { user, created: false };
             }
 
             console.log('🔍 DB: Created/updated user with credits, returning');
@@ -622,6 +641,37 @@ const db = {
 
     async deductUserCredit(clerkUserId) {
         return this.deductUserCredits(clerkUserId, 1);
+    },
+
+    // Refunds restore reserved credits without counting them as purchases.
+    // The database receipt makes retrying an uncertain response safe.
+    async refundUserCredits(clerkUserId, credits, refundId, client = null) {
+        try {
+            const amount = normalizeCreditAmount(credits);
+            if (amount <= 0 || typeof refundId !== 'string' || !refundId.trim()) {
+                throw new Error('A positive refund amount and refund ID are required');
+            }
+            const supabase = client || getSupabaseClient();
+            // Retry uncertain responses with the SAME receipt ID. The first
+            // request may already have committed before the connection failed.
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const { data, error } = await supabase.rpc('refund_user_credits', {
+                        p_clerk_user_id: clerkUserId,
+                        p_credits: amount,
+                        p_refund_id: refundId
+                    });
+                    if (error) throw error;
+                    if (data !== true) throw new Error('Credit refund could not find the account');
+                    return { success: true, error: null };
+                } catch (error) {
+                    if (attempt === 2) throw error;
+                }
+            }
+        } catch (error) {
+            console.error('Credit refund failed:', { clerkUserId, refundId, credits, message: error.message });
+            return { success: false, error };
+        }
     },
 
     async addUserCredits(clerkUserId, credits) {

@@ -1,12 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { db } = require('./database');
 const {
     PENDING_VIDEO_JOB_TTL_MS,
     creditSettlementForCompletedVideo,
     creditsForCompletedVideo,
     deliveryProviderForState,
     normalizeCompletedVideo,
-    providerFailureMessage
+    providerFailureMessage,
+    recoverPendingKieVideoJob
 } = require('./kieVideoJobRecovery');
 
 test('keeps provider jobs recoverable for 48 hours', () => {
@@ -110,4 +112,28 @@ test('keeps legacy pending videos on completion-time deduction', () => {
         deductCredits: 4.2,
         refundCredits: 0
     });
+});
+
+test('failed video recovery refunds decimal reservations without adding purchased credits', async (t) => {
+    const calls = [];
+    t.mock.method(db, 'failPendingVideoGenerationJob', async () => true);
+    t.mock.method(db, 'refundUserCredits', async (...args) => {
+        calls.push(args);
+        return { success: true };
+    });
+    t.mock.method(db, 'addUserCredits', async () => { assert.fail('Refund must not count as a purchase'); });
+    for (const amount of [8.43, 12.17]) {
+        await recoverPendingKieVideoJob({
+            id: `row-${amount}`, clerk_user_id: 'user-a', gemini_request_id: `generation-${amount}`,
+            created_at: '2020-01-01T00:00:00Z',
+            error_message: JSON.stringify({
+                status: 'provider_pending', provider: 'seedance', providerTaskId: 'task',
+                reservedCredits: amount, creditRefundId: `reservation-${amount}`
+            })
+        });
+    }
+    assert.deepEqual(calls, [
+        ['user-a', 8.43, 'reservation-8.43'],
+        ['user-a', 12.17, 'reservation-12.17']
+    ]);
 });

@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomUUID } = require('node:crypto');
 const { db } = require('../utils/database');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
 const {
@@ -81,6 +82,7 @@ router.post('/inputs/sign', async (req, res) => {
 router.post('/generate-video', async (req, res) => {
     const startTime = Date.now();
     const generationId = getVideoGenerationId(req);
+    const creditRefundId = randomUUID();
     const uploads = req.body?.uploads || {};
     const allUploads = flattenUploads(uploads);
     const objectPaths = allUploads.map(upload => upload.objectPath);
@@ -192,6 +194,7 @@ router.post('/generate-video', async (req, res) => {
                 providerTaskId,
                 estimatedCredits,
                 reservedCredits,
+                creditRefundId,
                 duration,
                 cleanup: {
                     kind: 'provider-input',
@@ -226,8 +229,8 @@ router.post('/generate-video', async (req, res) => {
             await deleteProviderInputs(req.user.userId, objectPaths).catch(() => {});
         }
         if (!providerTaskId && reservedCredits > 0) {
-            await db.addUserCredits(req.user.userId, reservedCredits).catch(() => {});
-            reservedCredits = 0;
+            const refund = await db.refundUserCredits(req.user.userId, reservedCredits, creditRefundId);
+            if (refund.success) reservedCredits = 0;
         }
         if (!pendingJob && generationId) {
             await db.logUsage({

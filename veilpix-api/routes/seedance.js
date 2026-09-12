@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomUUID } = require('node:crypto');
 const multer = require('multer');
 const { db } = require('../utils/database');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
@@ -217,6 +218,7 @@ router.post('/generate-video', upload.fields([
 ]), async (req, res) => {
     const startTime = Date.now();
     const generationId = getVideoGenerationId(req);
+    const creditRefundId = randomUUID();
     const uploadedFilenames = [];
     let providerTaskId = null;
     let pendingJob = null;
@@ -472,6 +474,7 @@ router.post('/generate-video', upload.fields([
                 providerPollingUrl: providerTask.pollingUrl,
                 estimatedCredits,
                 reservedCredits,
+                creditRefundId,
                 duration: selectedDuration,
                 cleanup: {
                     kind: 'temporary-media',
@@ -511,8 +514,8 @@ router.post('/generate-video', upload.fields([
                 await deleteTemporaryImage(filename);
             }
             if (reservedCredits > 0) {
-                await db.addUserCredits(req.user.userId, reservedCredits).catch(() => {});
-                reservedCredits = 0;
+                const refund = await db.refundUserCredits(req.user.userId, reservedCredits, creditRefundId);
+                if (refund.success) reservedCredits = 0;
             }
         }
 

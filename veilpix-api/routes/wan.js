@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomUUID } = require('node:crypto');
 const multer = require('multer');
 const { db } = require('../utils/database');
 const { getUser, requireAuth, requireAllowedEmail } = require('../middleware/auth');
@@ -145,6 +146,7 @@ async function reserveVideoCredits(req, res) {
     }
 
     req.videoCreditsReserved = requiredCredits;
+    req.videoCreditRefundId = randomUUID();
     const currentBalance = await db.getUserCredits(req.user.userId);
     req.creditsInfo = { remaining: currentBalance.credits };
     return true;
@@ -153,8 +155,8 @@ async function reserveVideoCredits(req, res) {
 async function refundReservedVideoCredits(req) {
     const reservedCredits = Math.max(0, Number(req.videoCreditsReserved) || 0);
     if (reservedCredits <= 0) return;
-    await db.addUserCredits(req.user.userId, reservedCredits);
-    req.videoCreditsReserved = 0;
+    const refund = await db.refundUserCredits(req.user.userId, reservedCredits, req.videoCreditRefundId);
+    if (refund.success) req.videoCreditsReserved = 0;
 }
 
 // Apply authentication middleware to all routes
@@ -231,6 +233,7 @@ router.post('/generate-video', upload.single('image'), checkUserCredits, async (
                 providerTaskId,
                 estimatedCredits: creditCost,
                 reservedCredits: req.videoCreditsReserved,
+                creditRefundId: req.videoCreditRefundId,
                 duration: parseInt(duration),
                 cleanup: {
                     kind: 'temporary-media',
@@ -382,6 +385,7 @@ router.post('/generate-reference-to-video', upload.fields([
                 providerTaskId,
                 estimatedCredits: creditCost,
                 reservedCredits: req.videoCreditsReserved,
+                creditRefundId: req.videoCreditRefundId,
                 duration: parseInt(duration),
                 cleanup: {
                     kind: 'temporary-media',
@@ -483,6 +487,7 @@ router.post('/generate-text-to-video', express.json({ limit: '1mb' }), checkUser
                 providerTaskId,
                 estimatedCredits: creditCost,
                 reservedCredits: req.videoCreditsReserved,
+                creditRefundId: req.videoCreditRefundId,
                 duration: typeof duration === 'number' ? duration : parseInt(duration),
                 cleanup: { kind: 'temporary-media', filenames: [] }
             }
