@@ -174,14 +174,22 @@ export async function extractFilmstrip(file: File | Blob, frameCount = 8): Promi
   }
 }
 
-function pickRecorderMimeType(): string {
-  const candidates = [
-    'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
-    'video/mp4',
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-  ];
+function pickRecorderMimeType(includeAudio: boolean): string {
+  const candidates = includeAudio
+    ? [
+        'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+        'video/mp4',
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+      ]
+    : [
+        'video/mp4;codecs="avc1.42E01E"',
+        'video/mp4',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+      ];
   if (typeof MediaRecorder === 'undefined') return '';
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? '';
 }
@@ -301,17 +309,12 @@ function waitForRecorderEvent(
   });
 }
 
-/**
- * Render the given clips back-to-back into a single video blob.
- * Rendering happens in real time (sum of clip durations).
- */
-export async function stitchVideos(
+async function renderVideos(
   files: (File | Blob)[],
+  includeAudio: boolean,
   onProgress?: (progress: StitchProgress) => void,
 ): Promise<{ blob: Blob; duration: number }> {
-  if (files.length < 2) throw new Error('Add two clips to stitch.');
-
-  const mimeType = pickRecorderMimeType();
+  const mimeType = pickRecorderMimeType(includeAudio);
   if (!mimeType) throw new Error('This browser does not support in-browser video rendering.');
 
   onProgress?.({ phase: 'preparing', progress: 0 });
@@ -329,6 +332,9 @@ export async function stitchVideos(
       if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
         await waitForEvent(video, 'canplay');
       }
+      // When creating a video-only output, keep source audio out of both the
+      // recording and the user's speakers while the clip plays through.
+      video.muted = !includeAudio;
       videos.push(video);
     }
 
@@ -347,29 +353,33 @@ export async function stitchVideos(
     }
     const stream = canvas.captureStream(30);
 
-    // Mix clip audio into the recording (silent clips are fine)
-    audioContext = new AudioContext();
-    const audioDestination = audioContext.createMediaStreamDestination();
-    const audioGains = videos.map((video, index) => {
-      try {
-        const source = audioContext!.createMediaElementSource(video);
-        const gain = audioContext!.createGain();
-        gain.gain.value = index === 0 ? 1 : 0;
-        source.connect(gain);
-        gain.connect(audioDestination);
-        return gain;
-      } catch {
-        // No usable audio on this element — video-only is fine.
-        return null;
-      }
-    });
-    audioDestination.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
-    await audioContext.resume().catch(() => undefined);
+    // Stitching mixes clip audio into the recording. Audio removal deliberately
+    // leaves the canvas capture stream video-only, so the result has no audio track.
+    let audioGains: (GainNode | null)[] = [];
+    if (includeAudio) {
+      audioContext = new AudioContext();
+      const audioDestination = audioContext.createMediaStreamDestination();
+      audioGains = videos.map((video, index) => {
+        try {
+          const source = audioContext!.createMediaElementSource(video);
+          const gain = audioContext!.createGain();
+          gain.gain.value = index === 0 ? 1 : 0;
+          source.connect(gain);
+          gain.connect(audioDestination);
+          return gain;
+        } catch {
+          // No usable audio on this element — video-only is fine.
+          return null;
+        }
+      });
+      audioDestination.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
+      await audioContext.resume().catch(() => undefined);
+    }
 
     recorder = new MediaRecorder(stream, {
       mimeType,
       videoBitsPerSecond: 12_000_000,
-      audioBitsPerSecond: 192_000,
+      ...(includeAudio ? { audioBitsPerSecond: 192_000 } : {}),
     });
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (event) => {
@@ -395,10 +405,12 @@ export async function stitchVideos(
       const video = videos[index];
       if (index > 0) {
         drawContain(ctx, video, width, height);
-        const gainTime = audioContext.currentTime;
-        audioGains.forEach((gain, gainIndex) => {
-          gain?.gain.setValueAtTime(gainIndex === index ? 1 : 0, gainTime);
-        });
+        if (audioContext) {
+          const gainTime = audioContext.currentTime;
+          audioGains.forEach((gain, gainIndex) => {
+            gain?.gain.setValueAtTime(gainIndex === index ? 1 : 0, gainTime);
+          });
+        }
       }
 
       await playThrough(video, ctx, width, height, (currentTime) => {
@@ -427,6 +439,26 @@ export async function stitchVideos(
     if (audioContext) await audioContext.close().catch(() => undefined);
     urls.forEach((url) => URL.revokeObjectURL(url));
   }
+}
+
+/**
+ * Render the given clips back-to-back into a single video blob.
+ * Rendering happens in real time (sum of clip durations).
+ */
+export async function stitchVideos(
+  files: (File | Blob)[],
+  onProgress?: (progress: StitchProgress) => void,
+): Promise<{ blob: Blob; duration: number }> {
+  if (files.length < 2) throw new Error('Add two clips to stitch.');
+  return renderVideos(files, true, onProgress);
+}
+
+/** Render one clip as a video-only file with its audio track removed. */
+export async function stripVideoAudio(
+  file: File | Blob,
+  onProgress?: (progress: StitchProgress) => void,
+): Promise<{ blob: Blob; duration: number }> {
+  return renderVideos([file], false, onProgress);
 }
 
 /** Format seconds as m:ss.t for scrub readouts. */
