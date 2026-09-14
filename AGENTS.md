@@ -164,6 +164,16 @@ supabase gen types typescript --linked
 
 Do not run `supabase db reset`, `db push`, or production migrations without explicit confirmation.
 
+### Pending Clerk Deletion Activation
+
+The source and deployed API contain the signed `/api/webhooks/clerk` handler for Clerk `user.deleted` events, but source deployment alone does not activate deletion synchronization. Activation requires all three of the following:
+
+1. Apply `veilpix-api/schema-migration-clerk-user-deletions.sql` to the linked production Supabase project.
+2. Register `https://api.veilstudio.io/api/webhooks/clerk` in Clerk for `user.deleted` events.
+3. Store the resulting `CLERK_WEBHOOK_SIGNING_SECRET` in the production environment backup used by `deploy-api.yml`, then redeploy or restart the API.
+
+Live read-only verification on 2026-08-26 found the route deployed, but `CLERK_WEBHOOK_SIGNING_SECRET` was absent from both `/home/veilpix/.env.backup` and the deployed API `.env`, and Supabase returned PostgreSQL `42703` because `users.deleted_at` did not exist. Treat deletion synchronization as inactive until all three steps are completed and a correctly signed test event is verified. These are production security changes: do not apply the migration, alter Clerk, or write the secret without explicit operator approval.
+
 ## Production Deployment
 
 GitHub Actions deploy from `main`:
@@ -178,20 +188,34 @@ Production:
 - API host: `140.82.7.169`
 - App directory: `/home/veilpix/veilpix-api/`
 
+Interactive VPS access currently uses the system SSH client and the operator's default SSH identity:
+
+```powershell
+ssh.exe root@140.82.7.169
+```
+
+Do not invent or copy a historical identity-file path; verify the current login before changing access. Never put a private key or secret in this repository or in an agent instruction file.
+
+The SSH login is `root`, but the production PM2 daemon and application process belong to Linux user `veilpix`. A bare `pm2` command from the root shell addresses the wrong PM2 home. Run PM2 commands through the application owner:
+
+```bash
+sudo -u veilpix env HOME=/home/veilpix PM2_HOME=/home/veilpix/.pm2 /usr/local/bin/pm2 status
+```
+
 The VPS is not a Git checkout. Do not run `git pull` there. Prefer CI/CD. For a manual restart, avoid `pm2 restart veilpix-api`; use a clean stop/start after allowing the port to release:
 
 ```bash
 cd /home/veilpix/veilpix-api
-pm2 delete veilpix-api || true
+sudo -u veilpix env HOME=/home/veilpix PM2_HOME=/home/veilpix/.pm2 /usr/local/bin/pm2 delete veilpix-api || true
 sleep 2
-pm2 start ecosystem.config.js
+sudo -u veilpix env HOME=/home/veilpix PM2_HOME=/home/veilpix/.pm2 /usr/local/bin/pm2 start ecosystem.config.js
 ```
 
 Useful checks:
 
 ```bash
-pm2 status
-pm2 logs veilpix-api --lines 100
+sudo -u veilpix env HOME=/home/veilpix PM2_HOME=/home/veilpix/.pm2 /usr/local/bin/pm2 status
+sudo -u veilpix env HOME=/home/veilpix PM2_HOME=/home/veilpix/.pm2 /usr/local/bin/pm2 logs veilpix-api --lines 100 --nostream
 tail -100 /home/veilpix/veilpix-api/logs/out-0.log
 tail -100 /home/veilpix/veilpix-api/logs/combined-0.log
 curl http://127.0.0.1:3001/api/health
@@ -207,3 +231,4 @@ After public route or content changes, review `public/sitemap.xml` and the front
 - `CLAUDE.md` and `GEMINI.md` are compatibility pointers, not separate sources of truth.
 - Avoid broad formatting churn around existing mojibake unless cleanup is explicitly in scope.
 - Current generation routes require authentication and credits; anonymous-generation language is obsolete.
+- A recurring Cloudflare Radar OAuth popup in Codex is project-local MCP state, not the Ollama `cloudflared.exe` tunnel. Inspect `codex mcp list` and the owning `.codex/config.toml`, then back up and change only the identified registration or cache. Do not broadly wipe authentication state.
