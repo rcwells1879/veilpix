@@ -18,6 +18,7 @@ import {
   getClipboardImageFiles,
   getClipboardVideoFiles,
   getDroppedVideoFiles,
+  getPastedImageFilesFromElement,
   readClipboardMediaFiles,
 } from '../../src/utils/imageTransfer';
 import { PhotoIcon, VideoIcon, CameraIcon } from '../icons';
@@ -55,6 +56,7 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
   onClose,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const nativePasteTargetRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<GalleryThumbnail[]>([]);
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
@@ -65,7 +67,7 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
   const importPastedImages = useCallback(async (files: File[]) => {
     const selectedFiles = files.slice(0, remainingSlots);
     if (selectedFiles.length === 0) {
-      setError('The clipboard does not contain an image.');
+      setError('No image data was exposed. On iPhone or iPad, touch and hold Paste image, then choose Paste.');
       return;
     }
     setClipboardBusy(true);
@@ -91,6 +93,27 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
     } finally {
       setClipboardBusy(false);
     }
+  }, [importPastedImages]);
+
+  const handleNativePasteInput = useCallback((event: React.FormEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    setClipboardBusy(true);
+    setError(null);
+    void getPastedImageFilesFromElement(target)
+      .then(async (files) => {
+        if (files.length === 0) {
+          setError('iOS did not expose an image from that paste. Try Share → Copy Photo, or use Upload.');
+          return;
+        }
+        await importPastedImages(files);
+      })
+      .catch((pasteError) => {
+        setError(pasteError instanceof Error ? pasteError.message : 'The pasted image could not be added.');
+      })
+      .finally(() => {
+        target.replaceChildren();
+        setClipboardBusy(false);
+      });
   }, [importPastedImages]);
 
   useEffect(() => {
@@ -177,15 +200,33 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
 
         <div className="min-h-0 overflow-y-auto p-3">
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => void pasteFromClipboard()}
-              disabled={clipboardBusy}
-              className="edge flex items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white disabled:opacity-60"
+            <div
+              className={`edge relative flex items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white ${clipboardBusy ? 'opacity-60' : ''}`}
+              aria-busy={clipboardBusy}
             >
-              <PhotoIcon className="h-5 w-5 text-gray-400" />
-              {clipboardBusy ? 'Pasting…' : 'Paste image'}
-            </button>
+              <PhotoIcon className="pointer-events-none h-5 w-5 text-gray-400" />
+              <span className="pointer-events-none">{clipboardBusy ? 'Pasting…' : 'Paste image'}</span>
+              <div
+                ref={nativePasteTargetRef}
+                role="button"
+                aria-label="Paste image from clipboard"
+                aria-disabled={clipboardBusy}
+                tabIndex={clipboardBusy ? -1 : 0}
+                contentEditable={!clipboardBusy}
+                suppressContentEditableWarning
+                spellCheck={false}
+                inputMode="none"
+                onClick={() => { if (!clipboardBusy) void pasteFromClipboard(); }}
+                onKeyDown={(event) => {
+                  if (!clipboardBusy && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    void pasteFromClipboard();
+                  }
+                }}
+                onInput={handleNativePasteInput}
+                className="absolute inset-0 overflow-hidden rounded-xl text-transparent caret-transparent outline-none"
+              />
+            </div>
             <button
               type="button"
               onClick={() => inputRef.current?.click()}
@@ -196,6 +237,9 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
               Upload
             </button>
           </div>
+          <p className="mt-2 px-1 text-center text-[11px] leading-relaxed text-gray-600">
+            iPhone/iPad: if a tap does not add the image, touch and hold Paste image, then choose Paste.
+          </p>
           <input
             ref={inputRef}
             type="file"

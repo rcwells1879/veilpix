@@ -23,6 +23,8 @@ const VIDEO_FILE_EXTENSION = /\.(m4v|mkv|mov|mp4|webm)$/i;
 
 export type ClipboardMediaKind = 'image' | 'video';
 
+const CLIPBOARD_URL_PROTOCOL = /^(https?:|data:|blob:)/i;
+
 export function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || IMAGE_FILE_EXTENSION.test(file.name);
 }
@@ -70,6 +72,46 @@ export async function readClipboardMediaFiles(kind: ClipboardMediaKind): Promise
           type: blob.type || mimeType,
           lastModified: Date.now(),
         }));
+  }
+  if (files.length > 0) return files;
+
+  // Copy Image in a browser often places HTML or a URL on the clipboard instead
+  // of a binary image. Resolve those representations before reporting an empty
+  // clipboard, while still requiring the fetched response to be actual media.
+  const sourceUrls: string[] = [];
+  for (const item of items) {
+    const htmlType = item.types.find((type) => type.toLowerCase() === 'text/html');
+    if (htmlType && kind === 'image') {
+      const html = await (await item.getType(htmlType)).text();
+      const document = new DOMParser().parseFromString(html, 'text/html');
+      document.querySelectorAll('img').forEach((image) => {
+        const sourceUrl = image.currentSrc || image.src;
+        if (CLIPBOARD_URL_PROTOCOL.test(sourceUrl)) sourceUrls.push(sourceUrl);
+      });
+    }
+
+    const urlType = item.types.find((type) => type.toLowerCase() === 'text/uri-list');
+    const plainType = item.types.find((type) => type.toLowerCase() === 'text/plain');
+    const textType = urlType || plainType;
+    if (textType) {
+      const text = await (await item.getType(textType)).text();
+      const sourceUrl = text.split('\n').map((line) => line.trim()).find((line) => (
+        line.length > 0 && !line.startsWith('#') && CLIPBOARD_URL_PROTOCOL.test(line)
+      ));
+      if (sourceUrl) sourceUrls.push(sourceUrl);
+    }
+  }
+
+  const uniqueUrls = [...new Set(sourceUrls)];
+  for (const sourceUrl of uniqueUrls) {
+    try {
+      files.push(kind === 'image'
+        ? await getImageFileFromUrl(sourceUrl)
+        : await getVideoFileFromUrl(sourceUrl));
+    } catch {
+      // A copied page may include inaccessible or non-media URLs. Try the next
+      // clipboard representation before falling back to native paste/upload.
+    }
   }
   return files;
 }
@@ -145,6 +187,58 @@ async function getImageFileFromUrl(sourceUrl: string): Promise<File> {
   if (!blob.type.startsWith('image/')) throw new Error('The dropped link does not point to an image');
 
   return new File([blob], getFileNameFromUrl(sourceUrl, blob.type), { type: blob.type });
+}
+
+async function waitForPastedImage(image: HTMLImageElement): Promise<void> {
+  if (image.complete && image.naturalWidth > 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('The pasted image took too long to load.'));
+    }, 10_000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      image.removeEventListener('load', onLoad);
+      image.removeEventListener('error', onError);
+    };
+    const onLoad = () => { cleanup(); resolve(); };
+    const onError = () => { cleanup(); reject(new Error('The pasted image could not be decoded.')); };
+    image.addEventListener('load', onLoad, { once: true });
+    image.addEventListener('error', onError, { once: true });
+  });
+}
+
+async function pastedImageElementToFile(image: HTMLImageElement, index: number): Promise<File> {
+  const sourceUrl = image.currentSrc || image.src;
+  if (CLIPBOARD_URL_PROTOCOL.test(sourceUrl)) {
+    try {
+      return await getImageFileFromUrl(sourceUrl);
+    } catch {
+      // WebKit can render pasteboard-backed URLs that fetch() cannot read. Draw
+      // the already-decoded element below as a final fallback.
+    }
+  }
+
+  await waitForPastedImage(image);
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable in this browser.');
+  context.drawImage(image, 0, 0);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('The pasted image could not be converted.');
+  return new File([blob], getClipboardFileName('image', 'image/png', index), {
+    type: 'image/png',
+    lastModified: Date.now(),
+  });
+}
+
+/** Extract images that WebKit inserted into a native contenteditable paste target. */
+export async function getPastedImageFilesFromElement(element: HTMLElement): Promise<File[]> {
+  const images = Array.from(element.querySelectorAll('img'));
+  const settled = await Promise.allSettled(images.map(pastedImageElementToFile));
+  return settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
 }
 
 export function getClipboardImageFiles(dataTransfer: DataTransfer | null): File[] {
