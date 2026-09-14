@@ -115,8 +115,14 @@ const NativeImagePasteTarget: React.FC<NativeImagePasteTargetProps> = ({ disable
       inputMode="none"
       onPointerDown={(event) => {
         if (!disabled && event.isPrimary) {
+          // iOS decides whether to offer Paste when the long press begins. The
+          // editable slot must already own focus before the native callout opens.
+          event.currentTarget.focus({ preventScroll: true });
           pointerDownRef.current = { id: event.pointerId, startedAt: Date.now() };
         }
+      }}
+      onContextMenu={(event) => {
+        if (!disabled) event.currentTarget.focus({ preventScroll: true });
       }}
       onPointerUp={(event) => {
         const pointerDown = pointerDownRef.current;
