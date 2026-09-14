@@ -21,6 +21,8 @@ const HEIC_FILE_EXTENSION = /\.(heic|heif)$/i;
 const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 const VIDEO_FILE_EXTENSION = /\.(m4v|mkv|mov|mp4|webm)$/i;
 
+export type ClipboardMediaKind = 'image' | 'video';
+
 export function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || IMAGE_FILE_EXTENSION.test(file.name);
 }
@@ -31,6 +33,45 @@ function isLikelyHEICFile(file: File): boolean {
 
 export function isVideoFile(file: File): boolean {
   return file.type.startsWith('video/') || VIDEO_FILE_EXTENSION.test(file.name);
+}
+
+function getClipboardFileName(kind: ClipboardMediaKind, mimeType: string, index: number): string {
+  const subtype = mimeType.split('/')[1]?.split(';')[0]?.toLowerCase();
+  const extension = subtype === 'jpeg'
+    ? 'jpg'
+    : subtype === 'quicktime'
+      ? 'mov'
+      : subtype?.replace(/[^a-z0-9]/g, '') || (kind === 'image' ? 'png' : 'mp4');
+  return `clipboard-${kind}${index > 0 ? `-${index + 1}` : ''}.${extension}`;
+}
+
+/**
+ * Read binary media after a user gesture. Mobile Safari/Chrome can expose copied
+ * media through this API, while browsers that do not can still use a paste event
+ * or the device file picker.
+ */
+export async function readClipboardMediaFiles(kind: ClipboardMediaKind): Promise<File[]> {
+  const clipboard = navigator.clipboard as Clipboard & {
+    read?: () => Promise<ClipboardItem[]>;
+  };
+  if (!clipboard?.read) {
+    throw new Error('Clipboard media access is unavailable in this browser.');
+  }
+
+  const items = await clipboard.read();
+  const files: File[] = [];
+  for (const item of items) {
+    const mimeType = item.types.find((type) => type.toLowerCase().startsWith(`${kind}/`));
+    if (!mimeType) continue;
+    const blob = await item.getType(mimeType);
+    files.push(blob instanceof File && blob.name
+      ? blob
+      : new File([blob], getClipboardFileName(kind, mimeType, files.length), {
+          type: blob.type || mimeType,
+          lastModified: Date.now(),
+        }));
+  }
+  return files;
 }
 
 async function getVideoFileFromUrl(sourceUrl: string): Promise<File> {
@@ -159,4 +200,14 @@ export async function prepareImageFiles(files: File[]): Promise<File[]> {
   return Promise.all(imageFiles.map((file) => (
     isLikelyHEICFile(file) ? processFileForUpload(file) : file
   )));
+}
+
+export function getClipboardVideoFiles(dataTransfer: DataTransfer | null): File[] {
+  if (!dataTransfer) return [];
+
+  const itemFiles = Array.from(dataTransfer.items)
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file) && isVideoFile(file));
+  return itemFiles.length > 0 ? itemFiles : Array.from(dataTransfer.files).filter(isVideoFile);
 }

@@ -6,7 +6,7 @@
  * All slots support click-to-browse, drag & drop, and paste (with HEIC conversion).
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useImageImport } from '../../src/hooks/useImageImport';
 import { getGalleryImage, getGalleryImages, getGalleryVideoDetails, type GalleryThumbnail } from '../../src/utils/workflowStorage';
@@ -15,10 +15,23 @@ import {
   VEILPIX_GALLERY_IMAGE_TYPE,
   VEILPIX_GALLERY_VIDEO_PREFIX,
   VEILPIX_GALLERY_VIDEO_TYPE,
+  getClipboardImageFiles,
+  getClipboardVideoFiles,
   getDroppedVideoFiles,
+  readClipboardMediaFiles,
 } from '../../src/utils/imageTransfer';
 import { PhotoIcon, VideoIcon, CameraIcon } from '../icons';
 import { FilePreview, XIcon, PlusIcon } from './controls';
+
+function getClipboardErrorMessage(error: unknown, mediaLabel: 'image' | 'video'): string {
+  if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')) {
+    return `Clipboard access was blocked. Use Ctrl/Cmd+V while this panel is open, or upload the ${mediaLabel} from your device.`;
+  }
+  if (error instanceof Error && error.message.includes('unavailable')) {
+    return `This browser cannot read ${mediaLabel}s directly from the clipboard. Use Ctrl/Cmd+V or upload from your device.`;
+  }
+  return `The clipboard ${mediaLabel} could not be read. Try copying it again or upload it from your device.`;
+}
 
 /* ------------------------------------------------------------------ */
 /* Album / device source chooser                                       */
@@ -46,7 +59,39 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [clipboardBusy, setClipboardBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const importPastedImages = useCallback(async (files: File[]) => {
+    const selectedFiles = files.slice(0, remainingSlots);
+    if (selectedFiles.length === 0) {
+      setError('The clipboard does not contain an image.');
+      return;
+    }
+    setClipboardBusy(true);
+    setError(null);
+    try {
+      await onImport(selectedFiles);
+      onClose();
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : 'The clipboard image could not be added.');
+    } finally {
+      setClipboardBusy(false);
+    }
+  }, [onClose, onImport, remainingSlots]);
+
+  const pasteFromClipboard = useCallback(async () => {
+    setClipboardBusy(true);
+    setError(null);
+    try {
+      const files = await readClipboardMediaFiles('image');
+      await importPastedImages(files);
+    } catch (clipboardError) {
+      setError(getClipboardErrorMessage(clipboardError, 'image'));
+    } finally {
+      setClipboardBusy(false);
+    }
+  }, [importPastedImages]);
 
   useEffect(() => {
     if (!open) return;
@@ -75,6 +120,18 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePaste = (event: ClipboardEvent) => {
+      const files = getClipboardImageFiles(event.clipboardData);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void importPastedImages(files);
+    };
+    document.addEventListener('paste', handlePaste, true);
+    return () => document.removeEventListener('paste', handlePaste, true);
+  }, [importPastedImages, open]);
 
   if (!open) return null;
 
@@ -106,7 +163,7 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-gray-100">{title}</h3>
-            <p className="mt-0.5 text-[11px] text-gray-500">Choose from your Album or upload from this device.</p>
+            <p className="mt-0.5 text-[11px] text-gray-500">Paste, choose from your Album, or upload from this device.</p>
           </div>
           <button
             type="button"
@@ -119,14 +176,26 @@ const ImageSourceChooser: React.FC<ImageSourceChooserProps> = ({
         </div>
 
         <div className="min-h-0 overflow-y-auto p-3">
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="edge flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white"
-          >
-            <PhotoIcon className="h-5 w-5 text-gray-400" />
-            Upload from device
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => void pasteFromClipboard()}
+              disabled={clipboardBusy}
+              className="edge flex items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white disabled:opacity-60"
+            >
+              <PhotoIcon className="h-5 w-5 text-gray-400" />
+              {clipboardBusy ? 'Pasting…' : 'Paste image'}
+            </button>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={clipboardBusy}
+              className="edge flex items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white disabled:opacity-60"
+            >
+              <PhotoIcon className="h-5 w-5 text-gray-400" />
+              Upload
+            </button>
+          </div>
           <input
             ref={inputRef}
             type="file"
@@ -206,7 +275,39 @@ const VideoSourceChooser: React.FC<VideoSourceChooserProps> = ({
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [clipboardBusy, setClipboardBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const importPastedVideos = useCallback(async (files: File[]) => {
+    const selectedFiles = files.slice(0, remainingSlots);
+    if (selectedFiles.length === 0) {
+      setError('The clipboard does not contain a video.');
+      return;
+    }
+    setClipboardBusy(true);
+    setError(null);
+    try {
+      await Promise.resolve(onImport(selectedFiles));
+      onClose();
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : 'The clipboard video could not be added.');
+    } finally {
+      setClipboardBusy(false);
+    }
+  }, [onClose, onImport, remainingSlots]);
+
+  const pasteFromClipboard = useCallback(async () => {
+    setClipboardBusy(true);
+    setError(null);
+    try {
+      const files = await readClipboardMediaFiles('video');
+      await importPastedVideos(files);
+    } catch (clipboardError) {
+      setError(getClipboardErrorMessage(clipboardError, 'video'));
+    } finally {
+      setClipboardBusy(false);
+    }
+  }, [importPastedVideos]);
 
   useEffect(() => {
     if (!open) return;
@@ -232,6 +333,18 @@ const VideoSourceChooser: React.FC<VideoSourceChooserProps> = ({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const handlePaste = (event: ClipboardEvent) => {
+      const files = getClipboardVideoFiles(event.clipboardData);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void importPastedVideos(files);
+    };
+    document.addEventListener('paste', handlePaste, true);
+    return () => document.removeEventListener('paste', handlePaste, true);
+  }, [importPastedVideos, open]);
+
   if (!open) return null;
 
   const handleAlbumSelect = async (item: GalleryThumbnail) => {
@@ -256,17 +369,23 @@ const VideoSourceChooser: React.FC<VideoSourceChooserProps> = ({
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-gray-100">{title}</h3>
-            <p className="mt-0.5 text-[11px] text-gray-500">Choose a browser-local Album video or upload from this device.</p>
+            <p className="mt-0.5 text-[11px] text-gray-500">Paste, choose a browser-local Album video, or upload from this device.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close video chooser" className="edge flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/35 text-gray-300 transition hover:bg-black/60 hover:text-white">
             <XIcon className="h-4 w-4" />
           </button>
         </div>
         <div className="min-h-0 overflow-y-auto p-3">
-          <button type="button" onClick={() => inputRef.current?.click()} className="edge flex w-full items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white">
-            <VideoIcon className="h-5 w-5 text-gray-400" />
-            Upload from device
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => void pasteFromClipboard()} disabled={clipboardBusy} className="edge flex items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white disabled:opacity-60">
+              <VideoIcon className="h-5 w-5 text-gray-400" />
+              {clipboardBusy ? 'Pasting…' : 'Paste video'}
+            </button>
+            <button type="button" onClick={() => inputRef.current?.click()} disabled={clipboardBusy} className="edge flex items-center justify-center gap-2 rounded-xl bg-white/[0.05] px-3 py-3 text-sm font-semibold text-gray-200 transition hover:bg-white/[0.09] hover:text-white disabled:opacity-60">
+              <VideoIcon className="h-5 w-5 text-gray-400" />
+              Upload
+            </button>
+          </div>
           <input
             ref={inputRef}
             type="file"
@@ -336,6 +455,7 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({ file, label, helper, disab
   const imageImport = useImageImport({
     onImages: (files) => onChange(files[0]),
     disabled,
+    enableDocumentPaste: !sourceChooserOpen,
     pastePriority,
   });
 
@@ -423,6 +543,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({ files, maxFiles, label, he
   const imageImport = useImageImport({
     onImages: (incoming) => onChange([...files, ...incoming].slice(0, maxFiles)),
     disabled: disabled || files.length >= maxFiles,
+    enableDocumentPaste: !sourceChooserOpen,
     multiple: true,
     maxFiles: maxFiles - files.length,
   });
