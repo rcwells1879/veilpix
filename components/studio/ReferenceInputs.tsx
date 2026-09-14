@@ -42,19 +42,17 @@ interface NativeImagePasteTargetProps {
 }
 
 const NativeImagePasteTarget: React.FC<NativeImagePasteTargetProps> = ({ disabled, label, onImport, onTap }) => {
+  const targetRef = useRef<HTMLDivElement>(null);
+  const pointerDownRef = useRef<{ id: number; startedAt: number } | null>(null);
+  const importInProgressRef = useRef(false);
   const suppressTapUntilRef = useRef(0);
 
-  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
-    suppressTapUntilRef.current = Date.now() + 1_000;
-    const files = getClipboardImageFiles(event.clipboardData);
-    if (files.length === 0) return;
-    event.preventDefault();
-    void onImport(files);
-  };
+  const consumeInsertedContent = useCallback((target: HTMLDivElement) => {
+    if (importInProgressRef.current) return;
+    if (!target.querySelector('img') && !(target.textContent || '').trim()) return;
 
-  const handleInput = (event: React.FormEvent<HTMLDivElement>) => {
+    importInProgressRef.current = true;
     suppressTapUntilRef.current = Date.now() + 1_000;
-    const target = event.currentTarget;
     void getPastedImageFilesFromElement(target)
       .then((files) => {
         if (files.length > 0) return onImport(files);
@@ -64,11 +62,49 @@ const NativeImagePasteTarget: React.FC<NativeImagePasteTargetProps> = ({ disable
         console.error('Failed to import native pasted image:', error);
         alert('The pasted image could not be added. Try copying it again or upload it from your device.');
       })
-      .finally(() => target.replaceChildren());
+      .finally(() => {
+        target.replaceChildren();
+        importInProgressRef.current = false;
+      });
+  }, [onImport]);
+
+  useEffect(() => {
+    const target = targetRef.current;
+    if (!target || disabled) return;
+    const observer = new MutationObserver(() => consumeInsertedContent(target));
+    observer.observe(target, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [consumeInsertedContent, disabled]);
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+    suppressTapUntilRef.current = Date.now() + 1_000;
+    const files = getClipboardImageFiles(event.clipboardData);
+    if (files.length === 0) {
+      const target = event.currentTarget;
+      requestAnimationFrame(() => consumeInsertedContent(target));
+      return;
+    }
+    event.preventDefault();
+    void onImport(files);
+  };
+
+  const handleInput = (event: React.FormEvent<HTMLDivElement>) => {
+    consumeInsertedContent(event.currentTarget);
+  };
+
+  const handleBeforeInput = (event: React.FormEvent<HTMLDivElement>) => {
+    const inputEvent = event.nativeEvent as InputEvent;
+    if (inputEvent.inputType !== 'insertFromPaste') return;
+    suppressTapUntilRef.current = Date.now() + 1_000;
+    const files = getClipboardImageFiles(inputEvent.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void onImport(files);
   };
 
   return (
     <div
+      ref={targetRef}
       role="button"
       aria-label={`${label}. Tap to choose an image, or touch and hold to paste.`}
       aria-disabled={disabled}
@@ -77,8 +113,26 @@ const NativeImagePasteTarget: React.FC<NativeImagePasteTargetProps> = ({ disable
       suppressContentEditableWarning
       spellCheck={false}
       inputMode="none"
-      onClick={() => {
-        if (!disabled && Date.now() > suppressTapUntilRef.current) onTap();
+      onPointerDown={(event) => {
+        if (!disabled && event.isPrimary) {
+          pointerDownRef.current = { id: event.pointerId, startedAt: Date.now() };
+        }
+      }}
+      onPointerUp={(event) => {
+        const pointerDown = pointerDownRef.current;
+        pointerDownRef.current = null;
+        if (
+          !disabled
+          && pointerDown?.id === event.pointerId
+          && Date.now() - pointerDown.startedAt < 450
+          && Date.now() > suppressTapUntilRef.current
+        ) {
+          onTap();
+        }
+      }}
+      onPointerCancel={() => { pointerDownRef.current = null; }}
+      onClick={(event) => {
+        if (!disabled && event.detail === 0 && Date.now() > suppressTapUntilRef.current) onTap();
       }}
       onKeyDown={(event) => {
         if (!disabled && (event.key === 'Enter' || event.key === ' ')) {
@@ -87,6 +141,7 @@ const NativeImagePasteTarget: React.FC<NativeImagePasteTargetProps> = ({ disable
         }
       }}
       onPaste={handlePaste}
+      onBeforeInput={handleBeforeInput}
       onInput={handleInput}
       className="absolute inset-0 z-[1] overflow-hidden rounded-[inherit] text-transparent caret-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent-400/50"
     />
