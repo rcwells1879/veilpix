@@ -238,7 +238,18 @@ async function pastedImageElementToFile(image: HTMLImageElement, index: number):
 export async function getPastedImageFilesFromElement(element: HTMLElement): Promise<File[]> {
   const images = Array.from(element.querySelectorAll('img'));
   const settled = await Promise.allSettled(images.map(pastedImageElementToFile));
-  return settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  const files = settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+  if (files.length > 0) return files;
+
+  const sourceUrl = (element.textContent || '').split('\n').map((line) => line.trim()).find((line) => (
+    line.length > 0 && CLIPBOARD_URL_PROTOCOL.test(line)
+  ));
+  if (!sourceUrl) return [];
+  try {
+    return [await getImageFileFromUrl(sourceUrl)];
+  } catch {
+    return [];
+  }
 }
 
 export function getClipboardImageFiles(dataTransfer: DataTransfer | null): File[] {
