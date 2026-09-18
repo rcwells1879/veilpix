@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/check-build-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test:api-client": "node --test scripts/check-api-client.mjs",
     "test:wan3-references": "node --test scripts/check-wan3-reference-video.mjs",

@@ -40,7 +40,9 @@ function inlineEntryCss(): Plugin {
           ? cssAsset.source
           : new TextDecoder().decode(cssAsset.source);
         html = html.replace(linkTag, `<style data-veilpix-entry-css>${css}</style>`);
-        delete bundle[fileName];
+        // Lazy chunks can still preload this stylesheet through Vite's shared
+        // dependency map. Keep the asset available: deleting it makes the first
+        // video import fail and triggers the app's chunk-recovery page reload.
       }
 
       htmlAsset.source = html;
