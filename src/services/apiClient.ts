@@ -37,13 +37,11 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
     console.log('  - requestSessionId (from options):', requestSessionId)
     console.log('  - getToken function:', typeof getToken)
     
-    const headers: HeadersInit = {
-      ...fetchOptions.headers,
-    }
+    const headers = new Headers(fetchOptions.headers)
 
     // Only set Content-Type if body is not FormData (let browser set it for FormData)
     if (!(fetchOptions.body instanceof FormData)) {
-      headers['Content-Type'] = 'application/json';
+      headers.set('Content-Type', 'application/json')
       console.log('  - Added Content-Type: application/json')
     } else {
       console.log('  - Skipping Content-Type for FormData')
@@ -55,7 +53,7 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
       try {
         const token = await getToken()
         if (token) {
-          headers.Authorization = `Bearer ${token}`
+          headers.set('Authorization', `Bearer ${token}`)
           console.log('  - Added Authorization header')
         } else {
           console.log('  - No token received')
@@ -71,7 +69,7 @@ export function createApiClient(getToken?: () => Promise<string | null>, session
     // Add session ID for usage tracking (needed for both auth and anonymous requests)
     if (sessionId || requestSessionId) {
       const finalSessionId = sessionId || requestSessionId || ''
-      headers['X-Session-ID'] = finalSessionId
+      headers.set('X-Session-ID', finalSessionId)
       console.log('  - Added X-Session-ID:', finalSessionId)
     } else {
       console.log('  - No session ID available to add')

@@ -226,7 +226,7 @@ router.post('/create-credit-checkout', getUser, requireAuth, requireAllowedEmail
       });
     }
 
-    const package = CREDIT_PACKAGES[packageType];
+    const creditPackage = CREDIT_PACKAGES[packageType];
 
     // Get or create Stripe customer
     let customer;
@@ -255,14 +255,14 @@ router.post('/create-credit-checkout', getUser, requireAuth, requireAllowedEmail
           price_data: {
             currency: 'usd',
             product_data: {
-              name: package.name,
-              description: package.description,
+              name: creditPackage.name,
+              description: creditPackage.description,
               metadata: {
-                credits: package.credits.toString(),
+                credits: creditPackage.credits.toString(),
                 package_type: packageType
               }
             },
-            unit_amount: Math.round(package.priceUsd * 100), // Convert to cents
+            unit_amount: Math.round(creditPackage.priceUsd * 100), // Convert to cents
           },
           quantity: 1,
         },
@@ -273,7 +273,7 @@ router.post('/create-credit-checkout', getUser, requireAuth, requireAllowedEmail
         clerk_user_id: user.userId,
         user_id: user.id.toString(),
         package_type: packageType,
-        credits: package.credits.toString(),
+        credits: creditPackage.credits.toString(),
         type: 'credit_purchase'
       }
     });
@@ -283,8 +283,8 @@ router.post('/create-credit-checkout', getUser, requireAuth, requireAllowedEmail
       userId: user.id,
       clerkUserId: user.userId,
       stripeCheckoutSessionId: session.id,
-      creditsPurchased: package.credits,
-      amountUsd: package.priceUsd,
+      creditsPurchased: creditPackage.credits,
+      amountUsd: creditPackage.priceUsd,
       packageType: packageType,
       status: 'pending'
     });
@@ -294,10 +294,10 @@ router.post('/create-credit-checkout', getUser, requireAuth, requireAllowedEmail
       url: session.url,
       package: {
         type: packageType,
-        credits: package.credits,
-        price: package.priceUsd,
-        name: package.name,
-        description: package.description
+        credits: creditPackage.credits,
+        price: creditPackage.priceUsd,
+        name: creditPackage.name,
+        description: creditPackage.description
       }
     });
 

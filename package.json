@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test:api-client": "node --test scripts/check-api-client.mjs",
     "test:image-references": "node scripts/check-image-reference-requests.mjs",
     "test:pricing": "node scripts/check-generation-pricing.mjs",
     "test:content-notice": "node --test scripts/check-content-notice.mjs",
