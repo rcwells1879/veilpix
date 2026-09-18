@@ -926,11 +926,14 @@ export function useGenerateWan3Video() {
   return useMutation({
     retry: false,
     mutationFn: async (data: GenerateWan3VideoRequest): Promise<VideoGenerationResponse> => {
+      const references = data.referenceVideos?.length
+        ? await (await import('../utils/wan3ReferenceVideo')).prepareWan3ReferenceVideos(data.referenceVideos)
+        : { files: [], duration: 0 }
       const taggedFiles: Array<{ key: string; category: Wan3UploadCategory; file: File }> = []
       if (data.firstFrame) taggedFiles.push({ key: 'firstFrame', category: 'image', file: data.firstFrame })
       if (data.lastFrame) taggedFiles.push({ key: 'lastFrame', category: 'image', file: data.lastFrame })
       data.referenceImages?.slice(0, 10).forEach((file, index) => taggedFiles.push({ key: `referenceImages:${index}`, category: 'image', file }))
-      data.referenceVideos?.slice(0, 5).forEach((file, index) => taggedFiles.push({ key: `referenceVideos:${index}`, category: 'video', file }))
+      references.files.forEach((file, index) => taggedFiles.push({ key: `referenceVideos:${index}`, category: 'video', file }))
       data.referenceAudios?.slice(0, 5).forEach((file, index) => taggedFiles.push({ key: `referenceAudios:${index}`, category: 'audio', file }))
       if (data.referenceFile) taggedFiles.push({ key: 'referenceFile', category: 'file', file: data.referenceFile })
 
@@ -986,7 +989,7 @@ export function useGenerateWan3Video() {
           resolution: data.resolution,
           aspectRatio: data.aspectRatio,
           uploads,
-          referenceVideoDuration: data.referenceVideoDuration,
+          referenceVideoDuration: references.duration,
           referenceAudioDuration: data.referenceAudioDuration,
           referenceLink: data.referenceLink,
           audio: data.audio !== false,

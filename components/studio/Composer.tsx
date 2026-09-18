@@ -834,7 +834,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
                 ) : wan3InputMode === 'references' ? (
                   <>
                     <ImageGrid files={wan3ReferenceImages} maxFiles={WAN3_REFERENCE_LIMITS.images} label="Reference images" helper="Use Image1, Image2, and so on in your prompt." disabled={isLoading} onChange={onWan3ReferenceImagesChange} />
-                    <VideoGrid files={wan3ReferenceVideoFiles} maxFiles={WAN3_REFERENCE_LIMITS.videos} label="Reference videos" helper="MP4 or MOV · 15s total" accept="video/mp4,video/quicktime,.mp4,.mov" disabled={isLoading} onChange={onWan3ReferenceVideosChange} action={hasGeneratedVideo ? (
+                    <VideoGrid files={wan3ReferenceVideoFiles} maxFiles={WAN3_REFERENCE_LIMITS.videos} label="Reference videos" helper="MP4 or MOV · 15s total. Tiny overruns are trimmed automatically." accept="video/mp4,video/quicktime,.mp4,.mov" disabled={isLoading} onChange={onWan3ReferenceVideosChange} action={hasGeneratedVideo ? (
                       <button type="button" onClick={onUseGeneratedVideoAsReference} disabled={isLoading} className="text-[11px] font-semibold text-accent-300 transition hover:text-accent-200 disabled:opacity-50">Use generated</button>
                     ) : undefined} />
                     <AudioGrid files={wan3ReferenceAudioFiles} maxFiles={WAN3_REFERENCE_LIMITS.audios} helper="MP3 or WAV · 15s total" accept="audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav" disabled={isLoading} onChange={onWan3ReferenceAudiosChange} />
