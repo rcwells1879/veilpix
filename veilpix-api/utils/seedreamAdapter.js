@@ -1,3 +1,4 @@
+const { buildReferencePrompt } = require('./imageReferences');
 /**
  * SeeDream API Adapter
  *
@@ -142,15 +143,15 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio
 /**
  * Build a Seedream 5 image-to-image request for combining multiple images
  *
- * @param {string[]} imageUrls - Array of public image URLs (2-5 images)
+ * @param {string[]} imageUrls - Array of public image URLs (up to 14 Lite / 10 Pro images)
  * @param {string} prompt - The combination instruction
  * @param {string} resolution - '1K', '2K', or '4K'
  * @param {string} aspectRatio - SeeDream aspect_ratio format (optional, defaults to '1:1')
  * @returns {object} SeeDream API request body
  */
-function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png') {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = '1:1', nsfwFilterEnabled = true, seedreamTier = 'lite', outputFormat = 'png', x = null, y = null) {
     return {
-        prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
+        prompt: buildReferencePrompt(prompt, imageUrls.length, x, y),
         image_urls: imageUrls,
         aspect_ratio: aspectRatio,
         quality: mapQuality(resolution, seedreamTier),

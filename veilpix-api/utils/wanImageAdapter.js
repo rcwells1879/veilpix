@@ -1,3 +1,4 @@
+const { buildReferencePrompt } = require('./imageReferences');
 /**
  * Wan 2.7 Image API Adapter
  *
@@ -84,9 +85,9 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio
 /**
  * Build Wan 2.7 Image API request for combining multiple images
  */
-function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = 'auto', nsfwFilterEnabled = false) {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = 'auto', nsfwFilterEnabled = false, x = null, y = null) {
     return withAspectRatio({
-        prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
+        prompt: buildReferencePrompt(prompt, imageUrls.length, x, y),
         input_urls: imageUrls,
         resolution: resolution || '2K',
         n: 1,

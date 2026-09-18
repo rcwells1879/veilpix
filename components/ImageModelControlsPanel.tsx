@@ -187,6 +187,12 @@ export function imageProviderSupportsWorkflow(provider: ImageProvider, workflow?
   return provider !== 'zimage' || workflow !== 'image-to-image';
 }
 
+// Kie input limits verified 2026-09-18; see docs/image-references.md.
+export function getImageReferenceLimit(provider: ImageProvider, seedreamTier: SeedreamTier = 'lite'): number {
+  if (provider === 'seedream') return seedreamTier === 'pro' ? 10 : 14;
+  return { nanobanana2: 14, wanimage: 9, zimage: 0 }[provider];
+}
+
 export function imageProviderSupportsReferences(provider: ImageProvider): boolean {
   return provider !== 'zimage';
 }

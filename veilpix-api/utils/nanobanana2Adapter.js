@@ -1,3 +1,4 @@
+const { buildReferencePrompt } = require('./imageReferences');
 /**
  * Nano Banana 2 API Adapter
  *
@@ -116,9 +117,9 @@ function buildAdjustRequest(imageUrls, adjustmentPrompt, resolution, aspectRatio
  * @param {string} aspectRatio - Aspect ratio string (optional, defaults to 'auto')
  * @returns {object} Nano Banana 2 API request body (input parameters)
  */
-function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = 'auto') {
+function buildCombineRequest(imageUrls, prompt, resolution, aspectRatio = 'auto', x = null, y = null) {
     return {
-        prompt: `Combine these images into a single creative composition. ${prompt}. Create a seamless, natural-looking result.`,
+        prompt: buildReferencePrompt(prompt, imageUrls.length, x, y),
         image_input: imageUrls,
         aspect_ratio: mapAspectRatio(aspectRatio),
         resolution: mapResolution(resolution),

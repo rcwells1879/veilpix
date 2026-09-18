@@ -538,11 +538,12 @@ interface ImageSlotProps {
   helper?: string;
   disabled?: boolean;
   pastePriority?: number;
+  square?: boolean;
   onChange: (file: File | null) => void;
   onWebcamClick?: () => void;
 }
 
-export const ImageSlot: React.FC<ImageSlotProps> = ({ file, label, helper, disabled = false, pastePriority = 0, onChange, onWebcamClick }) => {
+export const ImageSlot: React.FC<ImageSlotProps> = ({ file, label, helper, disabled = false, pastePriority = 0, square = false, onChange, onWebcamClick }) => {
   const [sourceChooserOpen, setSourceChooserOpen] = useState(false);
   const imageImport = useImageImport({
     onImages: (files) => onChange(files[0]),
@@ -559,7 +560,7 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({ file, label, helper, disab
           {...imageImport.targetProps}
           tabIndex={-1}
           title={`Paste or drop a replacement ${label.toLowerCase()}`}
-          className={`edge relative aspect-video overflow-hidden rounded-xl bg-black/40 transition ${
+          className={`edge relative ${square ? 'aspect-square' : 'aspect-video'} overflow-hidden rounded-xl bg-black/40 transition ${
             imageImport.isDraggingOver ? 'ring-2 ring-accent-400/50' : ''
           }`}
         >
@@ -629,19 +630,21 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({ file, label, helper, disab
 };
 
 /* ------------------------------------------------------------------ */
-/* Multi image grid (Wan / Seedance reference images)                   */
+/* Image grid shared by image and video reference inputs              */
 /* ------------------------------------------------------------------ */
 
 interface ImageGridProps {
   files: File[];
   maxFiles: number;
   label: string;
+  numbered?: boolean;
+  onWebcamClick?: () => void;
   helper?: string;
   disabled?: boolean;
   onChange: (files: File[]) => void;
 }
 
-export const ImageGrid: React.FC<ImageGridProps> = ({ files, maxFiles, label, helper, disabled = false, onChange }) => {
+export const ImageGrid: React.FC<ImageGridProps> = ({ files, maxFiles, label, helper, numbered = false, onWebcamClick, disabled = false, onChange }) => {
   const [sourceChooserOpen, setSourceChooserOpen] = useState(false);
   const imageImport = useImageImport({
     onImages: (incoming) => onChange([...files, ...incoming].slice(0, maxFiles)),
@@ -658,12 +661,24 @@ export const ImageGrid: React.FC<ImageGridProps> = ({ files, maxFiles, label, he
         <span className="text-[11px] tabular-nums text-gray-600">{files.length}/{maxFiles}</span>
       </div>
       <div
-        {...imageImport.targetProps}
+        {...(numbered ? {} : imageImport.targetProps)}
         tabIndex={-1}
         title="Paste or drop reference images"
         className={`grid grid-cols-3 gap-2 rounded-xl transition ${imageImport.isDraggingOver ? 'ring-2 ring-accent-400/45 ring-offset-2 ring-offset-transparent' : ''}`}
       >
-        {files.map((file, index) => (
+        {files.map((file, index) => numbered ? (
+          <ImageSlot
+            key={`${file.name}-${file.lastModified}-${index}`}
+            file={file}
+            label={`Image ${index + 1}`}
+            square
+            disabled={disabled}
+            pastePriority={1}
+            onChange={(replacement) => onChange(replacement
+              ? files.map((entry, i) => i === index ? replacement : entry)
+              : files.filter((_, i) => i !== index))}
+          />
+        ) : (
           <div key={`${file.name}-${file.lastModified}-${index}`} className="edge relative aspect-square overflow-hidden rounded-xl bg-black/40">
             <FilePreview file={file} className="h-full w-full object-cover" />
             <button
@@ -678,33 +693,46 @@ export const ImageGrid: React.FC<ImageGridProps> = ({ files, maxFiles, label, he
           </div>
         ))}
         {files.length < maxFiles && (
-          <div
-            title="Paste or drop reference images"
-            className={`edge relative flex aspect-square flex-col items-center justify-center gap-1 overflow-hidden rounded-xl p-2 text-center transition ${
-              disabled
-                ? 'cursor-not-allowed bg-white/[0.02] opacity-50'
-                : imageImport.isDraggingOver
-                  ? 'cursor-copy bg-accent-400/10 ring-2 ring-accent-400/40'
-                  : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
-            }`}
-          >
-            <PlusIcon className="h-5 w-5 text-gray-500" />
-            <span className="text-[11px] font-medium text-gray-400">
-              {imageImport.isProcessing ? 'Processing…' : 'Add'}
-            </span>
-            <NativeImagePasteTarget
-              disabled={disabled || imageImport.isProcessing}
-              label="Add reference image"
-              onImport={imageImport.importFiles}
-              onTap={() => setSourceChooserOpen(true)}
-            />
+          <div className="flex min-w-0 flex-col gap-1.5">
+            {numbered && <span className="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-500">Image {files.length + 1}</span>}
+            <div
+              {...(numbered ? imageImport.targetProps : {})}
+              tabIndex={-1}
+              title="Paste or drop reference images"
+              className={`edge relative flex aspect-square flex-col items-center justify-center gap-1 overflow-hidden rounded-xl p-2 text-center transition ${
+                disabled
+                  ? 'cursor-not-allowed bg-white/[0.02] opacity-50'
+                  : imageImport.isDraggingOver
+                    ? 'cursor-copy bg-accent-400/10 ring-2 ring-accent-400/40'
+                    : 'cursor-pointer bg-white/[0.03] hover:bg-white/[0.07]'
+              }`}
+            >
+              <PlusIcon className="h-5 w-5 text-gray-500" />
+              <span className="text-[11px] font-medium text-gray-400">
+                {imageImport.isProcessing ? 'Processing…' : numbered ? 'Add image' : 'Add'}
+              </span>
+              <NativeImagePasteTarget
+                disabled={disabled || imageImport.isProcessing}
+                label={numbered ? `Add Image ${files.length + 1}` : 'Add reference image'}
+                onImport={imageImport.importFiles}
+                onTap={() => setSourceChooserOpen(true)}
+              />
+            </div>
           </div>
         )}
       </div>
+      {onWebcamClick && files.length < maxFiles && (
+        <button type="button" onClick={onWebcamClick} disabled={disabled}
+          className="edge glass-chip flex h-9 items-center justify-center gap-1.5 rounded-full text-xs font-medium text-gray-300 hover:text-white disabled:opacity-50">
+          <CameraIcon className="h-4 w-4" />
+          Use camera for Image {files.length + 1}
+        </button>
+      )}
+      {numbered && <span className="px-1 text-[11px] text-gray-500">Drop or paste to add. Drop or paste onto an image to replace it.</span>}
       {helper && <span className="px-1 text-[11px] text-gray-600">{helper}</span>}
       <ImageSourceChooser
         open={sourceChooserOpen}
-        title={`Add ${label.toLowerCase()}`}
+        title={numbered ? `Add Image ${files.length + 1}` : `Add ${label.toLowerCase()}`}
         multiple
         remainingSlots={Math.max(0, maxFiles - files.length)}
         onImport={imageImport.importFiles}

@@ -127,7 +127,7 @@ export interface GalleryImageDetails {
   imageAspectRatio?: string;
   imageSeedreamTier?: 'lite' | 'pro';
   imageOutputFormat?: 'png' | 'jpeg';
-  styleImage: File | null;
+  imageReferences: File[];
 }
 
 export interface SaveImageToGalleryContext {
@@ -136,7 +136,7 @@ export interface SaveImageToGalleryContext {
   imageAspectRatio?: string;
   imageSeedreamTier?: 'lite' | 'pro';
   imageOutputFormat?: 'png' | 'jpeg';
-  styleImage?: File | null;
+  imageReferences?: File[];
 }
 
 function mergeImageGenerationContext(
@@ -152,11 +152,11 @@ function mergeImageGenerationContext(
     imageAspectRatio: context.imageAspectRatio ?? entry.imageAspectRatio,
     imageSeedreamTier: context.imageSeedreamTier ?? entry.imageSeedreamTier,
     imageOutputFormat: context.imageOutputFormat ?? entry.imageOutputFormat,
-    styleImage: context.styleImage === undefined
-      ? entry.styleImage
-      : context.styleImage
-        ? toStoredGalleryFile(context.styleImage)
-        : undefined,
+    referenceImages: context.imageReferences === undefined
+      ? entry.referenceImages
+      : context.imageReferences.map(toStoredGalleryFile),
+    // Clear the legacy field only when replacing the reference list.
+    styleImage: context.imageReferences === undefined ? entry.styleImage : undefined,
   };
 }
 
@@ -532,7 +532,7 @@ export async function saveToGallery(
       imageAspectRatio: context.imageAspectRatio,
       imageSeedreamTier: context.imageSeedreamTier,
       imageOutputFormat: context.imageOutputFormat,
-      styleImage: context.styleImage ? toStoredGalleryFile(context.styleImage) : undefined,
+      referenceImages: context.imageReferences?.map(toStoredGalleryFile),
     };
 
     return new Promise<boolean>((resolve, reject) => {
@@ -646,9 +646,11 @@ export async function getGalleryImage(id: number): Promise<GalleryImageDetails |
             imageAspectRatio: image.imageAspectRatio,
             imageSeedreamTier: image.imageSeedreamTier,
             imageOutputFormat: image.imageOutputFormat,
-            styleImage: image.styleImage
-              ? fromStoredGalleryFile(image.styleImage, 'style-reference.png')
-              : null,
+            imageReferences: image.referenceImages
+              ? image.referenceImages.map((file, index) => fromStoredGalleryFile(file, `image-${index + 2}.png`))
+              : image.styleImage
+                ? [fromStoredGalleryFile(image.styleImage, 'image-2.png')]
+                : [],
           });
         } else {
           resolve(null);
@@ -759,21 +761,21 @@ export async function clearPendingVideoReferenceImages(generationId: string): Pr
 
 /**
  * Image and video generations share the same browser-only 48-hour input
- * snapshot store. Generation UUIDs are unique, so the image style reference
+ * snapshot store. Generation UUIDs are unique, so ordered image references
  * can use the established durable path without another IndexedDB migration.
  */
-export async function savePendingImageStyleImage(
+export async function savePendingImageReferences(
   generationId: string,
-  styleImage: File | null,
+  imageReferences: File[],
 ): Promise<void> {
-  return savePendingVideoReferenceImages(generationId, styleImage ? [styleImage] : []);
+  return savePendingVideoReferenceImages(generationId, imageReferences);
 }
 
-export async function getPendingImageStyleImage(generationId: string): Promise<File | null> {
-  return (await getPendingVideoReferenceImages(generationId))[0] ?? null;
+export async function getPendingImageReferences(generationId: string): Promise<File[]> {
+  return getPendingVideoReferenceImages(generationId);
 }
 
-export async function clearPendingImageStyleImage(generationId: string): Promise<void> {
+export async function clearPendingImageReferences(generationId: string): Promise<void> {
   return clearPendingVideoReferenceImages(generationId);
 }
 
@@ -1191,12 +1193,12 @@ export async function updateGalleryImageGenerationContext(
   }
 }
 
-/** Verify that a generated image retained its reusable style reference. */
-export async function hasGalleryImageStyleReference(
+/** Verify that a generated image retained its ordered reusable references. */
+export async function hasGalleryImageReferences(
   generationId: string,
-  expected: boolean,
+  expectedCount: number,
 ): Promise<boolean> {
-  if (!expected) return true;
+  if (expectedCount === 0) return true;
   try {
     const db = await openDB();
     return await new Promise<boolean>((resolve, reject) => {
@@ -1205,11 +1207,12 @@ export async function hasGalleryImageStyleReference(
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const entry = (request.result as GalleryImage[]).find(item => item.generationId === generationId);
-        resolve(Boolean(entry?.styleImage?.blob?.size));
+        const references = entry?.referenceImages ?? (entry?.styleImage ? [entry.styleImage] : []);
+        resolve(references.length >= expectedCount && references.slice(0, expectedCount).every(file => file.blob?.size > 0));
       };
     });
   } catch (error) {
-    console.warn('Could not verify saved image style reference:', error);
+    console.warn('Could not verify saved image references:', error);
     return false;
   }
 }

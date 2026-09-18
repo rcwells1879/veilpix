@@ -10,6 +10,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
 const economics = require('../veilpix-api/utils/creditEconomics.js');
 const images = require('../veilpix-api/utils/imageCreditPricing.js');
+const imageReferences = require('../veilpix-api/utils/imageReferences.js');
 const seedance = require('../veilpix-api/utils/seedanceAdapter.js');
 const wan = require('../veilpix-api/utils/wanAdapter.js');
 const wan3 = require('../veilpix-api/utils/wan3Adapter.js');
@@ -64,11 +65,14 @@ for (let index = 1; index <= 2000; index += 1) {
 }
 
 for (const provider of browserImages.IMAGE_PROVIDER_OPTIONS) {
+  for (const tier of ['lite', 'pro']) {
+    assert.equal(browserImages.getImageReferenceLimit(provider, tier), imageReferences.getImageReferenceLimit(provider, tier));
+  }
   for (const workflow of Object.values(images.IMAGE_WORKFLOWS)) {
     if (!browserImages.imageProviderSupportsWorkflow(provider, workflow)) continue;
     for (const tier of provider === 'seedream' ? ['lite', 'pro'] : ['lite']) {
       for (const { value: resolution } of browserImages.getImageModelResolutions(provider, workflow, tier)) {
-        for (const count of workflow === 'image-to-image' ? [1, 2, 3, 8] : [0]) {
+        for (const count of workflow === 'image-to-image' ? [1, 2, 3, 8, browserImages.getImageReferenceLimit(provider, tier)] : [0]) {
           const args = [provider, resolution, workflow, tier, count];
           checkPrice(browserImages.getImageCreditCost(...args), images.getImageCreditCost(...args),
             images.getImageKieCreditCost(...args), args.join(' '));

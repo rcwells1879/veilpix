@@ -1,3 +1,4 @@
+const { validateImageReferences, withImageUploadErrors } = require('../utils/imageReferences');
 /**
  * Nano Banana 2 (Google Gemini 3.1 Flash) API Routes
  *
@@ -563,7 +564,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
 });
 
 // Generate combined image endpoint
-router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res) => {
+router.post('/combine-photos', withImageUploadErrors(uploadMultiple), validateImageReferences('nanobanana2'), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
     let uploadedFilenames = [];
@@ -573,13 +574,12 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         const resolution = req.body?.resolution || '2K';
         const aspectRatio = req.body?.aspectRatio || 'auto';
         const imageFiles = req.files?.images || [];
+        const x = req.body?.x !== undefined ? Number(req.body.x) : null;
+        const y = req.body?.y !== undefined ? Number(req.body.y) : null;
+        if ((x !== null || y !== null) && (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y))) {
+            return res.status(400).json({ error: 'Both edit coordinates must be finite numbers.' });
+        }
 
-        if (!imageFiles || imageFiles.length < 2) {
-            return res.status(400).json({ error: 'At least 2 image files must be provided' });
-        }
-        if (imageFiles.length > 14) {
-            return res.status(400).json({ error: 'Maximum 14 images allowed for Nano Banana 2' });
-        }
         if (!prompt) {
             return res.status(400).json({ error: 'No prompt provided' });
         }
@@ -599,7 +599,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         uploadedFilenames = uploadResult.filenames;
 
         // Build and call API
-        const apiRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio);
+        const apiRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio, x, y);
         const apiResponse = await callNanoBanana2API(apiRequest);
 
         // Normalize response

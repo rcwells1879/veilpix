@@ -15,6 +15,7 @@ import {
   imageProviderSupportsReferences,
   normalizeImageGenerationOptions,
   IMAGE_MODEL_CONFIGS,
+  getImageReferenceLimit,
   type ImageGenerationOptions,
   type ImageProvider,
   type ImageWorkflow,
@@ -99,11 +100,9 @@ export interface ComposerProps {
   /* image workflow */
   imageOptions: ImageGenerationOptions;
   onImageOptionsChange: (options: ImageGenerationOptions) => void;
-  baseImage: File | null;
-  onBaseImageSelect: (file: File | null) => void;
-  styleImage: File | null;
-  onStyleImageSelect: (file: File | null) => void;
-  onOpenWebcam: (target: 'base' | 'style') => void;
+  imageReferences: File[];
+  onImageReferencesChange: (files: File[]) => void;
+  onOpenWebcam: () => void;
   retouchActive: boolean;
   hasHotspot: boolean;
   imageCreditCost: number;
@@ -201,7 +200,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
   const {
     mode, onModeChange, isLoading, activeGenerationCount, activeGenerationLimit,
     prompt, onPromptChange, onNewSession,
-    imageOptions, onImageOptionsChange, baseImage, onBaseImageSelect, styleImage, onStyleImageSelect,
+    imageOptions, onImageOptionsChange, imageReferences, onImageReferencesChange,
     onOpenWebcam, retouchActive, hasHotspot, imageCreditCost, onGenerateImage,
     videoProvider, onVideoProviderChange, videoModelRestoreRequest, onGenerateVideo, hasGeneratedVideo, onUseGeneratedVideoAsReference,
     wanReferenceImages, onWanReferenceImagesChange, referenceVideoFile, referenceVideoUrl, onReferenceVideoSelect,
@@ -259,6 +258,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
   }, [videoModelRestoreRequest]);
 
   /* --------------------------- derived: image --------------------------- */
+  const baseImage = imageReferences[0] ?? null;
+  const imageReferenceLimit = getImageReferenceLimit(imageOptions.provider, imageOptions.seedreamTier);
   const imageSupportsReferences = imageProviderSupportsReferences(imageOptions.provider);
   const imageWorkflow: ImageWorkflow = imageSupportsReferences && baseImage ? 'image-to-image' : 'text-to-image';
   const normalizedImage = normalizeImageGenerationOptions(imageOptions, imageWorkflow);
@@ -268,7 +269,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
     model.provider === normalizedImage.provider
     && (model.provider !== 'seedream' || model.tier === normalizedImage.seedreamTier)
   ) ?? IMAGE_MODELS[1];
-  const imageReferenceCount = imageSupportsReferences ? (baseImage ? 1 : 0) + (styleImage ? 1 : 0) : 0;
+  const imageReferenceCount = imageSupportsReferences ? imageReferences.length : 0;
 
   /* --------------------------- derived: video --------------------------- */
   const hasWanVideoReference = Boolean(referenceVideoFile || referenceVideoUrl);
@@ -450,6 +451,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
     || (mode === 'video' && videoProvider === 'wan3' && wan3MediaDurationInvalid)
     || (mode === 'video' && videoProvider === 'seedance' && seedanceInputMode === 'frames' && !seedanceFirstFrame)
     || (mode === 'video' && videoProvider === 'seedance' && seedanceMediaDurationInvalid)
+    || (mode === 'image' && imageSupportsReferences && imageReferenceCount > imageReferenceLimit)
     || (mode === 'image' && imageSupportsReferences && retouchActive && !hasHotspot);
 
   const placeholder = mode === 'video'
@@ -458,8 +460,8 @@ const Composer: React.FC<ComposerProps> = (props) => {
       ? hasHotspot
         ? 'Describe the edit for the selected point…'
         : 'Tap a point on the image above, then describe the edit…'
-      : imageSupportsReferences && baseImage && styleImage
-        ? 'Describe how to combine the two images…'
+      : imageSupportsReferences && imageReferenceCount > 1
+        ? 'Describe your edit using Image 1, Image 2, etc.…'
         : imageSupportsReferences && baseImage
           ? 'Describe how to transform this image…'
           : 'Describe the image you want to create…';
@@ -523,6 +525,12 @@ const Composer: React.FC<ComposerProps> = (props) => {
         disabled={isLoading}
         className="composer-prompt-input max-h-64 min-h-24 w-full resize-none bg-transparent px-1.5 py-1 text-base leading-relaxed text-gray-100 placeholder:text-gray-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-28"
       />
+
+      {mode === 'image' && imageSupportsReferences && imageReferenceCount > imageReferenceLimit && (
+        <p role="alert" className="px-1.5 text-xs text-amber-300">
+          {activeImageModel.label} allows {imageReferenceLimit} images. Remove {imageReferenceCount - imageReferenceLimit} in References or choose another model to generate.
+        </p>
+      )}
 
       {/* Settings pills + generate */}
       <div className="flex flex-wrap items-center gap-2">
@@ -624,7 +632,7 @@ const Composer: React.FC<ComposerProps> = (props) => {
                         key={resolution.value}
                         selected={normalizedImage.resolution === resolution.value}
                         label={resolution.label}
-                        trailing={`${formatCreditAmount(getImageCreditCost(normalizedImage.provider, resolution.value, imageWorkflow, normalizedImage.seedreamTier, styleImage && baseImage ? 2 : 0))} cr`}
+                        trailing={`${formatCreditAmount(getImageCreditCost(normalizedImage.provider, resolution.value, imageWorkflow, normalizedImage.seedreamTier, imageReferenceCount))} cr`}
                         onSelect={() => { updateImageOptions({ resolution: resolution.value }); close(); }}
                       />
                     ))
@@ -740,28 +748,23 @@ const Composer: React.FC<ComposerProps> = (props) => {
               </p>
             ) : mode === 'image' ? (
               <>
-                <div className="grid grid-cols-2 gap-3">
-                  <ImageSlot
-                    file={baseImage}
-                    label="Base image"
-                    helper="Photo to edit"
-                    disabled={isLoading}
-                    pastePriority={baseImage ? 2 : 0}
-                    onChange={onBaseImageSelect}
-                    onWebcamClick={() => onOpenWebcam('base')}
-                  />
-                  <ImageSlot
-                    file={styleImage}
-                    label="Style / element"
-                    helper={baseImage ? 'Blend into the base' : 'Add a base image first'}
-                    disabled={isLoading || !baseImage}
-                    pastePriority={!baseImage ? 3 : styleImage ? 2 : 1}
-                    onChange={onStyleImageSelect}
-                    onWebcamClick={() => onOpenWebcam('style')}
-                  />
-                </div>
-                <p className="px-1 text-[11px] leading-relaxed text-gray-600">
-                  No references creates from text alone. A base image is edited by your prompt. Add both to combine two photos into one.
+                <ImageGrid
+                  files={imageReferences}
+                  maxFiles={imageReferenceLimit}
+                  label="Images"
+                  numbered
+                  disabled={isLoading}
+                  onChange={onImageReferencesChange}
+                  onWebcamClick={onOpenWebcam}
+                  helper={normalizedImage.provider === 'nanobanana2'
+                    ? 'Refer to Image 1, Image 2, etc. and describe what is in each image. Tell the model what to keep or change.'
+                    : 'Refer to Image 1, Image 2, etc. in your prompt and describe the role of each image.'}
+                />
+                <p className="px-1 text-[11px] leading-relaxed text-gray-400">
+                  Try: “Edit Image 1 using the colors from Image 2. Keep the subject in Image 1 unchanged.”
+                </p>
+                <p className="px-1 text-[11px] leading-relaxed text-gray-500">
+                  Image 1 is shown on the canvas. The numbers follow upload order; removing an image renumbers the rest. No images creates from text alone.
                 </p>
               </>
             ) : videoProvider === 'wan' ? (

@@ -48,6 +48,7 @@ import { ContentPolicyNotice } from './components/ContentPolicyNotice';
 import {
   getImageCreditCost,
   imageProviderSupportsReferences,
+  getImageReferenceLimit,
   normalizeImageGenerationOptions,
   type ImageGenerationOptions,
   type ImageProvider,
@@ -66,17 +67,17 @@ import {
   WAN3_REFERENCE_LIMITS,
 } from './components/studio/videoPricing';
 import {
-  clearPendingImageStyleImage,
+  clearPendingImageReferences,
   clearPendingVideoReferenceImages,
   debouncedSaveWorkflow,
-  getPendingImageStyleImage,
+  getPendingImageReferences,
   getPendingVideoReferenceImages,
   hasGalleryArtifact,
-  hasGalleryImageStyleReference,
+  hasGalleryImageReferences,
   hasGalleryVideoReferences,
   hasLocalDeliveryReceipt,
   markLocalDeliveryReceipt,
-  savePendingImageStyleImage,
+  savePendingImageReferences,
   savePendingVideoReferenceImages,
   saveToGallery,
   saveVideoToGallery,
@@ -276,7 +277,8 @@ interface PendingImageGeneration {
   aspectRatio?: string;
   seedreamTier?: ImageGenerationOptions['seedreamTier'];
   outputFormat?: ImageGenerationOptions['outputFormat'];
-  hasStyleImage?: boolean;
+  hasStyleImage?: boolean; // Legacy pending jobs
+  imageReferenceCount?: number; // Additional images after Image 1
   createdAt: number;
 }
 
@@ -307,7 +309,7 @@ interface ImageGenerationSubmission {
   job: PendingImageGeneration;
   options: ImageGenerationOptions;
   sourceImage: File | null;
-  styleImage: File | null;
+  imageReferences: File[];
   hotspot: { x: number; y: number } | null;
   nsfwFilterEnabled: boolean;
 }
@@ -458,13 +460,13 @@ const App: React.FC = () => {
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [imagePrompt, setImagePrompt] = useState<string>('');
   const [videoPrompt, setVideoPrompt] = useState<string>('');
-  const [styleImage, setStyleImage] = useState<File | null>(null);
+  const [imageReferences, setImageReferences] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<StageTool>('none');
   const [editHotspot, setEditHotspot] = useState<{ x: number; y: number } | null>(null);
   const [displayHotspot, setDisplayHotspot] = useState<{ x: number; y: number } | null>(null);
   const [showSignupPrompt, setShowSignupPrompt] = useState<boolean>(false);
-  const [webcamTarget, setWebcamTarget] = useState<'base' | 'style' | null>(null);
+  const [webcamTarget, setWebcamTarget] = useState<'image' | null>(null);
   const [galleryRefreshTrigger, setGalleryRefreshTrigger] = useState(0);
   const [isVideoEditorOpen, setIsVideoEditorOpen] = useState(false);
   const [isVideoEditorRendering, setIsVideoEditorRendering] = useState(false);
@@ -1031,26 +1033,27 @@ const App: React.FC = () => {
     setPendingImageGenerations(next);
     storePendingImageGenerations(next);
     activeGenerationIdsRef.current.delete(generationId);
-    void clearPendingImageStyleImage(generationId).catch((storageError) => {
-      console.warn('Could not clear completed image style reference from local storage:', storageError);
+    void clearPendingImageReferences(generationId).catch((storageError) => {
+      console.warn('Could not clear completed image references from local storage:', storageError);
     });
   }, []);
 
   const finalizeImageGeneration = useCallback(async (
     response: ImageGenerationResponse,
     job: PendingImageGeneration,
-    suppliedStyleImage?: File | null,
+    suppliedReferences?: File[],
   ) => {
     if (!response.success || !response.image || finalizingImageJobsRef.current.has(job.id)) return;
     finalizingImageJobsRef.current.add(job.id);
 
     try {
-      let restoredStyleImage = suppliedStyleImage ?? null;
-      if (!restoredStyleImage && job.hasStyleImage) {
+      let restoredReferences = suppliedReferences ?? [];
+      const expectedReferenceCount = job.imageReferenceCount ?? (job.hasStyleImage ? 1 : 0);
+      if (restoredReferences.length < expectedReferenceCount) {
         try {
-          restoredStyleImage = await getPendingImageStyleImage(job.id);
+          restoredReferences = await getPendingImageReferences(job.id);
         } catch (storageError) {
-          console.warn('Could not restore pending image style reference:', storageError);
+          console.warn('Could not restore pending image references:', storageError);
         }
       }
       const newImageFile = await generatedImageToFile(response.image, job.workflow);
@@ -1060,12 +1063,12 @@ const App: React.FC = () => {
         imageAspectRatio: job.aspectRatio,
         imageSeedreamTier: job.seedreamTier,
         imageOutputFormat: job.outputFormat,
-        styleImage: restoredStyleImage,
+        imageReferences: restoredReferences,
       });
       if (
         !savedLocally
         || !await hasGalleryArtifact(job.id, 'image')
-        || !await hasGalleryImageStyleReference(job.id, Boolean(job.hasStyleImage))
+        || !await hasGalleryImageReferences(job.id, expectedReferenceCount)
       ) {
         throw new Error('The image finished, but VeilPix could not verify it and its references in this browser\'s Album.');
       }
@@ -1092,8 +1095,8 @@ const App: React.FC = () => {
 
     try {
       const alreadyStored = await hasGalleryArtifact(job.id, 'image');
-      const storedWithStyle = await hasGalleryImageStyleReference(job.id, Boolean(job.hasStyleImage));
-      if (hasLocalDeliveryReceipt(job.id) || (alreadyStored && storedWithStyle)) {
+      const storedWithReferences = await hasGalleryImageReferences(job.id, job.imageReferenceCount ?? (job.hasStyleImage ? 1 : 0));
+      if (hasLocalDeliveryReceipt(job.id) || (alreadyStored && storedWithReferences)) {
         markLocalDeliveryReceipt(job.id);
         clearPendingImageJob(job.id);
         return;
@@ -1195,26 +1198,26 @@ const App: React.FC = () => {
 
         let storedLocally = await hasGalleryArtifact(delivery.generationId, delivery.artifactType);
         let expectedVideoReferenceCount = 0;
-        let expectedImageStyleReference = false;
+        let expectedImageReferenceCount = 0;
         if (delivery.artifactType === 'image') {
           const pendingJob = pendingImageGenerations.find(job => job.id === delivery.generationId) ?? null;
-          expectedImageStyleReference = Boolean(pendingJob?.hasStyleImage);
-          let restoredStyleImage: File | null = null;
-          if (pendingJob?.hasStyleImage) {
+          expectedImageReferenceCount = pendingJob?.imageReferenceCount ?? (pendingJob?.hasStyleImage ? 1 : 0);
+          let restoredReferences: File[] = [];
+          if (expectedImageReferenceCount > 0) {
             try {
-              restoredStyleImage = await getPendingImageStyleImage(delivery.generationId);
+              restoredReferences = await getPendingImageReferences(delivery.generationId);
             } catch (storageError) {
-              console.warn('Could not restore delivered image style reference:', storageError);
+              console.warn('Could not restore delivered image references:', storageError);
             }
           }
-          if (pendingJob?.hasStyleImage && !restoredStyleImage) continue;
+          if (restoredReferences.length < expectedImageReferenceCount) continue;
           const imageContext = {
             imageProvider: pendingJob?.provider,
             imageResolution: pendingJob?.resolution,
             imageAspectRatio: pendingJob?.aspectRatio,
             imageSeedreamTier: pendingJob?.seedreamTier,
             imageOutputFormat: pendingJob?.outputFormat,
-            styleImage: restoredStyleImage,
+            imageReferences: restoredReferences,
           };
           if (!storedLocally) {
             const file = await downloadDeliveryFile(
@@ -1278,7 +1281,7 @@ const App: React.FC = () => {
           && await hasGalleryArtifact(delivery.generationId, delivery.artifactType)
           && (delivery.artifactType === 'video'
             ? await hasGalleryVideoReferences(delivery.generationId, expectedVideoReferenceCount)
-            : await hasGalleryImageStyleReference(delivery.generationId, expectedImageStyleReference));
+            : await hasGalleryImageReferences(delivery.generationId, expectedImageReferenceCount));
         if (!verified) continue;
 
         markLocalDeliveryReceipt(delivery.generationId, delivery.expiresAt);
@@ -1356,24 +1359,31 @@ const App: React.FC = () => {
     setError(null);
   }, [imagePrompt, requireAuth, resetImageTools]);
 
-  const handleStyleImageSelect = useCallback((file: File | null) => {
-    if (file && !requireAuth()) return;
-    setStyleImage(file);
-  }, [requireAuth]);
+  const handleImageReferencesChange = useCallback((files: File[]) => {
+    if (files.length && !requireAuth()) return;
+    if ((files[0] ?? null) !== currentImage) handleBaseImageSelect(files[0] ?? null);
+    setImageReferences(files.slice(1));
+    setError(null);
+  }, [currentImage, requireAuth, handleBaseImageSelect]);
 
-  const handleOpenWebcam = useCallback((target: 'base' | 'style') => {
+  const handleAddImageReference = useCallback((file: File) => {
+    const limit = getImageReferenceLimit(imageGenerationOptions.provider, imageGenerationOptions.seedreamTier);
+    if ((currentImage ? 1 : 0) + imageReferences.length >= limit) {
+      setError(`This model allows up to ${limit} images. Remove an image before adding another.`);
+      return;
+    }
+    handleImageReferencesChange([...(currentImage ? [currentImage] : []), ...imageReferences, file]);
+  }, [currentImage, imageReferences, imageGenerationOptions, handleImageReferencesChange]);
+
+  const handleOpenWebcam = useCallback(() => {
     if (!requireAuth()) return;
-    setWebcamTarget(target);
+    setWebcamTarget('image');
   }, [requireAuth]);
 
   const handleWebcamCapture = useCallback((file: File) => {
-    if (webcamTarget === 'style') {
-      setStyleImage(file);
-    } else {
-      handleBaseImageSelect(file);
-    }
+    handleAddImageReference(file);
     setWebcamTarget(null);
-  }, [webcamTarget, handleBaseImageSelect]);
+  }, [handleAddImageReference]);
 
   /* ---------------- concurrent generation registration ---------------- */
   const registerGeneration = useCallback((generation: GenerationSubmission): boolean => {
@@ -1405,7 +1415,7 @@ const App: React.FC = () => {
 
   const executeImageGeneration = useCallback(async (queued: ImageGenerationSubmission) => {
     const activeJob = queued.job;
-    const { options, sourceImage, styleImage: queuedStyleImage, hotspot } = queued;
+    const { options, sourceImage, imageReferences: queuedReferences, hotspot } = queued;
     const requestBase = {
       generationId: activeJob.id,
       resolution: options.resolution,
@@ -1420,11 +1430,11 @@ const App: React.FC = () => {
       : editableImageMutationsByProvider[options.provider];
 
     try {
-      await savePendingImageStyleImage(activeJob.id, queuedStyleImage);
+      await savePendingImageReferences(activeJob.id, queuedReferences);
     } catch (storageError) {
-      // The in-memory style reference still covers this page load. Keeping the
+      // The in-memory references still cover this page load. Keeping the
       // provider request available is preferable to failing the generation.
-      console.warn('Could not persist pending image style reference:', storageError);
+      console.warn('Could not persist pending image references:', storageError);
     }
 
     try {
@@ -1435,7 +1445,7 @@ const App: React.FC = () => {
           prompt: activeJob.prompt,
           ...requestBase,
         });
-      } else if (activeJob.workflow === 'retouch' && sourceImage && hotspot && editableMutations) {
+      } else if (activeJob.workflow === 'retouch' && sourceImage && hotspot && queuedReferences.length === 0 && editableMutations) {
         response = await editableMutations.edit.mutateAsync({
           image: sourceImage,
           prompt: activeJob.prompt,
@@ -1443,10 +1453,10 @@ const App: React.FC = () => {
           y: hotspot.y,
           ...requestBase,
         });
-      } else if (activeJob.workflow === 'composite' && sourceImage && queuedStyleImage && editableMutations) {
+      } else if (sourceImage && queuedReferences.length > 0 && editableMutations) {
         response = await editableMutations.composite.mutateAsync({
-          image1: sourceImage,
-          image2: queuedStyleImage,
+          images: [sourceImage, ...queuedReferences],
+          ...(activeJob.workflow === 'retouch' && hotspot ? { x: hotspot.x, y: hotspot.y } : {}),
           prompt: activeJob.prompt,
           ...requestBase,
         });
@@ -1461,7 +1471,7 @@ const App: React.FC = () => {
       }
 
       if (response.success && response.image) {
-        await finalizeImageGeneration(response, activeJob, queuedStyleImage);
+        await finalizeImageGeneration(response, activeJob, queuedReferences);
       } else {
         throw new Error(response.message || 'Failed to generate image');
       }
@@ -1682,6 +1692,11 @@ const App: React.FC = () => {
     }
 
     const supportsReferences = imageProviderSupportsReferences(imageGenerationOptions.provider);
+    const referenceLimit = getImageReferenceLimit(imageGenerationOptions.provider, imageGenerationOptions.seedreamTier);
+    if (supportsReferences && currentImage && 1 + imageReferences.length > referenceLimit) {
+      setError(`This model allows up to ${referenceLimit} images. Remove extra images or choose another model.`);
+      return;
+    }
     const workflow: ImageWorkflow = supportsReferences && currentImage ? 'image-to-image' : 'text-to-image';
     const options = normalizeImageGenerationOptions(imageGenerationOptions, workflow);
     if (options.provider === 'zimage' && (trimmedPrompt.length < 3 || trimmedPrompt.length > 1000)) {
@@ -1698,7 +1713,7 @@ const App: React.FC = () => {
         return;
       }
       recoverableWorkflow = 'retouch';
-    } else if (styleImage) {
+    } else if (imageReferences.length > 0) {
       recoverableWorkflow = 'composite';
     } else {
       recoverableWorkflow = 'adjust';
@@ -1716,12 +1731,12 @@ const App: React.FC = () => {
         aspectRatio: options.aspectRatio,
         seedreamTier: options.seedreamTier,
         outputFormat: options.outputFormat,
-        hasStyleImage: recoverableWorkflow === 'composite' && Boolean(styleImage),
+        imageReferenceCount: supportsReferences && currentImage ? imageReferences.length : 0,
         createdAt: Date.now(),
       },
       options: { ...options },
       sourceImage: currentImage,
-      styleImage: recoverableWorkflow === 'composite' ? styleImage : null,
+      imageReferences: supportsReferences && currentImage ? [...imageReferences] : [],
       hotspot: editHotspot ? { ...editHotspot } : null,
       nsfwFilterEnabled: settings.nsfwFilterEnabled,
     };
@@ -1732,7 +1747,7 @@ const App: React.FC = () => {
     currentImage,
     activeTool,
     editHotspot,
-    styleImage,
+    imageReferences,
     settings.nsfwFilterEnabled,
     registerGeneration,
     executeImageGeneration,
@@ -2130,7 +2145,7 @@ const App: React.FC = () => {
     setHistoryIndex(-1);
     setImagePrompt('');
     setVideoPrompt('');
-    setStyleImage(null);
+    setImageReferences([]);
     setError(null);
     setVideoError(null);
     resetImageTools();
@@ -2309,7 +2324,7 @@ const App: React.FC = () => {
         seedreamTier: details.imageSeedreamTier ?? previous.seedreamTier,
         imageOutputFormat: details.imageOutputFormat ?? previous.imageOutputFormat,
       }));
-      setStyleImage(details.styleImage);
+      setImageReferences(details.imageReferences);
     }
     resetImageTools();
     setError(null);
@@ -2410,7 +2425,7 @@ const App: React.FC = () => {
         handleBaseImageSelect(file);
         return;
       }
-      setStyleImage(file);
+      handleAddImageReference(file);
     } else if (videoProvider === 'wan3') {
       setWan3InputMode('references');
       setWan3ReferenceImages(prev => [...prev, file].slice(0, WAN3_REFERENCE_LIMITS.images));
@@ -2421,7 +2436,7 @@ const App: React.FC = () => {
       const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
       setWanReferenceImages(prev => [...prev, file].slice(0, maxImages));
     }
-  }, [studioMode, imageGenerationOptions.provider, currentImage, handleBaseImageSelect, videoProvider, referenceVideoFile, referenceVideoUrl]);
+  }, [studioMode, imageGenerationOptions.provider, currentImage, handleBaseImageSelect, handleAddImageReference, videoProvider, referenceVideoFile, referenceVideoUrl]);
 
   const handleGalleryUseVideoAsReference = useCallback((details: GalleryVideoDetails) => {
     setStudioMode('video');
@@ -2450,10 +2465,11 @@ const App: React.FC = () => {
     ? []
     : studioMode === 'image' && imageProviderSupportsReferences(imageGenerationOptions.provider)
     ? [
-        { id: 'image-base', label: 'Use as base image' },
-        ...(currentImage ? [{ id: 'image-style', label: 'Use as style reference' }] : []),
+        { id: 'image-base', label: 'Use as Image 1' },
+        ...((currentImage ? 1 : 0) + imageReferences.length < getImageReferenceLimit(imageGenerationOptions.provider, imageGenerationOptions.seedreamTier)
+          ? [{ id: 'image-add', label: `Add as Image ${(currentImage ? 1 : 0) + imageReferences.length + 1}` }] : []),
       ]
-    : videoProvider === 'wan3'
+    : studioMode === 'image' ? [] : videoProvider === 'wan3'
       ? [
           { id: 'wan3-first', label: 'Use as first frame' },
           ...(wan3FirstFrame ? [{ id: 'wan3-last', label: 'Use as last frame' }] : []),
@@ -2478,8 +2494,8 @@ const App: React.FC = () => {
       case 'image-base':
         handleBaseImageSelect(file);
         break;
-      case 'image-style':
-        handleStyleImageSelect(file);
+      case 'image-add':
+        handleAddImageReference(file);
         break;
       case 'wan-ref': {
         const maxImages = getWanMaxReferenceImages(Boolean(referenceVideoFile || referenceVideoUrl));
@@ -2518,7 +2534,7 @@ const App: React.FC = () => {
         setVideoError(null);
         break;
     }
-  }, [handleBaseImageSelect, handleStyleImageSelect, referenceVideoFile, referenceVideoUrl]);
+  }, [handleBaseImageSelect, handleAddImageReference, referenceVideoFile, referenceVideoUrl]);
 
   const handleGalleryVideoReferenceAction = useCallback((targetId: string, details: GalleryVideoDetails) => {
     if (targetId === 'video-editor-add') {
@@ -2538,7 +2554,7 @@ const App: React.FC = () => {
     normalizedImageOptions.resolution,
     imageWorkflow,
     normalizedImageOptions.seedreamTier,
-    currentImage && styleImage ? 2 : 0
+    currentImage ? 1 + imageReferences.length : 0
   );
 
   /* ---------------- error banner ---------------- */
@@ -2674,10 +2690,8 @@ const App: React.FC = () => {
               onNewSession={handleNewSession}
               imageOptions={imageGenerationOptions}
               onImageOptionsChange={handleImageOptionsChange}
-              baseImage={currentImage}
-              onBaseImageSelect={handleBaseImageSelect}
-              styleImage={styleImage}
-              onStyleImageSelect={handleStyleImageSelect}
+              imageReferences={currentImage ? [currentImage, ...imageReferences] : []}
+              onImageReferencesChange={handleImageReferencesChange}
               onOpenWebcam={handleOpenWebcam}
               retouchActive={activeTool === 'retouch'}
               hasHotspot={Boolean(editHotspot)}

@@ -68,8 +68,9 @@ export interface GenerateAdjustRequest {
 
 export interface GenerateCompositeRequest {
   generationId?: string
-  image1: File
-  image2: File
+  images: File[]
+  x?: number
+  y?: number
   prompt: string
   style?: string
   resolution?: string  // For SeeDream API
@@ -236,15 +237,18 @@ export function useGenerateCompositeNanoBanana2() {
 
   return useMutation({
     mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
-      // Compress both images if needed (20MB limit per image)
-      const [compressedImage1, compressedImage2] = await compressMultipleImages(
-        [data.image1, data.image2],
+      // Compress the ordered input images if needed (20MB limit per image)
+      const compressedImages = await compressMultipleImages(
+        data.images,
         20
       )
 
       const formData = new FormData()
-      formData.append('images', compressedImage1)
-      formData.append('images', compressedImage2)
+      compressedImages.forEach(image => formData.append('images', image))
+      if (data.x !== undefined && data.y !== undefined) {
+        formData.append('x', String(data.x))
+        formData.append('y', String(data.y))
+      }
       formData.append('prompt', data.prompt)
       if (data.style) {
         formData.append('style', data.style)
@@ -428,15 +432,18 @@ export function useGenerateCompositeSeeDream() {
 
   return useMutation({
     mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
-      // Compress both images if needed (SeeDream has 20MB limit per image)
-      const [compressedImage1, compressedImage2] = await compressMultipleImages(
-        [data.image1, data.image2],
+      // Compress the ordered input images if needed (SeeDream has 20MB limit per image)
+      const compressedImages = await compressMultipleImages(
+        data.images,
         20
       )
 
       const formData = new FormData()
-      formData.append('images', compressedImage1)
-      formData.append('images', compressedImage2)
+      compressedImages.forEach(image => formData.append('images', image))
+      if (data.x !== undefined && data.y !== undefined) {
+        formData.append('x', String(data.x))
+        formData.append('y', String(data.y))
+      }
       formData.append('prompt', data.prompt)
       if (data.style) {
         formData.append('style', data.style)
@@ -608,14 +615,17 @@ export function useGenerateCompositeWanImage() {
 
   return useMutation({
     mutationFn: async (data: GenerateCompositeRequest): Promise<ImageGenerationResponse> => {
-      const [compressedImage1, compressedImage2] = await compressMultipleImages(
-        [data.image1, data.image2],
+      const compressedImages = await compressMultipleImages(
+        data.images,
         20
       )
 
       const formData = new FormData()
-      formData.append('images', compressedImage1)
-      formData.append('images', compressedImage2)
+      compressedImages.forEach(image => formData.append('images', image))
+      if (data.x !== undefined && data.y !== undefined) {
+        formData.append('x', String(data.x))
+        formData.append('y', String(data.y))
+      }
       formData.append('prompt', data.prompt)
       if (data.style) {
         formData.append('style', data.style)

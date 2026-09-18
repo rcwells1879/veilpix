@@ -1,3 +1,4 @@
+const { validateImageReferences, withImageUploadErrors } = require('../utils/imageReferences');
 const express = require('express');
 const multer = require('multer');
 const { db, supabase } = require('../utils/database');
@@ -64,7 +65,7 @@ const uploadMultiple = multer({
         }
     }
 }).fields([
-    { name: 'images', maxCount: 5 },
+    { name: 'images', maxCount: 14 },
     { name: 'prompt', maxCount: 1 },
     { name: 'style', maxCount: 1 }
 ]);
@@ -627,7 +628,7 @@ router.post('/generate-adjust', upload.single('image'), validateImageFile, valid
 });
 
 // Generate combined image endpoint
-router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res) => {
+router.post('/combine-photos', withImageUploadErrors(uploadMultiple), validateImageReferences('seedream'), checkUserCredits, async (req, res) => {
     const startTime = Date.now();
     let usageLogged = false;
     let uploadedFilenames = [];
@@ -641,13 +642,12 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         const nsfwFilterRaw = req.body?.nsfwFilterEnabled ?? 'true';
         const nsfwFilter = nsfwFilterRaw === 'true' || nsfwFilterRaw === true;
         const imageFiles = req.files?.images || [];
+        const x = req.body?.x !== undefined ? Number(req.body.x) : null;
+        const y = req.body?.y !== undefined ? Number(req.body.y) : null;
+        if ((x !== null || y !== null) && (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y))) {
+            return res.status(400).json({ error: 'Both edit coordinates must be finite numbers.' });
+        }
 
-        if (!imageFiles || imageFiles.length < 2) {
-            return res.status(400).json({ error: 'At least 2 image files must be provided' });
-        }
-        if (imageFiles.length > 5) {
-            return res.status(400).json({ error: 'Maximum 5 images allowed' });
-        }
         if (!prompt) {
             return res.status(400).json({ error: 'No prompt provided' });
         }
@@ -667,7 +667,7 @@ router.post('/combine-photos', uploadMultiple, checkUserCredits, async (req, res
         uploadedFilenames = uploadResult.filenames;
 
         // Build and call SeeDream API
-        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio, nsfwFilter, seedreamTier, outputFormat);
+        const seedreamRequest = buildCombineRequest(uploadResult.urls, prompt, resolution, aspectRatio, nsfwFilter, seedreamTier, outputFormat, x, y);
         const seedreamResponse = await callSeedreamAPI(
             seedreamRequest,
             getSeedreamModel(seedreamTier, IMAGE_WORKFLOWS.IMAGE_TO_IMAGE)
