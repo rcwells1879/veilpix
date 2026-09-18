@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test:api-client": "node --test scripts/check-api-client.mjs",
     "test:wan3-references": "node --test scripts/check-wan3-reference-video.mjs",
+    "test:video-trim": "node --test scripts/check-video-trim.mjs",
     "test:image-references": "node scripts/check-image-reference-requests.mjs",
     "test:pricing": "node scripts/check-generation-pricing.mjs",
     "test:content-notice": "node --test scripts/check-content-notice.mjs",

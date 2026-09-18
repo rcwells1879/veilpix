@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Video Editor: stitch two generated clips or remove audio from either clip.
+ * Video Editor: cut sections, stitch two clips, or remove audio.
  * Drop a video into each slot (from the Album rail or your computer),
  * scrub the film rolls to inspect frames, then render them back-to-back.
  */
@@ -13,6 +13,8 @@ import { getGalleryVideoDragId } from '../../src/utils/imageTransfer';
 import { extractLastVideoFrame, extractVideoFrameAtTime } from '../../src/utils/videoFrameExtraction';
 import { extractFilmstrip, stitchVideos, stripVideoAudio, stitchedFileExtension, formatTimecode, type StitchProgress } from './videoStitch';
 import { XIcon, PlusIcon } from './controls';
+import VideoTrimSelection from './VideoTrimSelection';
+import { initialTrimRange, preciseTimecode, type VideoTimeline, type VideoTrimRange } from './videoTrimRange';
 
 interface EditorClip {
   file: File;
@@ -20,13 +22,17 @@ interface EditorClip {
   duration: number;
   frames: string[];
   name: string;
+  timeline?: VideoTimeline;
+  trimRange?: VideoTrimRange;
+  trimOpen?: boolean;
+  beforeCut?: EditorClip;
 }
 
 interface EditorResult {
   url: string;
   blob: Blob;
   duration: number;
-  kind: 'stitched' | 'audio-removed';
+  kind: 'stitched' | 'audio-removed' | 'trimmed';
 }
 
 export interface VideoEditorProps {
@@ -36,7 +42,7 @@ export interface VideoEditorProps {
   onIncomingVideoConsumed: () => void;
   /** Called after an edited video or extracted frame is saved so the Album can refresh. */
   onSaved: () => void;
-  /** Lets the shell prevent closing/replacing clips during a render. */
+  /** Lets the shell prevent closing/replacing clips during media work. */
   onRenderingChange?: (isRendering: boolean) => void;
 }
 
@@ -57,6 +63,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   const [scrubFractions, setScrubFractions] = useState<[number, number]>([0, 0]);
   const [isStitching, setIsStitching] = useState(false);
   const [strippingAudioSlot, setStrippingAudioSlot] = useState<number | null>(null);
+  const [trimmingSlot, setTrimmingSlot] = useState<number | null>(null);
   const [stitchProgress, setStitchProgress] = useState<StitchProgress | null>(null);
   const [result, setResult] = useState<EditorResult | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -70,12 +77,13 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   const resultUrlRef = useRef<string | null>(null);
 
   const clipCount = clips.filter(Boolean).length;
-  const isRendering = isStitching || strippingAudioSlot !== null;
+  const isRendering = isStitching || strippingAudioSlot !== null || trimmingSlot !== null;
+  const isBusy = isRendering || loadingSlot !== null || Boolean(extractingFrame) || isSaving;
 
   useEffect(() => {
-    onRenderingChange?.(isRendering);
+    onRenderingChange?.(isBusy);
     return () => onRenderingChange?.(false);
-  }, [isRendering, onRenderingChange]);
+  }, [isBusy, onRenderingChange]);
 
   const clearResult = useCallback(() => {
     if (resultUrlRef.current) {
@@ -109,7 +117,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     setFrameSavedSlot(null);
     setLoadingSlot(slot);
     try {
-      const strip = await extractFilmstrip(file, FRAME_COUNT);
+      const [strip, timeline] = await Promise.all([
+        extractFilmstrip(file, FRAME_COUNT),
+        import('../../src/utils/videoTrim').then(module => module.readVideoTimeline(file)).catch(() => undefined),
+      ]);
       const url = URL.createObjectURL(file);
       clipUrlsRef.current.add(url);
       setClips((prev) => {
@@ -118,8 +129,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
         if (existing) {
           URL.revokeObjectURL(existing.url);
           clipUrlsRef.current.delete(existing.url);
+          if (existing.beforeCut) { URL.revokeObjectURL(existing.beforeCut.url); clipUrlsRef.current.delete(existing.beforeCut.url); }
         }
-        next[slot] = { file, url, duration: strip.duration, frames: strip.frames, name: file.name };
+        next[slot] = { file, url, duration: strip.duration, frames: strip.frames, name: file.name, timeline, trimRange: timeline ? initialTrimRange(timeline) : undefined };
         return next;
       });
       clearResult();
@@ -154,12 +166,12 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
 
   /* Route videos sent from the gallery into the first empty slot */
   useEffect(() => {
-    if (!incomingVideo) return;
+    if (!incomingVideo || isBusy) return;
     const emptySlot = clips.findIndex((clip, index) => clip === null && loadingSlot !== index);
     const slot = emptySlot === -1 ? 1 : emptySlot;
     loadGalleryDetailsIntoSlot(slot, incomingVideo);
     onIncomingVideoConsumed();
-  }, [incomingVideo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [incomingVideo, isBusy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Cleanup object URLs on unmount without scheduling state updates. */
   useEffect(() => {
@@ -178,6 +190,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
       if (existing) {
         URL.revokeObjectURL(existing.url);
         clipUrlsRef.current.delete(existing.url);
+        if (existing.beforeCut) { URL.revokeObjectURL(existing.beforeCut.url); clipUrlsRef.current.delete(existing.beforeCut.url); }
       }
       next[slot] = null;
       return next;
@@ -203,6 +216,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   const handleDrop = useCallback(async (event: React.DragEvent, slot: number) => {
     event.preventDefault();
     setDragOverSlot(null);
+    if (isBusy) return;
 
     const galleryVideoId = getGalleryVideoDragId(event.dataTransfer);
     if (galleryVideoId) {
@@ -228,7 +242,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     if (file) {
       loadClipIntoSlot(slot, file);
     }
-  }, [loadClipIntoSlot, loadGalleryDetailsIntoSlot]);
+  }, [isBusy, loadClipIntoSlot, loadGalleryDetailsIntoSlot]);
 
   /* ------------------------- scrubbing ------------------------- */
 
@@ -264,25 +278,75 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     const video = previewVideoRef.current;
     if (!video || !previewClip || !scrub || scrub.slot !== previewSlot) return;
 
+    let requested = false;
     const seekPreview = () => {
-      if (!video.seeking) {
-        video.currentTime = Math.min(scrub.fraction * previewClip.duration, Math.max(previewClip.duration - 0.01, 0));
+      const target = Math.min(scrub.fraction * previewClip.duration, Math.max(previewClip.duration - 0.001, 0));
+      video.pause();
+      if (!video.seeking && !requested) {
+        requested = true;
+        video.currentTime = target;
       }
     };
-
-    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
-      seekPreview();
-      return;
-    }
-    video.addEventListener('loadedmetadata', seekPreview, { once: true });
-    return () => video.removeEventListener('loadedmetadata', seekPreview);
+    // A drag can outrun the decoder. Always apply the latest target after a
+    // pending seek completes instead of dropping the final pointer position.
+    video.addEventListener('seeked', seekPreview);
+    video.addEventListener('loadedmetadata', seekPreview);
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) seekPreview();
+    return () => { video.removeEventListener('loadedmetadata', seekPreview); video.removeEventListener('seeked', seekPreview); };
   }, [previewClip, previewSlot, scrub]);
+
+  /* ------------------------- cutting ------------------------- */
+
+  const handleTrimChange = (slot: number, range: VideoTrimRange, previewTime: number) => {
+    if (isBusy) return;
+    setClips(prev => prev.map((clip, index) => index === slot && clip ? { ...clip, trimRange: range } : clip));
+    handleScrubChange(slot, previewTime / clips[slot]!.duration);
+  };
+
+  const handleRemoveSection = async (slot: number) => {
+    const clip = clips[slot];
+    if (!clip?.timeline || !clip.trimRange || isBusy) return;
+    setError(null); setTrimmingSlot(slot); setScrub(null); setFrameSavedSlot(null);
+    setStitchProgress({ phase: 'preparing', progress: 0 });
+    clearResult();
+    try {
+      await releasePreviewDecoder();
+      const { removeVideoSection } = await import('../../src/utils/videoTrim');
+      const { blob, duration, timeline } = await removeVideoSection(clip.file, clip.timeline, clip.trimRange,
+        progress => setStitchProgress({ phase: progress === 1 ? 'finalizing' : 'rendering', progress }));
+      const file = new File([blob], `${clip.name.replace(/\.[^.]+$/, '').replace(/-edited$/, '')}-edited.${stitchedFileExtension(blob)}`, { type: blob.type });
+      const strip = await extractFilmstrip(file, FRAME_COUNT);
+      const url = URL.createObjectURL(file);
+      clipUrlsRef.current.add(url);
+      if (clip.beforeCut) { URL.revokeObjectURL(clip.beforeCut.url); clipUrlsRef.current.delete(clip.beforeCut.url); }
+      setClips(prev => prev.map((item, index) => index === slot ? {
+        file, url, duration, frames: strip.frames, name: file.name, timeline,
+        trimRange: initialTrimRange(timeline), trimOpen: true, beforeCut: { ...clip, beforeCut: undefined },
+      } : item));
+      const resultUrl = URL.createObjectURL(blob);
+      resultUrlRef.current = resultUrl;
+      setResult({ blob, url: resultUrl, duration, kind: 'trimmed' });
+      setPreviewSlot(slot);
+      setScrubFractions(prev => slot === 0 ? [0, prev[1]] : [prev[0], 0]);
+    } catch (cutError) {
+      setError(`Could not remove the section. ${cutError instanceof Error ? cutError.message : 'Please try again.'}`);
+    } finally { setTrimmingSlot(null); setStitchProgress(null); }
+  };
+
+  const undoCut = (slot: number) => {
+    const clip = clips[slot];
+    if (!clip?.beforeCut || isBusy) return;
+    URL.revokeObjectURL(clip.url); clipUrlsRef.current.delete(clip.url);
+    setClips(prev => prev.map((item, index) => index === slot ? clip.beforeCut! : item));
+    clearResult(); setPreviewSlot(slot); setScrub(null); setError(null);
+    setScrubFractions(prev => slot === 0 ? [0, prev[1]] : [prev[0], 0]);
+  };
 
   /* ------------------------- stitching ------------------------- */
 
   const handleStitch = useCallback(async () => {
     const [first, second] = clips;
-    if (!first || !second) return;
+    if (!first || !second || isBusy) return;
 
     setError(null);
     setIsStitching(true);
@@ -304,11 +368,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
       setIsStitching(false);
       setStitchProgress(null);
     }
-  }, [clips, clearResult, releasePreviewDecoder]);
+  }, [clips, clearResult, isBusy, releasePreviewDecoder]);
 
   const handleStripAudio = useCallback(async (slot: number) => {
     const clip = clips[slot];
-    if (!clip || isRendering) return;
+    if (!clip || isBusy) return;
 
     setError(null);
     setStrippingAudioSlot(slot);
@@ -330,13 +394,13 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
       setStrippingAudioSlot(null);
       setStitchProgress(null);
     }
-  }, [clips, clearResult, isRendering, releasePreviewDecoder]);
+  }, [clips, clearResult, isBusy, releasePreviewDecoder]);
 
   const handleDownload = useCallback(() => {
     if (!result) return;
     const link = document.createElement('a');
     link.href = result.url;
-    const prefix = result.kind === 'audio-removed' ? 'veilpix-no-audio' : 'veilpix-stitched';
+    const prefix = result.kind === 'audio-removed' ? 'veilpix-no-audio' : result.kind === 'trimmed' ? 'veilpix-edited' : 'veilpix-stitched';
     link.download = `${prefix}-${Date.now()}.${stitchedFileExtension(result.blob)}`;
     document.body.appendChild(link);
     link.click();
@@ -352,11 +416,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
         videoUrl: result.url,
         videoFile: new File(
           [result.blob],
-          `${result.kind === 'audio-removed' ? 'video-no-audio' : 'stitched-video'}-${Date.now()}.${extension}`,
+          `${result.kind === 'audio-removed' ? 'video-no-audio' : result.kind === 'trimmed' ? 'edited-video' : 'stitched-video'}-${Date.now()}.${extension}`,
           { type: result.blob.type || `video/${extension}` },
         ),
-        prompt: result.kind === 'audio-removed' ? 'Audio removed' : 'Stitched video',
-        videoDuration: Math.round(result.duration),
+        prompt: result.kind === 'audio-removed' ? 'Audio removed' : result.kind === 'trimmed' ? 'Edited video' : 'Stitched video',
+        videoDuration: result.duration,
       });
       if (!savedSuccessfully) throw new Error('Album save failed');
       setSaved(true);
@@ -370,7 +434,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const handleExtractFrame = useCallback(async (slot: number, kind: 'current' | 'last') => {
     const clip = clips[slot];
-    if (!clip || extractingFrame || isRendering) return;
+    if (!clip || isBusy) return;
 
     const selectedFraction = scrubFractions[slot] ?? 0;
     setError(null);
@@ -390,7 +454,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     } finally {
       setExtractingFrame(null);
     }
-  }, [clips, extractingFrame, isRendering, onSaved, scrubFractions]);
+  }, [clips, isBusy, onSaved, scrubFractions]);
 
   /* ------------------------- render ------------------------- */
 
@@ -415,6 +479,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
               <span className="text-[11px] font-medium text-gray-400">{formatTimecode(clip.duration)}</span>
               <button
                 type="button"
+                disabled={isBusy}
                 onClick={() => removeClip(slot)}
                 aria-label={`Remove clip ${slot + 1}`}
                 className="edge glass-chip flex h-6 w-6 items-center justify-center rounded-full text-gray-400 hover:text-white"
@@ -433,7 +498,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
             dragOverSlot === slot ? 'bg-accent-300/10 ring-1 ring-accent-300/40' : 'bg-white/[0.03]'
           }`}
         >
-          {clip ? (
+          {clip?.trimOpen && clip.timeline && clip.trimRange ? (
+            <VideoTrimSelection slot={slot} frames={clip.frames} timeline={clip.timeline} range={clip.trimRange}
+              disabled={isBusy} onChange={(range, time) => handleTrimChange(slot, range, time)} />
+          ) : clip ? (
             /* Film roll */
             <div
               className="relative flex h-18 cursor-crosshair touch-none select-none"
@@ -468,7 +536,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
             <button
               type="button"
               onClick={() => fileInputRefs[slot].current?.click()}
-              disabled={isLoading}
+              disabled={isBusy}
               className="flex h-18 w-full flex-col items-center justify-center gap-1 text-gray-500 transition hover:text-gray-300"
             >
               {isLoading ? (
@@ -494,6 +562,18 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
 
         {clip && (
           <div className="flex flex-col gap-2 px-1 pt-1">
+            {clip.trimOpen && clip.timeline && clip.trimRange && <div className="flex flex-col gap-2">
+              <button type="button" onClick={() => handleRemoveSection(slot)}
+                disabled={isBusy || (clip.trimRange.start === 0 && clip.trimRange.end === clip.timeline.boundaries.length - 1)}
+                className="btn-porcelain edge-strong min-h-10 rounded-full px-4 text-[12px] font-semibold disabled:opacity-40">
+                Remove highlighted section
+              </button>
+              <p className="text-[10px] text-gray-500" role="status">
+                {clip.trimRange.start === 0 && clip.trimRange.end === clip.timeline.boundaries.length - 1
+                  ? 'Keep at least one frame in the video.'
+                  : `Remaining: ${preciseTimecode(clip.timeline.boundaries.at(-1)! - clip.timeline.boundaries[0] - (clip.timeline.boundaries[clip.trimRange.end] - clip.timeline.boundaries[clip.trimRange.start]))} · surrounding parts join together.`}
+              </p>
+            </div>}
             <div className="flex items-center gap-2">
               <input
                 type="range"
@@ -501,6 +581,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
                 max="1000"
                 step="1"
                 value={Math.round(selectedFraction * 1000)}
+                disabled={isBusy}
                 onChange={(event) => handleScrubChange(slot, Number(event.target.value) / 1000)}
                 aria-label={`Choose a frame from clip ${slot + 1}`}
                 className="h-1.5 min-w-0 flex-1 cursor-pointer accent-[#e04f67]"
@@ -510,10 +591,20 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
+              <button type="button" disabled={isBusy} aria-expanded={Boolean(clip.trimOpen)}
+                onClick={() => {
+                  if (!clip.timeline) { setError('Frame timing could not be read for this file. Try an MP4, MOV, or WebM video.'); return; }
+                  setClips(prev => prev.map((item, index) => index === slot && item ? { ...item, trimOpen: !item.trimOpen } : item));
+                  handleScrubChange(slot, selectedFraction);
+                }}
+                className="edge glass-chip h-8 rounded-full px-3 text-[11px] font-semibold text-gray-200 disabled:opacity-45">
+                {clip.trimOpen ? 'Hide cut controls' : 'Cut section'}
+              </button>
+              {clip.beforeCut && <button type="button" disabled={isBusy} onClick={() => undoCut(slot)} className="edge glass-chip h-8 rounded-full px-3 text-[11px] font-semibold text-gray-200 disabled:opacity-45">Undo last cut</button>}
               <button
                 type="button"
                 onClick={() => handleStripAudio(slot)}
-                disabled={Boolean(extractingFrame) || isRendering}
+                disabled={isBusy}
                 className="edge glass-chip flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold text-gray-200 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {isStrippingCurrent && <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" aria-hidden="true" />}
@@ -522,7 +613,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
               <button
                 type="button"
                 onClick={() => handleExtractFrame(slot, 'current')}
-                disabled={Boolean(extractingFrame) || isRendering}
+                disabled={isBusy}
                 className="edge glass-chip flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold text-gray-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {isExtractingCurrent && <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" aria-hidden="true" />}
@@ -531,7 +622,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
               <button
                 type="button"
                 onClick={() => handleExtractFrame(slot, 'last')}
-                disabled={Boolean(extractingFrame) || isRendering}
+                disabled={isBusy}
                 className="edge glass-chip flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold text-gray-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {isExtractingLast && <span className="h-3 w-3 animate-spin rounded-full border border-white/30 border-t-white" aria-hidden="true" />}
@@ -547,6 +638,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
         <input
           ref={fileInputRefs[slot]}
           type="file"
+          disabled={isBusy}
           accept="video/*"
           className="hidden"
           onChange={(event) => {
@@ -572,7 +664,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
         <button
           type="button"
           onClick={onClose}
-          disabled={isRendering}
+          disabled={isBusy}
           className="edge glass-chip flex h-9 items-center gap-1.5 rounded-full px-4 text-xs font-medium text-gray-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           <XIcon className="h-3 w-3" />
@@ -594,7 +686,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
               className="max-h-[52vh] w-auto max-w-full"
             />
             <span className="absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[10px] font-semibold text-gray-200 backdrop-blur-sm">
-              {result.kind === 'audio-removed' ? 'Audio removed' : 'Stitched result'}
+              {result.kind === 'audio-removed' ? 'Audio removed' : result.kind === 'trimmed' ? 'Section removed · select another section below to cut again' : 'Stitched result'}
             </span>
           </>
         ) : !isRendering && previewClip ? (
@@ -614,7 +706,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
           <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
             <p className="text-base font-medium text-gray-300">Edit video privately in your browser</p>
             <p className="max-w-md text-[13px] leading-relaxed text-gray-500">
-              Add one video to remove its audio, or add two to stitch them together.
+              Add a video to cut out sections or remove its audio, or add two to stitch them together.
               Drag from your Album on the right or choose a file from this device.
             </p>
           </div>
@@ -631,7 +723,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
                   : strippingAudioSlot !== null ? 'Preparing video…' : 'Preparing clips…'}
             </p>
             <p className="text-[11px] text-gray-500">
-              {strippingAudioSlot !== null
+              {trimmingSlot !== null ? 'Removing the selected frames and joining the remaining video and audio — keep this tab open.' : strippingAudioSlot !== null
                 ? 'Removing audio plays the video through once — keep this tab open.'
                 : 'Rendering plays both clips through once — keep this tab open.'}
             </p>
@@ -657,7 +749,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
           <button
             type="button"
             onClick={swapClips}
-            disabled={clipCount === 0 || isRendering}
+            disabled={clipCount === 0 || isBusy}
             title="Swap clip order"
             className="edge glass-chip mx-auto flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-full text-gray-400 transition hover:text-white disabled:opacity-40 sm:mb-4.5 sm:self-end"
           >
@@ -688,7 +780,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
                 <button
                   type="button"
                   onClick={handleSaveToGallery}
-                  disabled={isSaving || saved}
+                  disabled={isBusy || saved}
                   className="edge glass-chip flex h-11 items-center gap-2 rounded-full px-5 text-[13px] font-semibold text-gray-200 hover:text-white disabled:opacity-60"
                 >
                   {saved ? 'Saved ✓' : isSaving ? 'Saving…' : 'Save to Album'}
@@ -698,7 +790,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
             <button
               type="button"
               onClick={handleStitch}
-              disabled={clipCount < 2 || isRendering}
+              disabled={clipCount < 2 || isBusy}
               className="btn-porcelain edge-strong flex h-11 items-center justify-center gap-2 rounded-full px-6 text-[15px] font-semibold"
             >
               {isStitching ? (

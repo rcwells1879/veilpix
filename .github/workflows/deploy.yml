@@ -16,6 +16,7 @@ on:
       - 'tsconfig.json'
       - 'scripts/check-api-client.mjs'
       - 'scripts/check-wan3-reference-video.mjs'
+      - 'scripts/check-video-trim.mjs'
       - 'scripts/fixtures/**'
       - 'package.json'
       - 'package-lock.json'
@@ -47,6 +48,9 @@ jobs:
 
     - name: Test WAN reference video preparation
       run: npm run test:wan3-references
+
+    - name: Test precise video cut boundaries
+      run: npm run test:video-trim
 
     - name: Build project
       run: npm run build
