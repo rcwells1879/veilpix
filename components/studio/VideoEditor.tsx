@@ -64,6 +64,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   const [isStitching, setIsStitching] = useState(false);
   const [strippingAudioSlot, setStrippingAudioSlot] = useState<number | null>(null);
   const [trimmingSlot, setTrimmingSlot] = useState<number | null>(null);
+  const [preparingCutSlot, setPreparingCutSlot] = useState<number | null>(null);
   const [stitchProgress, setStitchProgress] = useState<StitchProgress | null>(null);
   const [result, setResult] = useState<EditorResult | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -78,7 +79,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const clipCount = clips.filter(Boolean).length;
   const isRendering = isStitching || strippingAudioSlot !== null || trimmingSlot !== null;
-  const isBusy = isRendering || loadingSlot !== null || Boolean(extractingFrame) || isSaving;
+  const isBusy = isRendering || loadingSlot !== null || preparingCutSlot !== null || Boolean(extractingFrame) || isSaving;
 
   useEffect(() => {
     onRenderingChange?.(isBusy);
@@ -117,10 +118,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
     setFrameSavedSlot(null);
     setLoadingSlot(slot);
     try {
-      const [strip, timeline] = await Promise.all([
-        extractFilmstrip(file, FRAME_COUNT),
-        import('../../src/utils/videoTrim').then(module => module.readVideoTimeline(file)).catch(() => undefined),
-      ]);
+      // Finish and release the thumbnail decoder before reading the file's
+      // frame index. Concurrent reads of an Album blob put pressure on iOS.
+      const strip = await extractFilmstrip(file, FRAME_COUNT);
+      const timeline = await import('../../src/utils/videoTrim')
+        .then(module => module.readVideoTimeline(file)).catch(() => undefined);
       const url = URL.createObjectURL(file);
       clipUrlsRef.current.add(url);
       setClips((prev) => {
@@ -268,11 +270,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   const isSourcePreviewVisible = !result || Boolean(scrub);
   useEffect(() => {
     const video = previewVideoRef.current;
-    if (video && previewClip && !isRendering && video.src !== previewClip.url) {
+    if (video && previewClip && !isRendering && preparingCutSlot === null && video.src !== previewClip.url) {
       video.src = previewClip.url;
       video.load();
     }
-  }, [previewClip, isSourcePreviewVisible, isRendering]);
+  }, [previewClip, isSourcePreviewVisible, isRendering, preparingCutSlot]);
 
   useEffect(() => {
     const video = previewVideoRef.current;
@@ -296,6 +298,35 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
   }, [previewClip, previewSlot, scrub]);
 
   /* ------------------------- cutting ------------------------- */
+
+  const handleToggleCut = async (slot: number) => {
+    const clip = clips[slot];
+    if (!clip || isBusy) return;
+    setError(null);
+    if (clip.timeline) {
+      setClips(prev => prev.map((item, index) => index === slot && item ? { ...item, trimOpen: !item.trimOpen } : item));
+      handleScrubChange(slot, scrubFractions[slot] ?? 0);
+      return;
+    }
+
+    // A failed preload is not a format verdict. Retry on demand, after freeing
+    // the preview decoder, and surface the actual failure if it persists.
+    setPreparingCutSlot(slot);
+    try {
+      await releasePreviewDecoder();
+      const { readVideoTimeline } = await import('../../src/utils/videoTrim');
+      const timeline = await readVideoTimeline(clip.file);
+      setClips(prev => prev.map((item, index) => index === slot && item ? {
+        ...item, timeline, trimRange: initialTrimRange(timeline), trimOpen: true,
+      } : item));
+      handleScrubChange(slot, 0);
+    } catch (timingError) {
+      const detail = timingError instanceof Error ? timingError.message : 'The browser could not read the video data.';
+      setError(/dynamically imported module|module script|loading chunk|importing a module/i.test(detail)
+        ? 'The cutting tools could not load. Refresh this page, reopen the video, and try again.'
+        : `Could not read frames for cutting: ${detail}`);
+    } finally { setPreparingCutSlot(null); }
+  };
 
   const handleTrimChange = (slot: number, range: VideoTrimRange, previewTime: number) => {
     if (isBusy) return;
@@ -460,7 +491,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
 
   const renderSlot = (slot: number) => {
     const clip = clips[slot];
-    const isLoading = loadingSlot === slot;
+    const isLoading = loadingSlot === slot || preparingCutSlot === slot;
     const selectedFraction = scrubFractions[slot] ?? 0;
     const selectedTime = selectedFraction * (clip?.duration ?? 0);
     const isExtractingCurrent = extractingFrame?.slot === slot && extractingFrame.kind === 'current';
@@ -592,13 +623,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <button type="button" disabled={isBusy} aria-expanded={Boolean(clip.trimOpen)}
-                onClick={() => {
-                  if (!clip.timeline) { setError('Frame timing could not be read for this file. Try an MP4, MOV, or WebM video.'); return; }
-                  setClips(prev => prev.map((item, index) => index === slot && item ? { ...item, trimOpen: !item.trimOpen } : item));
-                  handleScrubChange(slot, selectedFraction);
-                }}
+                onClick={() => handleToggleCut(slot)}
                 className="edge glass-chip h-8 rounded-full px-3 text-[11px] font-semibold text-gray-200 disabled:opacity-45">
-                {clip.trimOpen ? 'Hide cut controls' : 'Cut section'}
+                {preparingCutSlot === slot ? 'Reading frames…' : clip.trimOpen ? 'Hide cut controls' : 'Cut section'}
               </button>
               {clip.beforeCut && <button type="button" disabled={isBusy} onClick={() => undoCut(slot)} className="edge glass-chip h-8 rounded-full px-3 text-[11px] font-semibold text-gray-200 disabled:opacity-45">Undo last cut</button>}
               <button

@@ -21,7 +21,7 @@ async function readTrackTimeline(track: InputVideoTrack): Promise<VideoTimeline>
   const boundaries = [...new Set(frames.map(frame => frame.start))];
   const end = frames.at(-1)?.end;
   if (!boundaries.length || !Number.isFinite(end) || end! <= boundaries.at(-1)!) {
-    throw new Error('This video does not contain readable frame timing. Try an MP4, MOV, or WebM file.');
+    throw new Error('No complete video-frame timing was found in this file.');
   }
   boundaries.push(end!);
   return { boundaries };
